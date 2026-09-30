@@ -1,0 +1,45 @@
+{
+  "style": "Dark fantasy RPG game sound, immersive atmospheric texture, high quality 16bit",
+  "assets": [
+    {
+      "id": "bgm_dungeon",
+      "type": "bgm",
+      "path": "src/assets/audio/bgm_dungeon.mp3",
+      "prompt": "Slow eerie dungeon exploration ambience, deep drone, distant dripping water, low choir pads, no drums",
+      "loop": true,
+      "duration": 60
+    },
+    {
+      "id": "bgm_battle",
+      "type": "bgm",
+      "path": "src/assets/audio/bgm_battle.mp3",
+      "prompt": "Tense battle theme, heavy war drums, low brass and strings ostinato, driving rhythm, seamless loop",
+      "loop": true,
+      "duration": 60
+    },
+    {
+      "id": "se_slash",
+      "type": "se",
+      "path": "src/assets/audio/se_slash.wav",
+      "prompt": "Sharp sword slash whoosh with metallic impact, single hit",
+      "loop": false,
+      "duration": 1
+    },
+    {
+      "id": "se_dragon_roar",
+      "type": "se",
+      "path": "src/assets/audio/se_dragon_roar.wav",
+      "prompt": "Massive dragon roar, deep growl with reverberating echo, single roar",
+      "loop": false,
+      "duration": 4
+    },
+    {
+      "id": "se_level_up",
+      "type": "se",
+      "path": "src/assets/audio/se_level_up.wav",
+      "prompt": "Magical level up jingle, ascending shimmering chime arpeggio, heroic and bright",
+      "loop": false,
+      "duration": 2
+    }
+  ]
+}

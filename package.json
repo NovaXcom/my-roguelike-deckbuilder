@@ -1,0 +1,23 @@
+{
+  "name": "my-roguelike-deckbuilder",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:local": "tsc --noEmit && vite build --mode singlefile",
+    "test": "vitest run",
+    "generate-audio": "python3 scripts/generate_audio.py",
+    "generate-audio:force": "python3 scripts/generate_audio.py --force"
+  },
+  "dependencies": {
+    "phaser": "^4.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^5.0.2"
+  }
+}
