@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Generate BGM / SE assets from scripts/audio-manifest.json via a text-to-audio API.
+"""Generate BGM / SE assets locally (no external API) from scripts/audio-manifest.json.
+
+Backends (--backend, default auto):
+  audiocraft    AudioGen (se) + MusicGen (bgm)          pip install audiocraft
+  transformers  MusicGen for both (Transformers has no AudioGen)
+                                                        pip install transformers scipy
 
 Usage:
-  python3 scripts/generate_audio.py [--force] [--only ID ...] [--provider elevenlabs|stability] [--dry-run]
+  python3 scripts/generate_audio.py [--force] [--only ID ...] [--backend B] [--device auto|cuda|cpu] [--dry-run]
 
-Environment:
-  ELEVENLABS_API_KEY  for --provider elevenlabs (default)
-  STABILITY_API_KEY   for --provider stability (Stable Audio 2)
-  AUDIO_PROVIDER      default provider override
-  ffmpeg (optional)   needed only when the API's output format differs from the manifest path extension.
+Requires PyTorch + a CUDA GPU (CPU only with --device cpu; very slow). ffmpeg is needed only for .mp3 output.
 """
 import argparse
 import importlib.util
@@ -18,32 +19,69 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import wave
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(ROOT, "scripts", "audio-manifest.json")
 
-# provider name -> max duration (seconds) the API accepts
-MAX_DURATION = {"elevenlabs": 22.0, "stability": 190.0}
+MAX_SECONDS = 30.0            # MusicGen / AudioGen context limit per generation
+LOOP_XFADE_SEC = 0.5
+MUSICGEN_ID = os.environ.get("MUSICGEN_MODEL", "facebook/musicgen-small")
+AUDIOGEN_ID = os.environ.get("AUDIOGEN_MODEL", "facebook/audiogen-medium")
 
 
-def check_dependencies():
-    """(1) Verify required libraries; print install guidance and return False if missing."""
-    missing = [m for m in ("requests",) if importlib.util.find_spec(m) is None]
+def has(mod):
+    return importlib.util.find_spec(mod) is not None
+
+
+def check_environment(args):
+    """Pre-flight check. Returns (ok, backend, device); prints install guidance on problems."""
+    ok = True
+    missing = [m for m in ("numpy", "torch") if not has(m)]
     if missing:
-        print(f"[ERROR] Missing Python packages: {', '.join(missing)}")
-        print(f"        Install with: {sys.executable} -m pip install {' '.join(missing)}")
-        return False
-    if shutil.which("ffmpeg") is None:
-        print("[WARN] ffmpeg not found. Only assets whose API output format already matches "
-              "the manifest extension can be saved (install ffmpeg for conversion).")
-    return True
+        print(f"[ERROR] Missing packages: {', '.join(missing)}")
+        print("        Install PyTorch (pick your CUDA build at https://pytorch.org/get-started/locally/):")
+        print(f"          {sys.executable} -m pip install torch numpy")
+        return False, None, None
+
+    backend = args.backend
+    if backend == "auto":
+        backend = "audiocraft" if has("audiocraft") else "transformers" if has("transformers") else None
+    if backend is None or (backend == "audiocraft" and not has("audiocraft")) \
+            or (backend == "transformers" and not has("transformers")):
+        print("[ERROR] Generation library not found. Install one of:")
+        print(f"          {sys.executable} -m pip install audiocraft            # AudioGen + MusicGen (best for SE)")
+        print(f"          {sys.executable} -m pip install transformers scipy    # MusicGen only")
+        return False, None, None
+    if backend == "transformers":
+        print("[INFO] transformers backend: SE are also generated with MusicGen (install audiocraft for AudioGen).")
+
+    import torch
+    cuda = torch.cuda.is_available()
+    device = args.device
+    if device == "auto":
+        device = "cuda" if cuda else None
+    if device == "cuda" and not cuda:
+        print("[ERROR] --device cuda requested but no CUDA GPU is visible to PyTorch.")
+        ok = False
+    elif device is None:
+        print("[ERROR] No CUDA GPU detected (torch.cuda.is_available() is False).")
+        print("        - Install a CUDA build of PyTorch and up-to-date NVIDIA drivers, or")
+        print("        - re-run with --device cpu (works, but a 30s clip can take many minutes).")
+        ok = False
+    if device == "cuda" and ok:
+        print(f"[INFO] GPU: {torch.cuda.get_device_name(0)}")
+    if device == "cpu":
+        print("[WARN] Running on CPU; this will be slow.")
+    if not shutil.which("ffmpeg"):
+        print("[WARN] ffmpeg not found: .mp3 outputs will fail (install ffmpeg, or use .wav paths).")
+    return ok, backend, device
 
 
 def load_manifest():
     with open(MANIFEST, encoding="utf-8") as f:
         data = json.load(f)
-    style = data.get("style", "")
-    assets = data["assets"]
+    style, assets = data.get("style", ""), data["assets"]
     for a in assets:
         for key in ("id", "type", "path", "prompt", "loop", "duration"):
             if key not in a:
@@ -62,79 +100,102 @@ def build_prompt(style, asset):
     return ", ".join(p for p in (style, kind, asset["prompt"], extra) if p)
 
 
-def sniff_format(data):
-    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
-        return "wav"
-    if data[:3] == b"ID3" or (len(data) > 1 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0):
-        return "mp3"
-    return None
+class Generator:
+    """Loads each model lazily, once. generate() -> (float32 mono numpy array, sample_rate)."""
+
+    def __init__(self, backend, device):
+        self.backend, self.device = backend, device
+        self.models = {}
+
+    def _audiocraft(self, kind):
+        if kind not in self.models:
+            from audiocraft.models import AudioGen, MusicGen
+            print(f"[LOAD] {'AudioGen ' + AUDIOGEN_ID if kind == 'se' else 'MusicGen ' + MUSICGEN_ID} ...")
+            m = AudioGen.get_pretrained(AUDIOGEN_ID, device=self.device) if kind == "se" \
+                else MusicGen.get_pretrained(MUSICGEN_ID, device=self.device)
+            self.models[kind] = m
+        return self.models[kind]
+
+    def _transformers(self):
+        if "mg" not in self.models:
+            from transformers import AutoProcessor, MusicgenForConditionalGeneration
+            print(f"[LOAD] MusicGen {MUSICGEN_ID} ...")
+            proc = AutoProcessor.from_pretrained(MUSICGEN_ID)
+            model = MusicgenForConditionalGeneration.from_pretrained(MUSICGEN_ID).to(self.device)
+            self.models["mg"] = (proc, model)
+        return self.models["mg"]
+
+    def generate(self, prompt, kind, seconds):
+        import torch
+        seconds = min(float(seconds), MAX_SECONDS)
+        with torch.no_grad():
+            if self.backend == "audiocraft":
+                m = self._audiocraft(kind)
+                m.set_generation_params(duration=seconds)
+                wav = m.generate([prompt])[0]                      # [channels, samples]
+                return wav.mean(dim=0).cpu().float().numpy(), int(m.sample_rate)
+            proc, model = self._transformers()
+            inputs = proc(text=[prompt], padding=True, return_tensors="pt").to(self.device)
+            frame_rate = model.config.audio_encoder.frame_rate
+            out = model.generate(**inputs, do_sample=True, guidance_scale=3.0,
+                                 max_new_tokens=int(seconds * frame_rate))
+            return out[0, 0].cpu().float().numpy(), int(model.config.audio_encoder.sampling_rate)
 
 
-class ApiError(Exception):
-    pass
+def postprocess(samples, sr, loop):
+    """Normalise; for loops crossfade the tail into the head so the seam is inaudible."""
+    import numpy as np
+    x = np.asarray(samples, dtype=np.float32)
+    if loop:
+        n = min(int(LOOP_XFADE_SEC * sr), len(x) // 4)
+        if n > 0:
+            t = np.linspace(0, np.pi / 2, n, dtype=np.float32)
+            head = x[:n] * np.sin(t) + x[-n:] * np.cos(t)
+            x = np.concatenate([head, x[n:-n]])
+    else:
+        n = min(int(0.01 * sr), len(x) // 10)   # tiny fade-out to avoid clicks
+        if n > 0:
+            x[-n:] *= np.linspace(1, 0, n, dtype=np.float32)
+    peak = float(np.abs(x).max()) or 1.0
+    return x * (0.89 / peak)
 
 
-def request_audio(provider, prompt, duration, loop, key):
-    """(2) POST to the generation API and return raw audio bytes."""
-    import requests
-    duration = min(float(duration), MAX_DURATION[provider])
-    try:
-        if provider == "elevenlabs":
-            r = requests.post(
-                "https://api.elevenlabs.io/v1/sound-generation",
-                headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/mpeg"},
-                json={"text": prompt, "duration_seconds": max(0.5, duration), "prompt_influence": 0.5,
-                      **({"loop": True} if loop else {})},
-                timeout=180)
-        else:
-            r = requests.post(
-                "https://api.stability.ai/v2beta/audio/stable-audio-2/text-to-audio",
-                headers={"authorization": f"Bearer {key}", "accept": "audio/*"},
-                files={"none": ""},
-                data={"prompt": prompt, "duration": int(round(duration)), "output_format": "mp3"},
-                timeout=300)
-    except requests.RequestException as e:
-        raise ApiError(f"network error: {e}")
-    if r.status_code != 200:
-        raise ApiError(f"HTTP {r.status_code}: {r.text[:200]}")
-    return r.content
+def write_wav(path, samples, sr):
+    import numpy as np
+    pcm = (np.clip(samples, -1, 1) * 32767).astype("<i2")
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(pcm.tobytes())
 
 
-def save_audio(data, out_path, duration):
-    """(3) Store bytes at out_path in the requested format, converting via ffmpeg when needed."""
-    want = out_path.rsplit(".", 1)[1].lower()
-    have = sniff_format(data)
-    if have is None:
-        raise ApiError("API response is not a recognised mp3/wav stream")
+def save_audio(samples, sr, out_path):
+    """Write .wav directly or .mp3 via ffmpeg."""
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    if have == want:
-        with open(out_path, "wb") as f:
-            f.write(data)
+    if out_path.lower().endswith(".wav"):
+        write_wav(out_path, samples, sr)
         return
-    if shutil.which("ffmpeg") is None:
-        raise ApiError(f"API returned {have} but {want} requested and ffmpeg is unavailable")
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("ffmpeg is required for .mp3 output (install it or change the manifest path to .wav)")
     with tempfile.TemporaryDirectory() as td:
-        src = os.path.join(td, f"in.{have}")
-        with open(src, "wb") as f:
-            f.write(data)
-        codec = ["-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le"] if want == "wav" else ["-b:a", "128k"]
-        res = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, *codec, out_path],
-                             capture_output=True, text=True)
-        if res.returncode != 0:
-            raise ApiError(f"ffmpeg failed: {res.stderr.strip()[:200]}")
+        tmp = os.path.join(td, "t.wav")
+        write_wav(tmp, samples, sr)
+        r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", tmp, "-ar", "44100",
+                            "-b:a", "128k", out_path], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"ffmpeg failed: {r.stderr.strip()[:200]}")
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--force", action="store_true", help="regenerate even if the file exists")
     ap.add_argument("--only", nargs="+", metavar="ID", help="only generate these asset ids")
-    ap.add_argument("--provider", choices=list(MAX_DURATION),
-                    default=os.environ.get("AUDIO_PROVIDER", "elevenlabs"))
-    ap.add_argument("--dry-run", action="store_true", help="show the plan and merged prompts, call no API")
+    ap.add_argument("--backend", choices=["auto", "audiocraft", "transformers"], default="auto")
+    ap.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
+    ap.add_argument("--dry-run", action="store_true", help="print plan and merged prompts; load no models")
     args = ap.parse_args(argv)
 
-    if not check_dependencies():
-        return 1
     style, assets = load_manifest()
     if args.only:
         unknown = set(args.only) - {a["id"] for a in assets}
@@ -143,7 +204,6 @@ def main(argv=None):
             return 1
         assets = [a for a in assets if a["id"] in args.only]
 
-    # (4) differential mode
     todo, skipped = [], 0
     for a in assets:
         out = os.path.join(ROOT, a["path"])
@@ -158,32 +218,28 @@ def main(argv=None):
 
     if args.dry_run:
         for a in todo:
-            print(f"[PLAN] {a['id']} ({a['type']}, {a['duration']}s, loop={a['loop']}) -> {a['path']}\n"
+            print(f"[PLAN] {a['id']} ({a['type']}, {min(a['duration'], MAX_SECONDS)}s, loop={a['loop']}) -> {a['path']}\n"
                   f"       {build_prompt(style, a)}")
         return 0
 
-    env_name = "ELEVENLABS_API_KEY" if args.provider == "elevenlabs" else "STABILITY_API_KEY"
-    key = os.environ.get(env_name)
-    if not key:
-        print(f"[INFO] {env_name} is not set; {len(todo)} asset(s) not generated.")
-        print(f"       export {env_name}=... and re-run. The game still runs using Web Audio synth fallback.")
-        return 0
+    ok, backend, device = check_environment(args)
+    if not ok:
+        print(f"[STOP] Environment not ready; {len(todo)} asset(s) not generated. "
+              "The game still runs with its Web Audio synth fallback.")
+        return 1
 
-    ok, failed = 0, []
+    gen, done, failed = Generator(backend, device), 0, []
     for a in todo:
-        print(f"[GEN ] {a['id']} via {args.provider} ...")
+        print(f"[GEN ] {a['id']} ({a['type']}, {min(a['duration'], MAX_SECONDS)}s) ...")
         try:
-            data = request_audio(args.provider, build_prompt(style, a), a["duration"], a["loop"], key)
-            save_audio(data, os.path.join(ROOT, a["path"]), a["duration"])
+            samples, sr = gen.generate(build_prompt(style, a), a["type"], a["duration"])
+            save_audio(postprocess(samples, sr, a["loop"]), sr, os.path.join(ROOT, a["path"]))
             print(f"[ OK ] {a['path']}")
-            ok += 1
-        except ApiError as e:
+            done += 1
+        except Exception as e:  # keep going: one failure should not lose the rest
             print(f"[FAIL] {a['id']}: {e}")
             failed.append(a["id"])
-            if "HTTP 401" in str(e) or "HTTP 403" in str(e):
-                print("[STOP] Authentication rejected; aborting remaining requests.")
-                break
-    print(f"Done: {ok} generated, {skipped} skipped, {len(failed)} failed.")
+    print(f"Done: {done} generated, {skipped} skipped, {len(failed)} failed.")
     return 1 if failed else 0
 
 

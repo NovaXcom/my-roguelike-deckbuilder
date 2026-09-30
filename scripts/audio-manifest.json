@@ -7,7 +7,7 @@
       "path": "src/assets/audio/bgm_dungeon.mp3",
       "prompt": "Slow eerie dungeon exploration ambience, deep drone, distant dripping water, low choir pads, no drums",
       "loop": true,
-      "duration": 60
+      "duration": 30
     },
     {
       "id": "bgm_battle",
@@ -15,7 +15,7 @@
       "path": "src/assets/audio/bgm_battle.mp3",
       "prompt": "Tense battle theme, heavy war drums, low brass and strings ostinato, driving rhythm, seamless loop",
       "loop": true,
-      "duration": 60
+      "duration": 30
     },
     {
       "id": "se_slash",
