@@ -1,0 +1,51 @@
+import Phaser from 'phaser';
+import { audio } from '../audio';
+import { openChest } from '../core/run';
+import { game } from '../game';
+import { drawBackground, txt } from '../ui/art';
+import { makeButton } from '../ui/widgets';
+import { H, W } from './TitleScene';
+
+/** 宝箱: 開けるとゴールド・魔導石・装備（レア度高め）が手に入る。 */
+export class ChestScene extends Phaser.Scene {
+  constructor() {
+    super('Chest');
+  }
+
+  create(): void {
+    const run = game.run;
+    if (!run) { this.scene.start('Town'); return; }
+    drawBackground(this, W, H);
+    txt(this, W / 2, 80, '宝箱を発見した!', 40, '#f6e3b4', { fontStyle: 'bold', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5);
+
+    const chest = this.add.container(W / 2, 360);
+    const body = this.add.graphics();
+    body.fillStyle(0x000000, 0.4).fillEllipse(0, 90, 300, 30);
+    body.fillStyle(0x7a4b22, 1).fillRoundedRect(-120, -20, 240, 110, 10);
+    body.fillStyle(0xf6c453, 1).fillRect(-125, 20, 250, 10).fillRoundedRect(-14, 6, 28, 40, 4);
+    body.lineStyle(4, 0x3d2510, 1).strokeRoundedRect(-120, -20, 240, 110, 10);
+    const lid = this.add.graphics().setPosition(0, -20);
+    lid.fillStyle(0x94592a, 1).fillRoundedRect(-120, -70, 240, 70, { tl: 40, tr: 40, bl: 6, br: 6 });
+    lid.fillStyle(0xf6c453, 1).fillRect(-125, -18, 250, 10);
+    lid.lineStyle(4, 0x3d2510, 1).strokeRoundedRect(-120, -70, 240, 70, { tl: 40, tr: 40, bl: 6, br: 6 });
+    chest.add([body, lid]);
+    this.tweens.add({ targets: chest, y: 366, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+
+    let opened = false;
+    const btn = makeButton(this, W / 2, 600, 260, 60, '開ける', () => {
+      if (opened) return;
+      opened = true;
+      btn.setEnabled(false);
+      audio.play('skill');
+      const reward = openChest(run);
+      this.tweens.add({ targets: lid, angle: -55, y: -50, duration: 300, ease: 'Back.out' });
+      for (let i = 0; i < 18; i++) {
+        const s = this.add.circle(W / 2, 330, Phaser.Math.Between(3, 6), 0xffe066).setDepth(10);
+        const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+        const d = Phaser.Math.Between(80, 220);
+        this.tweens.add({ targets: s, x: W / 2 + Math.cos(a) * d, y: 330 + Math.sin(a) * d, alpha: 0, duration: 700, onComplete: () => s.destroy() });
+      }
+      this.time.delayedCall(900, () => this.scene.start('Loot', { title: '宝箱の中身', reward, returnTo: { scene: 'Map' } }));
+    }, { size: 26 });
+  }
+}

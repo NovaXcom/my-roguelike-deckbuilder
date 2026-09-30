@@ -1,17 +1,21 @@
 import Phaser from 'phaser';
 import { audio } from '../audio';
 import {
-  BattleEvent, BattleState, allActed, canUse, createBattle, currentIntent, endPlayerTurn, previewSkill,
-  resolveTarget, startPlayerTurn, useSkill,
+  BattleEvent, BattleState, allActed, canUse, currentIntent, endPlayerTurn, intentValue, previewSkill,
+  resolveTarget, usePotion, useSkill,
 } from '../core/battle';
+import type { MapNode } from '../core/map';
+import { finishBattle, startBattle } from '../core/run';
+import { game } from '../game';
 import { ELEMENT_COLOR, ELEMENT_LABEL, SKILLS } from '../core/data';
 import type { Element, SkillDef } from '../core/types';
-import { COLORS, drawBackground, drawHero, drawShield, drawSlime, drawSword, txt } from '../ui/art';
+import { COLORS, drawBackground, drawHero, drawShield, drawEnemy, drawSword, txt } from '../ui/art';
+import { makeButton, type Button } from '../ui/widgets';
 import { H, W } from './TitleScene';
 
 const HERO_POS = [{ x: 430, y: 400 }, { x: 200, y: 400 }]; // [前衛, 後衛]
 const ENEMY = { x: 990, y: 350 };
-const BTN_W = 140;
+const PANEL_W = 4 * 140 + 3 * 8; // パネル幅は固定。スキル数に応じてボタン幅を分割
 const BTN_H = 168;
 const BTN_Y = 612;
 const PANEL_X = [30, 666];
@@ -29,6 +33,7 @@ interface Disp {
 interface SkillBtn {
   member: number;
   skill: SkillDef;
+  w: number;
   c: Phaser.GameObjects.Container;
   bg: Phaser.GameObjects.Graphics;
   status: Phaser.GameObjects.Text;
@@ -41,6 +46,9 @@ const EVENT_MS: Record<BattleEvent['type'], number> = {
 
 export class BattleScene extends Phaser.Scene {
   private state!: BattleState;
+  private node!: MapNode;
+  private potionBtn!: Button;
+  private resultShown = false;
   private disp!: Disp;
   private busy = false;
   private buttons: SkillBtn[] = [];
@@ -75,11 +83,14 @@ export class BattleScene extends Phaser.Scene {
     this.hpTexts = [];
     this.guardTexts = [];
     this.tags = [];
+    this.resultShown = false;
   }
 
   create(): void {
-    this.state = createBattle();
-    startPlayerTurn(this.state);
+    const run = game.run;
+    if (!run || run.current === null) { this.scene.start('Town'); return; }
+    this.node = run.map.nodes[run.current];
+    this.state = startBattle(run, this.node);
     this.syncDisp();
     drawBackground(this, W, H);
     const s = this.state;
@@ -98,7 +109,7 @@ export class BattleScene extends Phaser.Scene {
 
     // --- 敵 ---
     this.enemyGfx = this.add.graphics().setPosition(ENEMY.x, ENEMY.y);
-    drawSlime(this.enemyGfx, s.enemy.def.color);
+    drawEnemy(this.enemyGfx, s.enemy.def.id, s.enemy.def.color);
     this.tweens.add({ targets: this.enemyGfx, scaleY: 0.94, scaleX: 1.04, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     this.stars = this.add.container(ENEMY.x, ENEMY.y - 130);
     for (let k = 0; k < 3; k++) {
@@ -127,25 +138,28 @@ export class BattleScene extends Phaser.Scene {
     s.party.forEach((m, mi) => {
       const px = PANEL_X[mi];
       const line = this.add.graphics();
-      line.lineStyle(2, m.def.color, 0.8).lineBetween(px, 500, px + 4 * BTN_W + 3 * 8, 500);
-      this.tags.push(txt(this, px + 4 * BTN_W + 24, 488, '', 14, '#9fb0c8').setOrigin(1, 0.5));
+      line.lineStyle(2, m.def.color, 0.8).lineBetween(px, 500, px + PANEL_W, 500);
+      this.tags.push(txt(this, px + PANEL_W + 20, 488, '', 14, '#9fb0c8').setOrigin(1, 0.5));
       txt(this, px, 486, `${m.def.name}（${m.def.position}）`, 17, hex(m.def.color), { fontStyle: 'bold' }).setOrigin(0, 0.5);
-      m.def.skills.forEach((sid, si) => this.buildButton(mi, SKILLS[sid], px + BTN_W / 2 + si * (BTN_W + 8)));
+      const gap = 6;
+      const bw = (PANEL_W - gap * (m.skills.length - 1)) / m.skills.length;
+      m.skills.forEach((sid, si) => this.buildButton(mi, SKILLS[sid], px + bw / 2 + si * (bw + gap), bw));
     });
 
     // --- ターン終了 ---
     this.endBtnBg = this.add.graphics();
-    this.endBtn = this.add.container(W / 2 + 20, 420, [
+    this.endBtn = this.add.container(W / 2 + 20, 380, [
       this.endBtnBg, txt(this, 0, 0, 'ターン終了', 22, '#fff', { fontStyle: 'bold' }).setOrigin(0.5),
     ]);
     this.endBtn.setSize(170, 54).setInteractive({ useHandCursor: true });
     this.endBtn.on('pointerdown', () => this.endTurn());
     this.endBtn.on('pointerover', () => this.paintEnd(true));
     this.endBtn.on('pointerout', () => this.paintEnd(false));
-    txt(this, W / 2 + 20, 458, 'Space', 12, '#7b8798').setOrigin(0.5);
+    txt(this, W / 2 + 20, 414, 'Space', 12, '#7b8798').setOrigin(0.5);
+    this.potionBtn = makeButton(this, W / 2 + 20, 452, 170, 40, '', () => this.drinkPotion(), { size: 15, color: 0x6fcf97 });
 
-    const back = txt(this, 20, 14, '← タイトルへ', 14, '#7b8798').setInteractive({ useHandCursor: true });
-    back.on('pointerdown', () => this.scene.start('Title'));
+    const back = txt(this, 20, 14, '← 挑戦を諦める', 14, '#7b8798').setInteractive({ useHandCursor: true });
+    back.on('pointerdown', () => { run.finished = 'defeat'; this.scene.start('RunEnd'); });
     const mute = txt(this, W - 20, 14, 'M: ミュート切替', 14, '#7b8798').setOrigin(1, 0);
     this.input.keyboard?.on('keydown-M', () => mute.setText(audio.toggleMute() ? 'M: ミュート中' : 'M: ミュート切替'));
     this.input.keyboard?.on('keydown-SPACE', () => this.endTurn());
@@ -159,22 +173,22 @@ export class BattleScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------ 構築
-  private buildButton(member: number, skill: SkillDef, x: number): void {
+  private buildButton(member: number, skill: SkillDef, x: number, BTN_W: number): void {
     const bg = this.add.graphics();
     const col = skill.element !== 'none' ? ELEMENT_COLOR[skill.element] : skill.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;
-    const title = txt(this, 0, -BTN_H / 2 + 20, skill.name, skill.name.length > 8 ? 13 : 16, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
+    const title = txt(this, 0, -BTN_H / 2 + 20, skill.name, Math.min(16, Math.floor((BTN_W - 8) / Math.max(4, skill.name.length))), '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
     const chip = this.add.graphics();
-    chip.fillStyle(col, 1).fillRoundedRect(-BTN_W / 2 + 8, -BTN_H / 2 + 40, 44, 18, 9);
-    const chipText = txt(this, -BTN_W / 2 + 30, -BTN_H / 2 + 49,
+    chip.fillStyle(col, 1).fillRoundedRect(-BTN_W / 2 + 6, -BTN_H / 2 + 40, 44, 18, 9);
+    const chipText = txt(this, -BTN_W / 2 + 28, -BTN_H / 2 + 49,
       skill.kind === 'support' ? '補助' : skill.kind === 'physical' ? '物理' : ELEMENT_LABEL[skill.element] + '魔法', 11, '#111', { fontStyle: 'bold' }).setOrigin(0.5);
-    const cd = txt(this, BTN_W / 2 - 8, -BTN_H / 2 + 49, `CD ${skill.cooldown}`, 12, '#9fb0c8').setOrigin(1, 0.5);
-    const body = txt(this, 0, -BTN_H / 2 + 68, skill.text, 12, '#e8dfd3', {
-      align: 'left', wordWrap: { width: BTN_W - 18, useAdvancedWrap: true },
+    const cd = txt(this, BTN_W / 2 - 6, -BTN_H / 2 + 49, `CD ${skill.cooldown}`, 11, '#9fb0c8').setOrigin(1, 0.5);
+    const body = txt(this, 0, -BTN_H / 2 + 68, skill.text, BTN_W < 130 ? 11 : 12, '#e8dfd3', {
+      align: 'left', wordWrap: { width: BTN_W - 14, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
-    const status = txt(this, 0, BTN_H / 2 - 22, '', 14, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
+    const status = txt(this, 0, BTN_H / 2 - 20, '', 13, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
     const c = this.add.container(x, BTN_Y, [bg, title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
     c.setInteractive({ useHandCursor: true });
-    const btn: SkillBtn = { member, skill, c, bg, status };
+    const btn: SkillBtn = { member, skill, c, bg, status, w: BTN_W };
     this.buttons.push(btn);
     c.on('pointerover', () => { this.paintBtn(btn, true); this.showPreview(btn); });
     c.on('pointerout', () => { this.paintBtn(btn, false); this.clearPreview(); });
@@ -197,6 +211,7 @@ export class BattleScene extends Phaser.Scene {
     const cdLeft = m.cooldowns[b.skill.id];
     const col = m.def.color;
     const g = b.bg;
+    const BTN_W = b.w;
     g.clear();
     g.fillStyle(0x000000, 0.4).fillRoundedRect(-BTN_W / 2 + 3, -BTN_H / 2 + 4, BTN_W, BTN_H, 10);
     g.fillStyle(ok ? (hover ? 0x3b4657 : 0x2d3748) : 0x1f2126, 1).fillRoundedRect(-BTN_W / 2, -BTN_H / 2, BTN_W, BTN_H, 10);
@@ -225,6 +240,25 @@ export class BattleScene extends Phaser.Scene {
         .setColor(!alive(m) ? '#ff7a7a' : m.acted ? '#7b8798' : '#7be495');
     });
     this.paintEnd(false);
+    this.refreshPotion();
+  }
+
+  private refreshPotion(): void {
+    const run = game.run!;
+    const s = this.state;
+    this.potionBtn.setLabel(`ポーション ×${run.potions}`);
+    this.potionBtn.setEnabled(!this.busy && s.phase === 'player' && run.potions > 0 && s.party.some((m) => alive(m) && m.hp < m.maxHp));
+  }
+
+  private drinkPotion(): void {
+    const run = game.run!;
+    if (this.busy || run.potions <= 0) return;
+    const ev = usePotion(this.state);
+    if (!ev) return;
+    run.potions -= 1;
+    this.busy = true;
+    this.refreshButtons();
+    this.playSeq(ev, () => { this.refreshAll(); });
   }
 
   private refreshIntent(): void {
@@ -234,7 +268,8 @@ export class BattleScene extends Phaser.Scene {
     if (s.phase === 'won') { this.intentBox.setVisible(false); return; }
     this.intentBox.setVisible(true);
     const it = currentIntent(s);
-    const target = s.party[resolveTarget(s, it)].def.name;
+    const ti = resolveTarget(s, it);
+    const target = ti === -1 ? '全体' : s.party[ti].def.name;
     g.fillStyle(0x000000, 0.55).fillCircle(0, 0, 34);
     if (s.enemy.broken) {
       g.lineStyle(3, 0xffe066, 1).strokeCircle(0, 0, 34);
@@ -244,7 +279,7 @@ export class BattleScene extends Phaser.Scene {
     }
     g.lineStyle(3, 0xff5c5c, 1).strokeCircle(0, 0, 34);
     drawSword(g, 0, 0, 52, 0xff8a8a);
-    this.intentValue.setText(String(it.value)).setColor('#ff9a9a').setFontSize(24);
+    this.intentValue.setText(String(intentValue(s, it))).setColor('#ff9a9a').setFontSize(24);
     this.intentLabel.setText(`${it.name} → ${target}`);
   }
 
@@ -277,7 +312,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshAll(): void {
-    this.turnText.setText(`ターン ${this.state.turn}`);
+    this.turnText.setText(`第${this.node.row + 1}階層 ─ ターン ${this.state.turn}`);
     this.drawBars();
     this.refreshButtons();
     this.refreshIntent();
@@ -289,7 +324,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.busy || !canUse(s, b.member, b.skill.id)) return;
     const sk = b.skill;
     if (!sk.damage && !sk.breakPower) return;
-    const p = previewSkill(s, sk);
+    const p = previewSkill(s, sk, b.member);
     const from = HERO_POS[b.member];
     this.drawTargetLine(from.x, from.y - 150, ENEMY.x, ENEMY.y - 100, p.chain);
     const lines: string[] = [];
@@ -565,24 +600,27 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private showResult(won: boolean): void {
+    if (this.resultShown) return;
+    this.resultShown = true;
     this.busy = true;
+    const run = game.run!;
+    const reward = finishBattle(run, this.state, this.node); // HP持ち越し・報酬付与・ラン終了判定
     audio.play(won ? 'win' : 'lose');
     this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.65).setDepth(6000).setInteractive();
-    const title = txt(this, W / 2, 240, won ? '勝利!' : '全滅…', 84, won ? '#f6e3b4' : '#ff7a7a', {
+    const boss = this.node.type === 'boss';
+    const title = txt(this, W / 2, 240, won ? (boss ? 'ボス撃破!' : '勝利!') : '全滅…', 84, won ? '#f6e3b4' : '#ff7a7a', {
       fontStyle: 'bold', stroke: '#000', strokeThickness: 10,
     }).setOrigin(0.5).setDepth(6001).setScale(0.3);
     this.tweens.add({ targets: title, scale: 1, duration: 400, ease: 'Back.out' });
-    const mkBtn = (y: number, label: string, cb: () => void) => {
-      const c = this.add.container(W / 2, y).setDepth(6001);
-      const g = this.add.graphics();
-      g.fillStyle(0x2d3748, 1).fillRoundedRect(-140, -28, 280, 56, 12);
-      g.lineStyle(3, COLORS.energy, 1).strokeRoundedRect(-140, -28, 280, 56, 12);
-      c.add([g, txt(this, 0, 0, label, 24, '#fff', { fontStyle: 'bold' }).setOrigin(0.5)]);
-      c.setSize(280, 56).setInteractive({ useHandCursor: true });
-      c.on('pointerdown', () => { audio.play('click'); cb(); });
+    if (won) {
+      txt(this, W / 2, 340, `+${reward.gold} G　　+${reward.stones + (run.finished === 'victory' ? 20 : 0)} 魔導石`, 26, '#ffe066', { fontStyle: 'bold' })
+        .setOrigin(0.5).setDepth(6001);
+    }
+    const next = () => {
+      if (run.finished) this.scene.start('RunEnd');
+      else this.scene.start('Loot', { title: '戦利品', reward, returnTo: { scene: 'Map' } });
     };
-    mkBtn(380, 'もう一度戦う', () => this.scene.restart());
-    mkBtn(460, 'パーティ確認へ', () => this.scene.start('Party'));
+    makeButton(this, W / 2, 440, 300, 60, won ? '戦利品へ' : '結果へ', () => { audio.play('click'); next(); }, { size: 26 }).c.setDepth(6001);
   }
 }
 

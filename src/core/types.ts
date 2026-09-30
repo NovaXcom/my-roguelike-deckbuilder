@@ -32,8 +32,8 @@ export interface MemberDef {
   skills: string[];
 }
 
-/** front=前衛狙い / back=後衛狙い（前衛がヘイトを取っていると前衛に逸れる） */
-export type EnemyTarget = 'front' | 'back';
+/** front=前衛狙い / back=後衛狙い（前衛がヘイトを取っていると前衛に逸れる） / all=全体攻撃 */
+export type EnemyTarget = 'front' | 'back' | 'all';
 
 export interface EnemyIntent {
   name: string;
@@ -60,6 +60,14 @@ export interface MemberState {
   taunt: boolean;
   acted: boolean;
   cooldowns: Record<string, number>;
+  /** 使用可能なスキルID（基本スキル + 装備スキル） */
+  skills: string[];
+  /** 装備・パッシブによる補正 */
+  power: number;
+  guardBonus: number;
+  breakBonus: number;
+  /** 戦闘開始ターンのみ得るガード */
+  openingGuard: number;
 }
 
 export interface EnemyState {
@@ -70,4 +78,6 @@ export interface EnemyState {
   maxShield: number;
   broken: boolean;
   patternIndex: number;
+  /** 攻撃力倍率（階層による強化） */
+  atkMult: number;
 }

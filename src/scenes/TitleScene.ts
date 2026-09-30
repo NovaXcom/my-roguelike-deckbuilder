@@ -34,7 +34,7 @@ export class TitleScene extends Phaser.Scene {
     const start = () => {
       audio.unlock(); // Autoplay 制限回避: 最初のユーザー操作で AudioContext を開放
       audio.play('click');
-      this.scene.start('Party');
+      this.scene.start('Town');
     };
     btn.on('pointerdown', start);
     this.input.keyboard?.once('keydown-ENTER', start);

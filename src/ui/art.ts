@@ -144,3 +144,64 @@ export function drawSlime(g: Phaser.GameObjects.Graphics, color: number): void {
   g.arc(0, -36, 16, 0.2, Math.PI - 0.2);
   g.strokePath();
 }
+
+/** 敵のシルエット（原点=足元中央）。画像アセット不要の Canvas 描画。 */
+export function drawEnemy(g: Phaser.GameObjects.Graphics, id: string, color: number): void {
+  if (id === 'slime') {
+    drawSlime(g, color);
+    return;
+  }
+  g.clear();
+  const dark = Phaser.Display.Color.ValueToColor(color).darken(40).color;
+  g.fillStyle(0x000000, 0.35);
+  g.fillEllipse(0, 0, id === 'dragon' ? 260 : 170, 24);
+  const eye = (x: number, y: number, r = 6, c = 0xffdd55) => {
+    g.fillStyle(c, 1).fillCircle(x, y, r);
+    g.fillStyle(0x111111, 1).fillCircle(x, y, r * 0.45);
+  };
+  if (id === 'bat') {
+    g.fillStyle(dark, 1);
+    g.fillTriangle(-20, -90, -120, -60, -70, -120);
+    g.fillTriangle(20, -90, 120, -60, 70, -120);
+    g.fillTriangle(-20, -70, -110, -30, -60, -90);
+    g.fillTriangle(20, -70, 110, -30, 60, -90);
+    g.fillStyle(color, 1).fillEllipse(0, -85, 64, 76);
+    g.fillTriangle(-24, -115, -10, -112, -22, -140);
+    g.fillTriangle(24, -115, 10, -112, 22, -140);
+    eye(-11, -90, 6, 0xff5555); eye(11, -90, 6, 0xff5555);
+    g.fillStyle(0xffffff, 1).fillTriangle(-7, -70, -3, -70, -5, -62).fillTriangle(3, -70, 7, -70, 5, -62);
+  } else if (id === 'skeleton') {
+    g.fillStyle(color, 1);
+    g.fillRoundedRect(-24, -110, 48, 70, 6);
+    g.fillStyle(dark, 1);
+    for (let i = 0; i < 4; i++) g.fillRect(-20, -102 + i * 15, 40, 4);
+    g.fillStyle(color, 1).fillRoundedRect(-20, -40, 14, 40, 4).fillRoundedRect(6, -40, 14, 40, 4);
+    g.fillCircle(0, -140, 26).fillRect(-14, -120, 28, 12);
+    g.fillStyle(0x111111, 1).fillCircle(-10, -142, 7).fillCircle(10, -142, 7);
+    g.fillStyle(0x66ccff, 1).fillCircle(-10, -142, 2.5).fillCircle(10, -142, 2.5);
+    g.lineStyle(8, 0xc7ced6, 1).lineBetween(42, -30, 66, -130); // 剣
+    g.lineStyle(10, 0x7a5a3a, 1).lineBetween(36, -45, 50, -60);
+  } else if (id === 'golem') {
+    g.fillStyle(dark, 1).fillRoundedRect(-70, -60, 40, 60, 6).fillRoundedRect(30, -60, 40, 60, 6);
+    g.fillStyle(color, 1).fillRoundedRect(-62, -170, 124, 120, 12);
+    g.fillRoundedRect(-100, -150, 40, 90, 10).fillRoundedRect(60, -150, 40, 90, 10);
+    g.fillRoundedRect(-30, -205, 60, 45, 8);
+    g.fillStyle(dark, 1).fillRect(-40, -130, 30, 6).fillRect(10, -110, 36, 6).fillRect(-20, -80, 40, 6);
+    g.fillStyle(0xff8a3c, 1).fillRect(-18, -190, 12, 8).fillRect(6, -190, 12, 8);
+  } else {
+    // dragon
+    g.fillStyle(dark, 1);
+    g.fillTriangle(-60, -120, -190, -200, -150, -60);
+    g.fillTriangle(60, -120, 190, -200, 150, -60);
+    g.fillStyle(color, 1).fillEllipse(0, -80, 170, 130);
+    g.fillEllipse(70, -150, 60, 90);
+    g.fillEllipse(96, -190, 84, 52);
+    g.fillTriangle(70, -206, 84, -206, 78, -236).fillTriangle(100, -210, 112, -208, 110, -238);
+    g.fillStyle(dark, 1).fillEllipse(-90, -30, 90, 30).fillTriangle(-130, -30, -180, -10, -130, -10);
+    g.fillStyle(0xf3d9a8, 1).fillEllipse(0, -60, 90, 80);
+    g.fillStyle(0xffdd55, 1).fillCircle(108, -196, 7);
+    g.fillStyle(0x111111, 1).fillCircle(110, -196, 3);
+    g.fillStyle(0xff8a3c, 1).fillTriangle(132, -180, 150, -178, 136, -170);
+    g.fillStyle(dark, 1).fillRoundedRect(-40, -30, 30, 30, 6).fillRoundedRect(20, -30, 30, 30, 6);
+  }
+}

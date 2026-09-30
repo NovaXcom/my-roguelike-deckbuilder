@@ -10,12 +10,24 @@ Phaser 3 + TypeScript + Vite + Vitest 製。設計は `GAME_DESIGN.md` / `ART_DI
 | `npm run build` | 通常ビルド → `dist/` (itch.io 用) |
 | `npm run build:local` | 単一HTMLビルド → `dist-local/index.html` (ダブルクリックで起動可) |
 
+## ゲームの流れ
+`タイトル → 拠点(街) → パーティ確認 → ダンジョンマップ → (戦闘 / 宝箱 / 休憩所 / ショップ) → ボス → 結果 → 拠点`
+
+- **マップ**: 毎回ランダム生成される9階層の樹形図ルート（戦闘・宝箱・休憩所・ショップ・最奥にボス）。階層が深いほど敵が強くなる。
+- **装備ハクスラ**: 戦闘勝利・宝箱・ショップで Common / Rare / Legendary の装備を入手。武器/防具/装飾の3枠。
+  ステータス（最大HP・攻撃・ガード・ブレイク）が上がり、Rare以上の武器は**装備限定スキル**（例: 竜のツメ → ドラゴンスラッシュ）を解放。数値は個体ごとに揺らぐ。
+- **拠点と永続成長**: 挑戦で集めた魔導石（失敗しても持ち帰れる）で強化。セーブは localStorage。
+  - 鍛冶屋: 初期装備の品質（Lv3でRare武器、Lv5でLegendary武器から開始）
+  - 錬金所: 開始時のポーション所持数 +1/Lv
+  - 訓練所: Lvごとにパッシブ解放（最大HP+8 / ナイト開始ガード / チェイン倍率 / ブレイク / 攻撃）
+
 ## 構成
-- `src/core/` — UI非依存の戦闘ロジック（スキル/クールダウン、ダメージ計算、ブレイク＆チェイン、ヘイト）。テスト対象。
-  - `data.ts`: スキル・パーティ・敵の定義 / `battle.ts`: 状態遷移
-- `src/scenes/` — Title / Party(編成確認) / Battle
-- `src/ui/art.ts` — Canvas描画のキャラ・アイコン（画像アセット不要）
+- `src/core/` — UI非依存のロジック（Vitest対象）
+  - `battle.ts` 戦闘 / `data.ts` スキル・敵 / `equipment.ts` 装備とドロップ / `map.ts` マップ生成 / `meta.ts` 拠点・パッシブ / `run.ts` 1回の挑戦の進行
+- `src/scenes/` — Title / Town / Party / Map / Battle / Loot / Chest / Rest / Shop / Gear / RunEnd
+- `src/ui/` — Canvas描画のキャラ・敵・ウィジェット（画像アセット不要）
 - `src/audio.ts` — WebAudio 合成の SE とドローンBGM（最初のクリックで開放）
+- `tests/` — 戦闘・マップ・装備・拠点・ラン進行、および自動プレイBotによる全ラン通しテスト
 
 ## 戦闘ルール
 - 前衛ナイト＋後衛エレメンタリストが毎ターン1回ずつスキルを使用（順序は自由）。強スキルは使用後CD（クールダウン）あり。
