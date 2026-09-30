@@ -6,6 +6,10 @@ Backends (--backend, default auto):
   transformers  MusicGen for both (Transformers has no AudioGen)
                                                         pip install transformers scipy
 
+Assets whose id starts with "ui_" are NOT AI-generated: they are synthesised procedurally (numpy, clean 44.1kHz
+mono WAV, deterministic). Only numpy is needed for those; GPU/torch are needed only for the AI assets.
+AI outputs get an automatic EQ (200Hz cut, high-frequency boost) and peak normalisation (--no-eq to skip EQ).
+
 Usage:
   python3 scripts/generate_audio.py [--force] [--only ID ...] [--backend B] [--device auto|cuda|cpu] [--dry-run]
 
@@ -20,12 +24,19 @@ import subprocess
 import sys
 import tempfile
 import wave
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(ROOT, "scripts", "audio-manifest.json")
 
 MAX_SECONDS = 30.0            # MusicGen / AudioGen context limit per generation
 LOOP_XFADE_SEC = 0.5
+PROC_SR = 44100               # procedural (ui_*) sample rate
+
+# Auto-EQ applied to AI-generated audio (zero-phase, FFT domain)
+EQ_CUT_HZ, EQ_CUT_DB, EQ_CUT_OCT = 200.0, -4.0, 0.75      # bell cut around 200Hz, width in octaves (sigma)
+EQ_SHELF_HZ, EQ_SHELF_DB, EQ_SHELF_OCT = 5000.0, 3.0, 1.0  # smooth high shelf boost above ~5kHz
+PEAK_TARGET = 0.89            # -1 dBFS
 MUSICGEN_ID = os.environ.get("MUSICGEN_MODEL", "facebook/musicgen-small")
 AUDIOGEN_ID = os.environ.get("AUDIOGEN_MODEL", "facebook/audiogen-medium")
 
@@ -142,10 +153,69 @@ class Generator:
             return out[0, 0].cpu().float().numpy(), int(model.config.audio_encoder.sampling_rate)
 
 
-def postprocess(samples, sr, loop):
-    """Normalise; for loops crossfade the tail into the head so the seam is inaudible."""
+def is_procedural(asset):
+    """UI sounds are generated programmatically, not by the AI models."""
+    return asset["id"].startswith("ui_")
+
+
+def _env(n, sr, attack=0.002, decay=0.04, release=0.004):
+    import numpy as np
+    t = np.arange(n) / sr
+    e = np.exp(-t / decay)
+    a = max(1, int(attack * sr))
+    e[:a] *= np.linspace(0, 1, a)
+    r = max(1, min(n, int(release * sr)))
+    e[-r:] *= np.linspace(1, 0, r)
+    return e
+
+
+def _note(freq, dur, sr, decay, harmonics=(1.0, 0.25)):
+    import numpy as np
+    n = int(dur * sr)
+    t = np.arange(n) / sr
+    x = sum(w * np.sin(2 * np.pi * freq * (k + 1) * t) for k, w in enumerate(harmonics))
+    return (x * _env(n, sr, decay=decay)).astype(np.float32)
+
+
+def synth_ui(asset_id, sr=PROC_SR):
+    """Clean, noise-free UI blips (sfxr-style, pure numpy). Variants (_1.._N) differ by a fixed pitch offset."""
+    import numpy as np
+    base = asset_id.rsplit("_", 1)[0] if asset_id.rsplit("_", 1)[-1].isdigit() else asset_id
+    rng = np.random.RandomState(zlib.crc32(asset_id.encode()))
+    detune = 1.0 + rng.uniform(-0.06, 0.06)   # deterministic per id
+    if base == "ui_click":
+        x = _note(1500 * detune, 0.09, sr, 0.018, (1.0, 0.35, 0.1))
+    elif base == "ui_select":
+        x = np.concatenate([_note(660 * detune, 0.09, sr, 0.05), _note(990 * detune, 0.16, sr, 0.07)])
+    elif base == "ui_cancel":
+        x = np.concatenate([_note(520 * detune, 0.09, sr, 0.05), _note(370 * detune, 0.16, sr, 0.07)])
+    else:
+        x = _note(880 * detune, 0.15, sr, 0.05)
+    x = x - x.mean()
+    return x * (0.7 / (float(np.abs(x).max()) or 1.0)), sr
+
+
+def apply_eq(samples, sr):
+    """Zero-phase EQ via FFT: bell cut around 200Hz and a smooth high-shelf boost."""
+    import numpy as np
+    x = np.asarray(samples, dtype=np.float64)
+    n = len(x)
+    spec = np.fft.rfft(x)
+    f = np.fft.rfftfreq(n, 1.0 / sr)
+    lf = np.log2(np.maximum(f, 1.0))
+    cut_db = EQ_CUT_DB * np.exp(-0.5 * ((lf - np.log2(EQ_CUT_HZ)) / EQ_CUT_OCT) ** 2)
+    shelf_db = EQ_SHELF_DB / (1.0 + np.exp(-(lf - np.log2(EQ_SHELF_HZ)) / (EQ_SHELF_OCT * 0.35)))
+    spec *= 10 ** ((cut_db + shelf_db) / 20.0)
+    return np.fft.irfft(spec, n).astype(np.float32)
+
+
+def postprocess(samples, sr, loop, eq=True):
+    """DC removal, auto-EQ, loop crossfade (loops) and peak normalisation."""
     import numpy as np
     x = np.asarray(samples, dtype=np.float32)
+    x = x - x.mean()
+    if eq and len(x) > 16:
+        x = apply_eq(x, sr)
     if loop:
         n = min(int(LOOP_XFADE_SEC * sr), len(x) // 4)
         if n > 0:
@@ -157,7 +227,7 @@ def postprocess(samples, sr, loop):
         if n > 0:
             x[-n:] *= np.linspace(1, 0, n, dtype=np.float32)
     peak = float(np.abs(x).max()) or 1.0
-    return x * (0.89 / peak)
+    return x * (PEAK_TARGET / peak)
 
 
 def write_wav(path, samples, sr):
@@ -193,6 +263,7 @@ def main(argv=None):
     ap.add_argument("--only", nargs="+", metavar="ID", help="only generate these asset ids")
     ap.add_argument("--backend", choices=["auto", "audiocraft", "transformers"], default="auto")
     ap.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
+    ap.add_argument("--no-eq", action="store_true", help="skip the automatic EQ on AI-generated audio")
     ap.add_argument("--dry-run", action="store_true", help="print plan and merged prompts; load no models")
     args = ap.parse_args(argv)
 
@@ -216,29 +287,53 @@ def main(argv=None):
         print(f"Nothing to generate ({skipped} skipped).")
         return 0
 
+    proc = [a for a in todo if is_procedural(a)]
+    ai = [a for a in todo if not is_procedural(a)]
+
     if args.dry_run:
-        for a in todo:
+        for a in proc:
+            print(f"[PLAN] {a['id']} (procedural {PROC_SR}Hz) -> {a['path']}")
+        for a in ai:
             print(f"[PLAN] {a['id']} ({a['type']}, {min(a['duration'], MAX_SECONDS)}s, loop={a['loop']}) -> {a['path']}\n"
                   f"       {build_prompt(style, a)}")
         return 0
 
-    ok, backend, device = check_environment(args)
-    if not ok:
-        print(f"[STOP] Environment not ready; {len(todo)} asset(s) not generated. "
-              "The game still runs with its Web Audio synth fallback.")
-        return 1
+    done, failed = 0, []
 
-    gen, done, failed = Generator(backend, device), 0, []
-    for a in todo:
-        print(f"[GEN ] {a['id']} ({a['type']}, {min(a['duration'], MAX_SECONDS)}s) ...")
-        try:
-            samples, sr = gen.generate(build_prompt(style, a), a["type"], a["duration"])
-            save_audio(postprocess(samples, sr, a["loop"]), sr, os.path.join(ROOT, a["path"]))
-            print(f"[ OK ] {a['path']}")
-            done += 1
-        except Exception as e:  # keep going: one failure should not lose the rest
-            print(f"[FAIL] {a['id']}: {e}")
-            failed.append(a["id"])
+    if proc:  # (1) programmatic UI sounds: no GPU / AI model needed
+        if not has("numpy"):
+            print(f"[ERROR] numpy is required for ui_* sounds: {sys.executable} -m pip install numpy")
+            failed += [a["id"] for a in proc]
+        else:
+            for a in proc:
+                try:
+                    samples, sr = synth_ui(a["id"])
+                    save_audio(samples, sr, os.path.join(ROOT, a["path"]))
+                    print(f"[ OK ] {a['path']} (procedural)")
+                    done += 1
+                except Exception as e:
+                    print(f"[FAIL] {a['id']}: {e}")
+                    failed.append(a["id"])
+
+    if ai:
+        ok, backend, device = check_environment(args)
+        if not ok:
+            print(f"[STOP] Environment not ready; {len(ai)} AI asset(s) not generated. "
+                  "The game still runs with its Web Audio synth fallback.")
+            failed += [a["id"] for a in ai]
+        else:
+            gen = Generator(backend, device)
+            for a in ai:
+                print(f"[GEN ] {a['id']} ({a['type']}, {min(a['duration'], MAX_SECONDS)}s) ...")
+                try:
+                    samples, sr = gen.generate(build_prompt(style, a), a["type"], a["duration"])
+                    save_audio(postprocess(samples, sr, a["loop"], eq=not args.no_eq), sr,
+                               os.path.join(ROOT, a["path"]))
+                    print(f"[ OK ] {a['path']}")
+                    done += 1
+                except Exception as e:  # keep going: one failure should not lose the rest
+                    print(f"[FAIL] {a['id']}: {e}")
+                    failed.append(a["id"])
     print(f"Done: {done} generated, {skipped} skipped, {len(failed)} failed.")
     return 1 if failed else 0
 
