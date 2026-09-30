@@ -13,10 +13,10 @@ export class BaseScene extends Phaser.Scene {
     this.add.text(24, 20, '拠点', { fontSize: '36px', color: '#e2e8f0' });
 
     const fit = { width: 300, height: 420 };
-    if (!addImageIfLoaded(this, 'char_knight', width * 0.35, height * 0.55, fit)) {
+    if (!addImageIfLoaded(this, 'hero_knight_idle', width * 0.35, height * 0.55, fit)) {
       drawFallbackCharacter(this, width * 0.35, height * 0.55, 0xc53030, 'ナイト');
     }
-    if (!addImageIfLoaded(this, 'char_elementalist', width * 0.65, height * 0.55, fit)) {
+    if (!addImageIfLoaded(this, 'hero_elementalist_idle', width * 0.65, height * 0.55, fit)) {
       drawFallbackCharacter(this, width * 0.65, height * 0.55, 0x3182ce, 'エレメンタリスト');
     }
     makeButton(this, width / 2, height * 0.9, 'ダンジョンへ', () => this.scene.start('Battle'));

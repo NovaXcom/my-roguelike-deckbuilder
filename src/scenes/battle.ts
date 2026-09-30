@@ -9,13 +9,13 @@ export class BattleScene extends Phaser.Scene {
 
   create(): void {
     const { width, height } = this.scale;
-    drawBackground(this, 'bg_dungeon', 0x1a202c, 0x0b0d12);
+    drawBackground(this, 'bg_battle_dungeon', 0x1a202c, 0x0b0d12);
 
     const fit = { width: 260, height: 360 };
-    if (!addImageIfLoaded(this, 'char_knight', width * 0.15, height * 0.6, fit)) {
+    if (!addImageIfLoaded(this, 'hero_knight_idle', width * 0.15, height * 0.6, fit)) {
       drawFallbackCharacter(this, width * 0.15, height * 0.6, 0xc53030, 'ナイト');
     }
-    if (!addImageIfLoaded(this, 'char_elementalist', width * 0.3, height * 0.6, fit)) {
+    if (!addImageIfLoaded(this, 'hero_elementalist_idle', width * 0.3, height * 0.6, fit)) {
       drawFallbackCharacter(this, width * 0.3, height * 0.6, 0x3182ce, 'エレメンタリスト');
     }
     if (!addImageIfLoaded(this, 'enemy_dragon', width * 0.75, height * 0.5, { width: 420, height: 420 })) {

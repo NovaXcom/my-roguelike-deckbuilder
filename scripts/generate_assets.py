@@ -83,9 +83,14 @@ def merge_negative(common: str, negative: str) -> str:
     return ", ".join(own + extra)
 
 
-def generation_size(width: int, height: int, max_side: int) -> tuple[int, int]:
-    """Aspect-preserving size whose long side <= max_side, multiples of 8 (SD requirement)."""
-    scale = min(1.0, max_side / max(width, height))
+def generation_size(width: int, height: int, max_side: int, min_side: int = 512) -> tuple[int, int]:
+    """Aspect-preserving size, long side clamped to [min_side, max_side], multiples of 8.
+
+    Small targets (48px icons) are generated at min_side and downscaled: SD produces
+    garbage below ~512px.
+    """
+    long_side = max(width, height)
+    scale = min(max_side, max(min_side, long_side)) / long_side
     w = max(64, round(width * scale / 8) * 8)
     h = max(64, round(height * scale / 8) * 8)
     return w, h
@@ -105,8 +110,11 @@ def resize_fill(img, width: int, height: int):
     return img.crop((left, top, left + width, top + height))
 
 
-def resize_fit_transparent(img, width: int, height: int):
-    """Resize RGBA sprite to fit inside width x height without cropping (transparent padding)."""
+def resize_fit_transparent(img, width: int, height: int, anchor: str = "bottom"):
+    """Resize RGBA sprite to fit inside width x height without cropping (transparent padding).
+
+    anchor="bottom": feet at bottom-center (characters/enemies/buildings); "center": icons/props.
+    """
     from PIL import Image
 
     bbox = img.getbbox()  # trim empty margins left by background removal
@@ -115,7 +123,8 @@ def resize_fit_transparent(img, width: int, height: int):
     scale = min(width / img.width, height / img.height)
     new = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    canvas.paste(new, ((width - new.width) // 2, height - new.height), new)  # bottom-aligned
+    top = height - new.height if anchor == "bottom" else (height - new.height) // 2
+    canvas.paste(new, ((width - new.width) // 2, top), new)
     return canvas
 
 
@@ -152,7 +161,7 @@ def process_asset(asset, mods, common_style, common_neg, args, base_url) -> None
     requests = mods["requests"]
     transparent = bool(asset.get("transparent", False))
     width, height = int(asset["width"]), int(asset["height"])
-    gw, gh = generation_size(width, height, args.max_side)
+    gw, gh = generation_size(width, height, args.max_side, args.min_side)
     payload = {
         "prompt": merge_prompt(common_style, asset["prompt"], transparent),
         "negative_prompt": merge_negative(common_neg, asset.get("negative_prompt", "")),
@@ -171,7 +180,7 @@ def process_asset(asset, mods, common_style, common_neg, args, base_url) -> None
 
     if transparent:
         img = mods["rembg"].remove(img).convert("RGBA")
-        img = resize_fit_transparent(img, width, height)
+        img = resize_fit_transparent(img, width, height, asset.get("anchor", "bottom"))
     else:
         img = resize_fill(img, width, height)
 
@@ -186,7 +195,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Generate game assets via Stable Diffusion WebUI API")
     p.add_argument("--force", action="store_true", help="既存ファイルがあっても再生成する")
     p.add_argument("--only", nargs="+", metavar="ID", help="指定IDのみ対象")
-    p.add_argument("--category", choices=["bg", "character", "enemy", "cutin"], help="カテゴリで絞り込み")
+    p.add_argument("--category", help="カテゴリで絞り込み (bg/character/enemy/cutin/icon/keyart/facility/prop)")
     p.add_argument("--dry-run", action="store_true", help="生成せず対象一覧だけ表示")
     p.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     p.add_argument("--host", default="http://127.0.0.1:7860", help="SD WebUI のベースURL")
@@ -196,6 +205,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--max-side", type=int, default=768,
                    help="SD生成時の長辺上限px (SDXLなら1024推奨)。最終サイズはPillowでmanifestのwidth/heightへ")
+    p.add_argument("--min-side", type=int, default=512, help="小さいアセットの生成時の長辺下限px")
     p.add_argument("--timeout", type=float, default=600, help="txt2img のタイムアウト秒")
     return p.parse_args(argv)
 
@@ -216,6 +226,10 @@ def main(argv=None) -> int:
             return 1
         assets = [a for a in assets if a["id"] in args.only]
     if args.category:
+        known = {a["category"] for a in assets}
+        if args.category not in known:
+            print(f"[ERROR] 未知のカテゴリ: {args.category} (有効: {', '.join(sorted(known))})", file=sys.stderr)
+            return 1
         assets = [a for a in assets if a["category"] == args.category]
 
     todo, skipped = [], []

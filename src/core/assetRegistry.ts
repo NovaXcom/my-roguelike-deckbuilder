@@ -1,5 +1,6 @@
 // Pure logic (no Phaser): decides which manifest assets actually exist on disk.
-export type AssetCategory = 'bg' | 'character' | 'enemy' | 'cutin';
+export type AssetCategory =
+  | 'bg' | 'character' | 'enemy' | 'cutin' | 'icon' | 'keyart' | 'facility' | 'prop';
 
 export interface ManifestAsset {
   id: string;
@@ -8,6 +9,7 @@ export interface ManifestAsset {
   width: number;
   height: number;
   transparent: boolean;
+  anchor?: 'bottom' | 'center';
 }
 
 /**

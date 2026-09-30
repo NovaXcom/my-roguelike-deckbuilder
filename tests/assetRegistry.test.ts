@@ -28,17 +28,27 @@ describe('buildAssetUrlMap', () => {
 
 describe('assets-manifest.json', () => {
   it('has unique ids, valid categories and paths under src/assets/<dir>/', () => {
-    const cats = new Set(['bg', 'character', 'enemy', 'cutin']);
+    const cats = new Set(['bg', 'character', 'enemy', 'cutin', 'icon', 'keyart', 'facility', 'prop']);
     const ids = new Set<string>();
     for (const a of manifest.assets) {
       expect(ids.has(a.id)).toBe(false);
       ids.add(a.id);
       expect(cats.has(a.category)).toBe(true);
-      expect(a.path).toMatch(/^src\/assets\/(bg|characters|enemies|cutins)\/[\w-]+\.png$/);
+      expect(a.path).toMatch(/^src\/assets\/(bg|characters|enemies|cutins|icons|keyart|facilities|props)\/[\w-]+\.png$/);
       expect(a.width).toBeGreaterThan(0);
       expect(a.height).toBeGreaterThan(0);
       expect(a.prompt.length).toBeGreaterThan(0);
       expect(typeof a.transparent).toBe('boolean');
     }
+  });
+});
+
+describe('manifest coverage', () => {
+  it('includes every hero pose and unique output paths', () => {
+    const ids = manifest.assets.map((a) => a.id);
+    for (const h of ['knight', 'elementalist'])
+      for (const p of ['idle', 'attack', 'hit', 'down']) expect(ids).toContain(`hero_${h}_${p}`);
+    const paths = manifest.assets.map((a) => a.path);
+    expect(new Set(paths).size).toBe(paths.length);
   });
 });
