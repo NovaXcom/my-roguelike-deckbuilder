@@ -27,6 +27,13 @@ DEFAULT_STYLE = (
     "Dark fantasy RPG game asset, stylized 2D digital painting, "
     "dark slate tones, cinematic lighting"
 )
+# Always appended to every request (in addition to manifest common_negative / per-asset negatives).
+QUALITY_NEGATIVE = (
+    "(worst quality, low quality:1.4), lowres, blurry, out of focus, jpeg artifacts, "
+    "pixelated, noisy, oversaturated, deformed, disfigured, bad anatomy, bad proportions, "
+    "extra limbs, extra fingers, missing limbs, malformed hands, mutated, duplicate, "
+    "cropped, out of frame, watermark, signature, text, logo, username"
+)
 TRANSPARENT_HINT = "isolated on a plain flat light background, clean silhouette, no ground shadow"
 
 REQUIRED = {
@@ -79,7 +86,11 @@ def merge_negative(common: str, negative: str) -> str:
     """Append common negative tags, skipping tags the asset already lists."""
     own = [t.strip() for t in negative.split(",") if t.strip()]
     seen = {t.lower() for t in own}
-    extra = [t.strip() for t in common.split(",") if t.strip() and t.strip().lower() not in seen]
+    extra = []
+    for t in (t.strip() for t in common.split(",")):
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            extra.append(t)
     return ", ".join(own + extra)
 
 
@@ -164,7 +175,9 @@ def process_asset(asset, mods, common_style, common_neg, args, base_url) -> None
     gw, gh = generation_size(width, height, args.max_side, args.min_side)
     payload = {
         "prompt": merge_prompt(common_style, asset["prompt"], transparent),
-        "negative_prompt": merge_negative(common_neg, asset.get("negative_prompt", "")),
+        "negative_prompt": merge_negative(
+            ", ".join(x for x in (common_neg, QUALITY_NEGATIVE) if x), asset.get("negative_prompt", "")
+        ),
         "width": gw,
         "height": gh,
         "steps": args.steps,
@@ -173,6 +186,15 @@ def process_asset(asset, mods, common_style, common_neg, args, base_url) -> None
         "batch_size": 1,
         "n_iter": 1,
     }
+    if args.hires:
+        # Hi-Res Fix: base pass at (gw, gh), then upscaled by hr_scale and refined (img2img pass).
+        payload.update({
+            "enable_hr": True,
+            "hr_scale": args.hr_scale,
+            "hr_upscaler": args.hr_upscaler,
+            "denoising_strength": args.hr_denoise,
+            "hr_second_pass_steps": args.hr_steps,
+        })
     if args.seed is not None:
         payload["seed"] = args.seed
     raw = txt2img(requests, base_url, payload, args.timeout)
@@ -206,6 +228,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--max-side", type=int, default=768,
                    help="SD生成時の長辺上限px (SDXLなら1024推奨)。最終サイズはPillowでmanifestのwidth/heightへ")
     p.add_argument("--min-side", type=int, default=512, help="小さいアセットの生成時の長辺下限px")
+    p.add_argument("--no-hires", dest="hires", action="store_false", help="Hi-Res Fixを無効化 (既定: 有効)")
+    p.add_argument("--hr-scale", type=float, default=1.5, help="Hi-Res Fix の拡大率")
+    p.add_argument("--hr-upscaler", default="Latent", help="Hi-Res Fix のアップスケーラ (例: R-ESRGAN 4x+)")
+    p.add_argument("--hr-denoise", type=float, default=0.5, help="Hi-Res Fix の denoising_strength")
+    p.add_argument("--hr-steps", type=int, default=14, help="Hi-Res Fix 2nd pass のステップ数")
     p.add_argument("--timeout", type=float, default=600, help="txt2img のタイムアウト秒")
     return p.parse_args(argv)
 
