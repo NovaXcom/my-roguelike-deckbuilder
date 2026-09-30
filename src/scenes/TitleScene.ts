@@ -12,8 +12,8 @@ export class TitleScene extends Phaser.Scene {
       const snd = this.sound as Phaser.Sound.WebAudioSoundManager;
       try { await snd.context?.resume(); } catch { /* ignore */ }
       const audio = this.registry.get('audio') as AudioManager;
-      audio.play('bgm_dungeon');
-      audio.play('se_level_up');
+      audio.play('bgm_town');
+      audio.play('ui_select');
     });
   }
 }
