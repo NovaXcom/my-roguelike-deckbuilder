@@ -44,13 +44,12 @@ Phaser 3 + TypeScript + Vite + Vitest 製。設計は `GAME_DESIGN.md` / `ART_DI
 ## 画像の差し替え
 - 素材の元は `art/sheet/concept-sheet.webp`（アセット一覧の1枚絵）。`python3 scripts/build-assets.py`（要 Pillow / numpy / scipy）で切り出し・WebP化して `src/assets/img/` に出力する（確認用一覧は `art/preview.png`）。
 - 画像キーとゲーム内での使われ方の対応は `src/ui/assetMap.ts`。整合性は `tests/assets.test.ts` が検証。
-- 元画像の解像度が低いため、背景は拡大+ぼかしで使用。高解像度の素材ができたら、同じキー名のWebPで置き換えればよい。
+- 元画像の解像度が低いため、背景は拡大+ぼかしで使用。**高解像度の素材は `art/override/<キー名>.png` に置いて `build-assets.py` を再実行**すると切り出し素材より優先される。必要な素材の一覧・サイズ・構図の注意は [docs/ASSET_SPEC.md](docs/ASSET_SPEC.md)。
 - タイトル名は `src/scenes/TitleScene.ts` の `GAME_TITLE` / `GAME_SUBTITLE`（素材のロゴ表記に合わせて「エターナル・オーブ ─ 永遠の旅路」）。
 
-## 音声の差し替え
-1. 音声ファイルを `src/assets/audio/` に置く。ファイル名は `src/audio/ids.ts` のID（バリエーションは `atk_slash_1..3` のように連番）。wav / mp3 対応。
-2. `npm run audio:measure` で音量を実測して補正値を再生成（効果音・BGM・ジングルの音量階層を自動で揃える）。
-3. `npm run build`（またはパッケージ化）。ファイルが無いIDは合成音で鳴るので、段階的に差し替えられる。
+## 音声
+- 標準は **WebAudio 合成**（効果音33種 + 場面別BGM）。音声ファイルは同梱していない。攻撃の種類・属性・敵ごとに別の合成音を割り当て（`src/audio/index.ts` の `FALLBACK`）、`npm run audio:measure` 相当の実測で音量の階層を調整済み。
+- 音声ファイル(wav/mp3)に差し替えたい場合（任意）: `src/assets/audio/` にファイルを置く。ファイル名は `src/audio/ids.ts` のID（バリエーションは `atk_slash_1..3`）。置いたIDだけファイルが優先され、他は合成音のまま。`npm run audio:measure` で音量を実測して補正値を再生成。
 - BGMは場面ごとに切替（拠点/マップ/戦闘/ボス、クロスフェード）。ジングル・チェイン中はBGMを自動で下げる。
 
 ## 演出・音響（マイルストーン4）

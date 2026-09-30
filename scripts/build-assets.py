@@ -5,6 +5,7 @@ art/sheet/concept-sheet.webp（アセット一覧の1枚絵）から各素材を
 
 - キャラ・敵: 透過情報から連結成分で抽出（隣の絵に食い込まない）。足元を画像下端に揃え、2倍に拡大して保存
 - アイコン: 格子状に並ぶ枠を切り出し、角丸マスクを適用
+- 高解像度版: art/override/<キー>.png を置くと切り出し素材より優先（docs/ASSET_SPEC.md）
 - 背景: 小さなサムネイルを16:9に切り出して拡大し、軽いぼかし+粒状ノイズで拡大の粗さを目立たなくする
 - 宝箱/焚き火: パネルの暗い背景を色キーで透過
 - 出力サイズは src/assets/img/manifest.json に記録。確認用の一覧は art/preview.png
@@ -30,6 +31,8 @@ preview = []  # (key, image)
 
 
 def save(key, im, quality=90):
+    global preview
+    preview = [(k, i) for k, i in preview if k != key]
     path = os.path.join(OUT, key + '.webp')
     im.save(path, 'WEBP', quality=quality, alpha_quality=95, method=6)
     manifest[key] = {'w': im.width, 'h': im.height}
@@ -214,6 +217,44 @@ def bust(box, key, max_side=800):
 
 
 bust((522, 771, 164, 184), 'cutin_elementalist_bust')
+
+# ------------------------------------------------------------ 高解像度版の差し替え (art/override/)
+# art/override/<画像キー>.png|webp|jpg を置くと、一覧画像からの切り出しより優先される（新しいキーの追加も可）。
+# 加工ルール（キーの接頭辞で決まる。詳細は docs/ASSET_SPEC.md）
+#   bg_*            … 16:9 を想定。長辺1920pxまでに縮小して保存(RGB)
+#   char_* enemy_*  … 透明な余白を切り詰める（足元=下端）。全ポーズを同じ縮尺で描くこと
+#   icon_*          … 384pxまでに縮小。   prop_* cutin_* … 余白はそのまま(コマ/構図を保つ)。長辺1024pxまで
+OVERRIDE = os.path.join(ROOT, 'art', 'override')
+replaced = []
+if os.path.isdir(OVERRIDE):
+    for fn in sorted(os.listdir(OVERRIDE)):
+        stem, ext = os.path.splitext(fn)
+        if ext.lower() not in ('.png', '.webp', '.jpg', '.jpeg'):
+            continue
+        im = Image.open(os.path.join(OVERRIDE, fn))
+        if stem.startswith('bg_'):
+            im = im.convert('RGB')
+            if max(im.size) > 1920:
+                r = 1920 / max(im.size)
+                im = im.resize((round(im.width * r), round(im.height * r)), Image.LANCZOS)
+            if abs(im.width / im.height - 16 / 9) > 0.02:
+                print(f'  警告: {fn} は16:9ではありません({im.width}x{im.height})。画面に合わせて引き伸ばされます')
+            save(stem, im, quality=86)
+        else:
+            im = im.convert('RGBA')
+            if stem.startswith(('char_', 'enemy_')):
+                bbox = im.getchannel('A').point(lambda v: 255 if v > 24 else 0).getbbox()
+                if bbox:
+                    pad = 2
+                    im = im.crop((max(0, bbox[0] - pad), max(0, bbox[1] - pad), min(im.width, bbox[2] + pad), min(im.height, bbox[3] + pad)))
+            cap = 384 if stem.startswith('icon_') else 1100 if stem.startswith(('char_', 'enemy_')) else 1024
+            if max(im.size) > cap:
+                r = cap / max(im.size)
+                im = im.resize((round(im.width * r), round(im.height * r)), Image.LANCZOS)
+            save(stem, im, quality=90)
+        replaced.append(stem)
+if replaced:
+    print('高解像度版で置き換え/追加:', ', '.join(replaced))
 
 json.dump(manifest, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
 

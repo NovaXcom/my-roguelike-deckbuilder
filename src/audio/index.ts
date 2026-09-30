@@ -28,17 +28,17 @@ const MASTER_GAIN = 0.85;
 /** 音声ファイルが無いときに鳴らす合成音（全マニフェストIDに用意） */
 export const FALLBACK: Record<ManifestId, SfxKind | null> = {
   bgm_town: null, bgm_map: null, bgm_battle: null, bgm_boss: null,
-  jg_win: 'win', jg_clear: 'win', jg_lose: 'lose', jg_legendary: 'loot',
-  atk_slash: 'skill', atk_bash: 'skill', atk_heavy: 'skill',
-  mag_cast_fire: 'magic', mag_cast_ice: 'magic', mag_cast_thunder: 'magic',
-  mag_hit_fire: 'enemyHit', mag_hit_ice: 'enemyHit', mag_hit_thunder: 'enemyHit',
+  jg_win: 'win', jg_clear: 'clear', jg_lose: 'lose', jg_legendary: 'loot',
+  atk_slash: 'slash', atk_bash: 'bash', atk_heavy: 'skill',
+  mag_cast_fire: 'castFire', mag_cast_ice: 'castIce', mag_cast_thunder: 'castThunder',
+  mag_hit_fire: 'hitFire', mag_hit_ice: 'hitIce', mag_hit_thunder: 'hitThunder',
   sup_guard: 'block', sup_heal: 'heal', sup_taunt: 'turn',
   hit_enemy: 'enemyHit', hit_weak: 'enemyHit', hit_resist: 'enemyHit',
   hit_party_s: 'hit', hit_party_l: 'hit', hit_blocked: 'block',
   fx_break: 'break', fx_chain: 'chain',
-  en_slime: 'hit', en_skeleton: 'hit', en_golem: 'hit', en_dragon_claw: 'hit', en_dragon_breath: 'break',
-  die_large: 'break', die_boss: 'break', party_down: 'hit',
-  deny: 'click', ui_click: 'click', ui_select: 'select', ui_cancel: 'click',
+  en_slime: 'squelch', en_skeleton: 'clatter', en_golem: 'stomp', en_dragon_claw: 'bash', en_dragon_breath: 'breath',
+  die_large: 'die', die_boss: 'dieBoss', party_down: 'die',
+  deny: 'deny', ui_click: 'click', ui_select: 'select', ui_cancel: 'click',
   map_battle: 'turn', chest_open: 'loot', coin: 'coin',
 };
 

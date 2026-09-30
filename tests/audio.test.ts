@@ -39,10 +39,10 @@ const files = readdirSync('src/assets/audio').filter((f) => /\.(wav|mp3)$/i.test
 const trims = JSON.parse(readFileSync('src/audio/trims.json', 'utf8')) as Record<string, number>;
 
 describe('音声ファイルとマニフェスト', () => {
-  it('マニフェストの全ファイルキーが src/assets/audio にあり、余分なファイルも無い', () => {
+  it('音声ファイルは任意。置かれたファイルはすべてマニフェストのキーと一致する（未定義の名前を検出）', () => {
     const keys = SOUNDS.flatMap((d) => fileKeys(d));
     expect(new Set(keys).size).toBe(keys.length);
-    expect([...files].sort()).toEqual([...keys].sort());
+    for (const f of files) expect(keys, `${f} はマニフェスト(ids.ts)に無い名前`).toContain(f);
   });
   it('全IDに合成音フォールバックと目標ラウドネスがある', () => {
     for (const d of SOUNDS) {
@@ -51,7 +51,7 @@ describe('音声ファイルとマニフェスト', () => {
     }
     for (const [id, kind] of Object.entries(FALLBACK)) if (kind) expect(SFX_KINDS, id).toContain(kind);
   });
-  it('補正値(trims.json)が全ファイルにあり、妥当な範囲(0.05〜4)', () => {
+  it('補正値(trims.json)が置かれた全ファイルにあり、妥当な範囲(0.05〜4)', () => {
     for (const k of files) {
       expect(trims[k], k).toBeDefined();
       expect(trims[k]).toBeGreaterThan(0.05);
@@ -121,5 +121,27 @@ describe('ゲーム状況→音IDの対応', () => {
     expect(bgmForScene('Battle')).toBe('bgm_battle');
     expect(bgmForScene('Battle', { boss: true })).toBe('bgm_boss');
     expect(bgmForScene('RunEnd')).toBeNull();
+  });
+});
+
+describe('合成音（ファイルが無いときの標準サウンド）', () => {
+  it('状況別の合成音を含め、全種類に目標ラウドネスがある', () => {
+    for (const k of SFX_KINDS) expect(SFX_TARGET_DB[k], k).toBeDefined();
+    for (const k of ['slash', 'bash', 'castFire', 'castIce', 'castThunder', 'hitFire', 'hitIce', 'hitThunder', 'breath', 'die', 'dieBoss', 'squelch', 'clatter', 'stomp', 'clear', 'deny'] as const) {
+      expect(SFX_KINDS).toContain(k);
+    }
+  });
+  it('攻撃/属性/敵ごとに別の合成音に割り当てている（聞き分けられる）', () => {
+    expect(new Set([FALLBACK.atk_slash, FALLBACK.atk_bash, FALLBACK.atk_heavy]).size).toBe(3);
+    expect(new Set([FALLBACK.mag_cast_fire, FALLBACK.mag_cast_ice, FALLBACK.mag_cast_thunder]).size).toBe(3);
+    expect(new Set([FALLBACK.mag_hit_fire, FALLBACK.mag_hit_ice, FALLBACK.mag_hit_thunder]).size).toBe(3);
+    expect(new Set([FALLBACK.en_slime, FALLBACK.en_skeleton, FALLBACK.en_golem, FALLBACK.en_dragon_breath]).size).toBe(4);
+    expect(FALLBACK.die_boss).not.toBe(FALLBACK.die_large);
+    expect(FALLBACK.jg_clear).not.toBe(FALLBACK.jg_win);
+  });
+  it('戦闘SEの合成音はBGM(-30dB)より10dB以上大きい', () => {
+    for (const k of ['slash', 'bash', 'castFire', 'hitFire', 'hitIce', 'hitThunder', 'breath', 'die', 'stomp'] as const) {
+      expect(SFX_TARGET_DB[k] - BGM_TARGET_DB, k).toBeGreaterThanOrEqual(10);
+    }
   });
 });

@@ -8,11 +8,16 @@
 
 export type SfxKind =
   | 'click' | 'hover' | 'select' | 'skill' | 'magic' | 'enemyHit' | 'hit' | 'block' | 'heal'
-  | 'break' | 'chain' | 'turn' | 'win' | 'lose' | 'equip' | 'loot' | 'coin';
+  | 'break' | 'chain' | 'turn' | 'win' | 'lose' | 'equip' | 'loot' | 'coin'
+  // 状況別の音（攻撃の種類・属性・敵ごとに聞き分けられる）
+  | 'deny' | 'slash' | 'bash' | 'castFire' | 'castIce' | 'castThunder' | 'hitFire' | 'hitIce' | 'hitThunder'
+  | 'breath' | 'die' | 'dieBoss' | 'squelch' | 'clatter' | 'stomp' | 'clear';
 
 export const SFX_KINDS: SfxKind[] = [
   'click', 'hover', 'select', 'skill', 'magic', 'enemyHit', 'hit', 'block', 'heal',
   'break', 'chain', 'turn', 'win', 'lose', 'equip', 'loot', 'coin',
+  'deny', 'slash', 'bash', 'castFire', 'castIce', 'castThunder', 'hitFire', 'hitIce', 'hitThunder',
+  'breath', 'die', 'dieBoss', 'squelch', 'clatter', 'stomp', 'clear',
 ];
 
 /**
@@ -22,6 +27,8 @@ export const SFX_KINDS: SfxKind[] = [
 export const SFX_TARGET_DB: Record<SfxKind, number> = {
   hover: -36, click: -28, select: -26, equip: -22, coin: -24, loot: -22, turn: -22, heal: -21, block: -19,
   magic: -18, skill: -16, enemyHit: -15, hit: -14, win: -17, lose: -17, break: -12, chain: -10,
+  deny: -22, slash: -16, bash: -16, castFire: -18, castIce: -19, castThunder: -18, hitFire: -15, hitIce: -17, hitThunder: -17,
+  breath: -13, die: -14, dieBoss: -11, squelch: -17, clatter: -17, stomp: -14, clear: -15,
 };
 
 /** 音種ごとの音量補正（測定値に基づく調整済みの値） */
@@ -35,14 +42,30 @@ const TRIM: Record<SfxKind, number> = {
   hit: 0.78,
   block: 0.91,
   heal: 0.54,
-  break: 0.56,
-  chain: 0.65,
+  break: 0.55,
+  chain: 0.64,
   turn: 1.0,
   win: 1.26,
   lose: 2.02,
   equip: 0.73,
   loot: 0.6,
   coin: 1.46,
+  deny: 0.76,
+  slash: 1.33,
+  bash: 0.53,
+  castFire: 1.29,
+  castIce: 0.86,
+  castThunder: 0.89,
+  hitFire: 0.65,
+  hitIce: 0.62,
+  hitThunder: 0.65,
+  breath: 1.29,
+  die: 1.55,
+  dieBoss: 0.55,
+  squelch: 1.15,
+  clatter: 1.94,
+  stomp: 0.56,
+  clear: 1.17,
 };
 
 export const BGM_TARGET_DB = -30;
@@ -165,6 +188,84 @@ export function synthSfx(ctx: BaseAudioContext, dest: AudioNode, noise: AudioBuf
     case 'coin':
       v.tone('square', 1320, 1320, 0.07, 0.12);
       v.tone('square', 1760, 1760, 0.22, 0.12, 0.06);
+      break;
+
+    // ---- 状況別の音 ----
+    case 'deny': // 使用不可のブザー
+      v.tone('square', 150, 120, 0.12, 0.4);
+      v.tone('square', 130, 100, 0.16, 0.4, 0.13);
+      break;
+    case 'slash': // 斬撃: 鋭い風切り + 斬り抜け
+      v.burst(0.16, 900, 1.2, 0.3, 'bandpass', 0, 4200, 0.03);
+      v.tone('sawtooth', 1500, 320, 0.18, 0.5, 0.04);
+      v.tone('triangle', 700, 200, 0.22, 0.4, 0.08);
+      v.burst(0.1, 3200, 0.8, 0.22, 'highpass', 0.09);
+      break;
+    case 'bash': // 盾殴り/爪: 重い金属の打撃
+      v.tone('sine', 120, 40, 0.32, 0.9);
+      v.tone('square', 900, 300, 0.1, 0.3);
+      v.burst(0.1, 2500, 1, 0.5, 'highpass');
+      v.tone('triangle', 1800, 1750, 0.3, 0.15, 0.02);
+      break;
+    case 'castFire': // 炎の詠唱: 低く膨らむ燃焼音 + パチパチ
+      v.burst(0.55, 300, 0.8, 0.4, 'lowpass', 0, 2600, 0.18);
+      v.tone('sawtooth', 200, 720, 0.5, 0.36);
+      for (let i = 0; i < 6; i++) v.burst(0.03, 4200, 1, 0.22, 'highpass', 0.06 + i * 0.07);
+      break;
+    case 'castIce': // 氷の詠唱: 高い鈴のような音階
+      [2093, 2637, 3136, 3951].forEach((f, i) => v.tone('sine', f, f, 0.3, 0.3, i * 0.06, 0.01));
+      v.tone('triangle', 800, 2400, 0.4, 0.14);
+      break;
+    case 'castThunder': // 雷の詠唱: 電撃のバチッ
+      v.burst(0.25, 2000, 0.6, 0.6, 'highpass', 0.05);
+      v.tone('sawtooth', 90, 1200, 0.3, 0.3, 0, 0.02);
+      v.burst(0.12, 3000, 0.6, 0.5, 'highpass', 0.22);
+      break;
+    case 'hitFire': // 炎の着弾: 爆ぜる低音 + 火花
+      v.tone('sine', 150, 40, 0.38, 0.85);
+      v.burst(0.32, 600, 0.7, 0.6, 'lowpass');
+      for (let i = 0; i < 5; i++) v.burst(0.03, 4500, 1, 0.3, 'highpass', 0.1 + i * 0.06);
+      break;
+    case 'hitIce': // 氷の着弾: ガラスが砕ける
+      v.burst(0.3, 5000, 0.6, 0.3, 'highpass');
+      v.tone('triangle', 3000, 1200, 0.3, 0.45);
+      v.tone('sine', 95, 40, 0.25, 0.7);
+      break;
+    case 'hitThunder': // 雷の着弾: 鋭い破裂
+      v.burst(0.18, 3500, 0.5, 0.4, 'highpass');
+      v.tone('square', 420, 60, 0.26, 0.55);
+      v.tone('sawtooth', 200, 50, 0.4, 0.6);
+      break;
+    case 'breath': // ドラゴンのブレス: 長く吹き付ける炎
+      v.burst(1.5, 400, 0.6, 0.42, 'lowpass', 0, 3000, 0.5);
+      v.tone('sawtooth', 70, 130, 1.5, 0.45, 0, 0.4);
+      for (let i = 0; i < 8; i++) v.burst(0.04, 3800, 1, 0.18, 'highpass', 0.5 + i * 0.13);
+      break;
+    case 'die': // 撃破: 崩れ落ちる
+      v.tone('sawtooth', 300, 40, 0.7, 0.4);
+      v.burst(0.6, 1500, 0.6, 0.5, 'lowpass', 0, 200, 0.05);
+      break;
+    case 'dieBoss': // ボス撃破: 長い断末魔 + 崩壊
+      v.tone('sawtooth', 200, 25, 1.6, 0.45);
+      v.tone('sine', 60, 20, 1.8, 0.9, 0.1);
+      v.burst(1.5, 1800, 0.5, 0.6, 'lowpass', 0, 120, 0.1);
+      break;
+    case 'squelch': // スライム: ぐにゅっ
+      v.tone('sine', 300, 120, 0.2, 0.45);
+      v.tone('sine', 220, 90, 0.25, 0.45, 0.1);
+      v.burst(0.15, 800, 2, 0.3, 'bandpass', 0.02);
+      break;
+    case 'clatter': // スケルトン: 骨のカタカタ
+      [0, 0.05, 0.1, 0.16, 0.21, 0.26, 0.33, 0.38].forEach((d, i) => v.burst(0.06, 2200 + (i % 3) * 600, 3, 0.26, 'bandpass', d));
+      v.tone('triangle', 320, 180, 0.4, 0.25);
+      break;
+    case 'stomp': // ゴーレム: 岩の重い踏み込み
+      v.tone('sine', 80, 30, 0.5, 1);
+      v.burst(0.35, 300, 0.6, 0.7, 'lowpass');
+      v.tone('sine', 55, 25, 0.6, 0.8, 0.12);
+      break;
+    case 'clear': // ダンジョン踏破: 長い勝利のファンファーレ
+      [523, 659, 784, 1047, 784, 1047, 1319, 1568].forEach((f, i) => v.tone('triangle', f, f, i === 7 ? 0.9 : 0.3, 0.4, i * 0.16, 0.02));
       break;
   }
 }
