@@ -10,7 +10,9 @@ import { game } from '../game';
 import { ELEMENT_COLOR, ELEMENT_LABEL, SKILLS } from '../core/data';
 import type { Element, SkillDef } from '../core/types';
 import { COLORS, drawBackground, drawHero, drawShield, drawEnemy, drawSword, txt } from '../ui/art';
-import { makeButton, type Button } from '../ui/widgets';
+import { makeButton, onTap, padHitArea, type Button } from '../ui/widgets';
+import { compact } from '../ui/device';
+import { skillSummary } from '../ui/skillText';
 import { hitStopMs, popupFontSize, shakeFor, shouldFlashHurt, sparkCount } from '../ui/juice';
 import { H, W } from './TitleScene';
 
@@ -56,6 +58,10 @@ export class BattleScene extends Phaser.Scene {
   private dragBtn: SkillBtn | null = null;
   private justDragged = false;
   private ghost: Phaser.GameObjects.Container | null = null;
+  private armed: SkillBtn | null = null; // タッチ操作: 1回目のタップで選択(詳細表示)、2回目で使用
+  private tip!: Phaser.GameObjects.Container;
+  private tipTitle!: Phaser.GameObjects.Text;
+  private tipBody!: Phaser.GameObjects.Text;
   private disp!: Disp;
   private busy = false;
   private buttons: SkillBtn[] = [];
@@ -94,6 +100,7 @@ export class BattleScene extends Phaser.Scene {
     this.dragBtn = null;
     this.justDragged = false;
     this.ghost = null;
+    this.armed = null;
   }
 
   create(): void {
@@ -161,20 +168,29 @@ export class BattleScene extends Phaser.Scene {
     this.endBtn = this.add.container(W / 2 + 20, 380, [
       this.endBtnBg, txt(this, 0, 0, 'ターン終了', 22, '#fff', { fontStyle: 'bold' }).setOrigin(0.5),
     ]);
-    this.endBtn.setSize(170, 54).setInteractive({ useHandCursor: true });
-    this.endBtn.on('pointerdown', () => this.endTurn());
+    padHitArea(this.endBtn, 170, 54);
+    onTap(this.endBtn, () => this.endTurn());
     this.endBtn.on('pointerover', () => this.paintEnd(true));
     this.endBtn.on('pointerout', () => this.paintEnd(false));
-    txt(this, W / 2 + 20, 414, 'Space', 12, '#7b8798').setOrigin(0.5);
+    if (!compact()) txt(this, W / 2 + 20, 414, 'Space', 12, '#7b8798').setOrigin(0.5);
     this.potionBtn = makeButton(this, W / 2 + 20, 452, 170, 40, '', () => this.drinkPotion(), { size: 15, color: 0x6fcf97 });
 
     const back = txt(this, 20, 14, '← 挑戦を諦める', 14, '#7b8798').setInteractive({ useHandCursor: true });
-    back.on('pointerdown', () => { run.finished = 'defeat'; this.scene.start('RunEnd'); });
-    const mute = txt(this, W - 20, 14, 'M: ミュート切替', 14, '#7b8798').setOrigin(1, 0);
-    this.input.keyboard?.on('keydown-M', () => mute.setText(audio.toggleMute() ? 'M: ミュート中' : 'M: ミュート切替'));
+    onTap(back, () => { run.finished = 'defeat'; this.scene.start('RunEnd'); });
+    this.input.keyboard?.on('keydown-M', () => audio.toggleMute());
     this.input.keyboard?.on('keydown-SPACE', () => this.endTurn());
 
     this.arrow = this.add.graphics().setDepth(1500);
+    // スキル詳細ツールチップ（コンパクト/タッチ時。小さな説明文の代わりに大きな文字で表示）
+    const tipBg = this.add.graphics();
+    tipBg.fillStyle(0x14110f, 0.94).fillRoundedRect(-330, -46, 660, 92, 12).lineStyle(3, COLORS.energy, 1).strokeRoundedRect(-330, -46, 660, 92, 12);
+    this.tipTitle = txt(this, 0, -30, '', 22, '#ffffff', { fontStyle: 'bold' }).setOrigin(0.5, 0);
+    this.tipBody = txt(this, 0, 2, '', 20, '#d8d0c4', { align: 'center', wordWrap: { width: 620, useAdvancedWrap: true } }).setOrigin(0.5, 0);
+    this.tip = this.add.container(W / 2 - 40, 84, [tipBg, this.tipTitle, this.tipBody]).setDepth(1800).setVisible(false);
+    this.input.on('pointerdown', (_p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+      // スキルボタン以外をタップしたら選択解除
+      if (this.armed && !over.some((o) => this.buttons.some((b) => b.c === o))) this.disarm();
+    });
     this.input.dragDistanceThreshold = 6;
     this.setupDrag();
     audio.setMood('battle');
@@ -188,16 +204,23 @@ export class BattleScene extends Phaser.Scene {
 
   // ------------------------------------------------------------------ 構築
   private buildButton(member: number, skill: SkillDef, x: number, BTN_W: number): void {
+    const cmp = compact();
     const bg = this.add.graphics();
     const col = skill.element !== 'none' ? ELEMENT_COLOR[skill.element] : skill.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;
-    const title = txt(this, 0, -BTN_H / 2 + 20, skill.name, Math.min(16, Math.floor((BTN_W - 8) / Math.max(4, skill.name.length))), '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
+    const kindLabel = skill.kind === 'support' ? '補助' : skill.kind === 'physical' ? '物理' : ELEMENT_LABEL[skill.element] + '魔法';
+    // 名前は幅に収まらなければ折り返す（コンパクト時は最小16pxのため）
+    const title = txt(this, 0, -BTN_H / 2 + (cmp ? 8 : 12), skill.name, cmp ? 16 : Math.min(16, Math.floor((BTN_W - 8) / Math.max(4, skill.name.length))), '#fff',
+      { fontStyle: 'bold', align: 'center', wordWrap: { width: BTN_W - 8, useAdvancedWrap: true } }).setOrigin(0.5, 0);
+    const chipW = cmp ? 62 : 44, chipH = cmp ? 24 : 18;
+    const chipY = -BTN_H / 2 + (cmp ? 52 : 40);
     const chip = this.add.graphics();
-    chip.fillStyle(col, 1).fillRoundedRect(-BTN_W / 2 + 6, -BTN_H / 2 + 40, 44, 18, 9);
-    const chipText = txt(this, -BTN_W / 2 + 28, -BTN_H / 2 + 49,
-      skill.kind === 'support' ? '補助' : skill.kind === 'physical' ? '物理' : ELEMENT_LABEL[skill.element] + '魔法', 11, '#111', { fontStyle: 'bold' }).setOrigin(0.5);
-    const cd = txt(this, BTN_W / 2 - 6, -BTN_H / 2 + 49, `CD ${skill.cooldown}`, 11, '#9fb0c8').setOrigin(1, 0.5);
-    const body = txt(this, 0, -BTN_H / 2 + 68, skill.text, BTN_W < 130 ? 11 : 12, '#e8dfd3', {
-      align: 'left', wordWrap: { width: BTN_W - 14, useAdvancedWrap: true },
+    chip.fillStyle(col, 1).fillRoundedRect(-BTN_W / 2 + 6, chipY, chipW, chipH, chipH / 2);
+    const chipText = txt(this, -BTN_W / 2 + 6 + chipW / 2, chipY + chipH / 2, kindLabel, 11, '#111', { fontStyle: 'bold' }).setOrigin(0.5);
+    const cd = txt(this, BTN_W / 2 - 6, chipY + chipH / 2, `CD${skill.cooldown}`, 11, '#9fb0c8').setOrigin(1, 0.5);
+    // 説明: 通常は全文 / コンパクトは要点のみ（全文はタップ時にツールチップで表示）
+    const bodyText = cmp ? skillSummary(skill).join('\n') : skill.text;
+    const body = txt(this, 0, chipY + chipH + 8, bodyText, cmp ? 16 : BTN_W < 130 ? 11 : 12, cmp ? '#ffd9a0' : '#e8dfd3', {
+      align: cmp ? 'center' : 'left', fontStyle: cmp ? 'bold' : 'normal', wordWrap: { width: BTN_W - 14, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
     const status = txt(this, 0, BTN_H / 2 - 20, '', 13, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
     const c = this.add.container(x, BTN_Y, [bg, title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
@@ -208,29 +231,71 @@ export class BattleScene extends Phaser.Scene {
     c.on('pointerover', () => {
       btn.hover = true;
       this.paintBtn(btn, true);
-      if (this.dragBtn) return;
+      if (this.dragBtn || this.armed) return;
       if (!this.busy && canUse(this.state, member, skill.id)) {
         audio.play('hover');
         this.liftBtn(btn, true);
         this.showPreview(btn);
+        this.showTip(btn);
       }
     });
     c.on('pointerout', () => {
       btn.hover = false;
       this.paintBtn(btn, false);
-      if (this.dragBtn) return;
+      if (this.dragBtn || this.armed === btn) return; // タッチで選択中は表示を維持
+      if (this.armed) return;
       this.liftBtn(btn, false);
       this.clearPreview();
+      this.hideTip();
     });
     c.on('pointerdown', () => {
       if (!this.busy && canUse(this.state, member, skill.id)) this.tweens.add({ targets: c, scale: 0.95, duration: 60, ease: 'Quad.out' });
     });
-    // クリックで使用（ドラッグ操作の終了時は誤発火させない）
-    c.on('pointerup', () => {
-      if (this.justDragged || this.dragBtn) return;
+    // 離したときに使用（ドラッグ終了時・画面遷移直後の指離しでは発火させない）
+    let pressed = false;
+    c.on('pointerdown', () => { pressed = true; });
+    c.on('pointerup', (p: Phaser.Input.Pointer) => {
+      const wasPressed = pressed;
+      pressed = false;
+      if (!wasPressed || this.justDragged || this.dragBtn) return;
+      if (p.wasTouch && !this.busy && canUse(this.state, member, skill.id) && this.armed !== btn) {
+        this.arm(btn); // タッチ: 1回目は選択して効果を確認
+        return;
+      }
+      this.disarm();
       this.liftBtn(btn, btn.hover);
       this.onSkill(btn);
     });
+  }
+
+  /** タッチ操作で1回目のタップ: スキルを選択(持ち上げ・予測ダメージ・詳細を表示) */
+  private arm(b: SkillBtn): void {
+    if (this.armed && this.armed !== b) this.liftBtn(this.armed, false);
+    this.armed = b;
+    audio.play('select');
+    this.liftBtn(b, true);
+    this.showPreview(b);
+    this.showTip(b, true);
+  }
+
+  private disarm(): void {
+    if (!this.armed) return;
+    const b = this.armed;
+    this.armed = null;
+    this.liftBtn(b, b.hover);
+    this.clearPreview();
+    this.hideTip();
+  }
+
+  private showTip(b: SkillBtn, armedHint = false): void {
+    if (!compact()) return;
+    this.tipTitle.setText(b.skill.name + (armedHint ? '　─ もう一度タップで使用 / 敵へドラッグ' : ''));
+    this.tipBody.setText(b.skill.text);
+    this.tip.setVisible(true);
+  }
+
+  private hideTip(): void {
+    this.tip.setVisible(false);
   }
 
   /** ホバー時にふわりと浮き上がる（離すと戻る） */
@@ -398,6 +463,8 @@ export class BattleScene extends Phaser.Scene {
         this.tweens.add({ targets: obj, x: obj.x + 6, duration: 40, yoyo: true, repeat: 2 });
         return;
       }
+      this.armed = null;
+      this.hideTip();
       this.dragBtn = b;
       this.justDragged = true;
       audio.play('select');
@@ -459,6 +526,8 @@ export class BattleScene extends Phaser.Scene {
       this.tweens.add({ targets: b.c, x: b.c.x + 6, duration: 40, yoyo: true, repeat: 2 });
       return;
     }
+    this.armed = null;
+    this.hideTip();
     this.clearPreview();
     const events = useSkill(s, b.member, b.skill.id)!;
     this.busy = true;
@@ -782,6 +851,7 @@ export class BattleScene extends Phaser.Scene {
     const s = this.state;
     if (this.busy || s.phase !== 'player') return;
     this.busy = true;
+    this.disarm();
     this.clearPreview();
     audio.play('click');
     const events = endPlayerTurn(s);

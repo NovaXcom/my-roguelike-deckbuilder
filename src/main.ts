@@ -12,6 +12,7 @@ import { TownScene } from './scenes/TownScene';
 import { H, TitleScene, W } from './scenes/TitleScene';
 import { audio, measureBgm, measureSfx, SFX_KINDS } from './audio';
 import { game } from './game';
+import { addSystemButtons } from './ui/widgets';
 
 const phaser = new Phaser.Game({
   type: Phaser.AUTO,
@@ -19,6 +20,10 @@ const phaser = new Phaser.Game({
   width: W,
   height: H,
   backgroundColor: '#14110f',
+  disableContextMenu: true, // 長押しメニューを出さない
+  input: { activePointers: 3, touch: { capture: true } },
+  render: { powerPreference: 'high-performance', antialias: true },
+  fps: { target: 60 },
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: [
     TitleScene, TownScene, PartyScene, MapScene, BattleScene, LootScene,
@@ -31,7 +36,10 @@ audio.installGestureUnlock();
 
 // シーン遷移をなめらかに（各シーン生成時にフェードイン）
 phaser.events.once('ready', () => {
-  phaser.scene.scenes.forEach((s) => s.events.on('create', () => s.cameras.main.fadeIn(180, 0, 0, 0)));
+  phaser.scene.scenes.forEach((s) => s.events.on('create', () => {
+    s.cameras.main.fadeIn(180, 0, 0, 0);
+    addSystemButtons(s);
+  }));
 });
 
 // ブラウザ自動検証用: URL に ?debug を付けたときだけ内部状態を公開する

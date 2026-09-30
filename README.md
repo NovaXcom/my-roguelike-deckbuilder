@@ -9,6 +9,8 @@ Phaser 3 + TypeScript + Vite + Vitest 製。設計は `GAME_DESIGN.md` / `ART_DI
 | `npm test` | Vitest 単体テスト (`tests/`) |
 | `npm run build` | 通常ビルド → `dist/` (itch.io 用) |
 | `npm run build:local` | 単一HTMLビルド → `dist-local/index.html` (ダブルクリックで起動可) |
+| `npm run package:itch` | **itch.io 投稿用ZIP** を `release/` に生成（手順は [docs/ITCHIO.md](docs/ITCHIO.md)） |
+| `npm run verify:itch` | ZIPを itch.io 相当の条件(サブパス+別オリジンiframe, PC/スマホ)で実ブラウザ検証。要 Playwright |
 | `npm run verify:standalone` | 単一HTMLを空ディレクトリへコピーして実ブラウザ検証（外部通信なし・画面遷移・音声解錠・20MB以内）。要 Playwright |
 
 ## ゲームの流れ
@@ -44,5 +46,10 @@ Phaser 3 + TypeScript + Vite + Vitest 製。設計は `GAME_DESIGN.md` / `ART_DI
 - **スキル操作**: ホバーで浮き上がり、**ドラッグして敵にドロップ**（ターゲット矢印＋スキル名チップ、補助スキルは上へドロップ）／クリックでも使用可。
 - **音**: すべて WebAudio 合成。`OfflineAudioContext` で実測したピーク/ラウドネスに合わせて音量を調整（UI音 < 通常SE < 戦闘SE < ブレイク < チェイン、BGMは戦闘SEより10dB以上小さい）。コンプレッサー経由でクリップを防止。戦闘中は BGM に低い鼓動が加わる。
 - **Autoplay対策**: 最初のクリック/キー入力/タッチで `AudioContext` を開放（それまでは生成しない）。`M` でミュート（設定は保存）。
+
+## スマホ対応
+- 横向きでプレイ（縦持ちは案内を表示）。タッチ端末で表示が小さいときは**コンパクトUI**（最小フォント16px・広いタップ領域・スキルは要点表示）。
+- スキルは **1回タップ＝選択（予測ダメージと詳細）→ もう一度タップで使用**、または敵へドラッグ。押して離したときに反応するため、画面遷移直後の誤タップは起きない。
+- 右上に全画面／ミュートボタン。長押しメニュー・ピンチ・プルリフレッシュは無効化。
 
 操作: スキルをクリック（ホバーで予測ダメージと矢印）/ 全員行動で自動ターン終了 / `Space` で手動終了 / `M` ミュート

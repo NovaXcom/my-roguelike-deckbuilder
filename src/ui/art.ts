@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import type { Role } from '../core/types';
+import { fontSize } from './device';
 
 /** 画像アセット無しでも成立させるための Canvas(Graphics) 描画ユーティリティ群。 */
 export const FONT = '"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP","Meiryo",sans-serif';
@@ -22,7 +23,7 @@ export function txt(
   style: Phaser.Types.GameObjects.Text.TextStyle = {},
 ): Phaser.GameObjects.Text {
   return scene
-    .add.text(x, y, s, { fontFamily: FONT, fontSize: `${size}px`, color, ...style })
+    .add.text(x, y, s, { fontFamily: FONT, fontSize: `${fontSize(size)}px`, color, ...style })
     .setResolution(2);
 }
 

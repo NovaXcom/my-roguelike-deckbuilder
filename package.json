@@ -10,12 +10,15 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "verify:standalone": "node scripts/verify-standalone.cjs"
+    "verify:standalone": "node scripts/verify-standalone.cjs",
+    "package:itch": "npm run build && npm run build:local && node scripts/package-itch.mjs",
+    "verify:itch": "node scripts/verify-itch.cjs"
   },
   "dependencies": {
     "phaser": "^3.90.0"
   },
   "devDependencies": {
+    "fflate": "^0.8.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
     "vite-plugin-singlefile": "^2.3.3",

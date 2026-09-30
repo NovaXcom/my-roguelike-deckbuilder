@@ -24,13 +24,12 @@ export class TownScene extends Phaser.Scene {
     const meta = game.meta;
     txt(this, W / 2, 44, '拠点 ─ 復興の街', 38, '#f6e3b4', { fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
     txt(this, W / 2, 92, `魔導石  ◆ ${meta.stones}`, 26, '#7fe9ff', { fontStyle: 'bold' }).setOrigin(0.5);
-    txt(this, W / 2, 124, `挑戦 ${meta.runs} 回 ／ 踏破 ${meta.clears} 回`, 14, '#7b8798').setOrigin(0.5);
+    txt(this, W / 2, 124, `挑戦 ${meta.runs} 回 ／ 踏破 ${meta.clears} 回　※魔導石は挑戦中に集め、終了時に持ち帰れます`, 14, '#7b8798').setOrigin(0.5);
 
     (['smith', 'alchemy', 'training'] as Facility[]).forEach((f, i) => this.buildPanel(f, 60 + i * (PANEL_W + 30)));
 
     makeButton(this, W / 2 + 110, 668, 300, 60, '冒険に出る', () => { audio.play('click'); this.scene.start('Party'); }, { size: 28 });
     makeButton(this, 130, 668, 200, 46, '← タイトルへ', () => this.scene.start('Title'), { size: 16, color: 0x7b8798 });
-    txt(this, W / 2 - 190, 668, '魔導石は挑戦中に集め、終了時に持ち帰れます', 13, '#7b8798').setOrigin(0.5);
   }
 
   private buildPanel(f: Facility, x: number): void {

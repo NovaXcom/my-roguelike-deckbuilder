@@ -5,6 +5,8 @@ import { RARITY_LABEL, statLines } from '../core/equipment';
 import { memberMaxHp, memberSkills } from '../core/run';
 import { startRun } from '../game';
 import { drawBackground, drawHero, txt } from '../ui/art';
+import { compact } from '../ui/device';
+import { skillSummary } from '../ui/skillText';
 import { hex, makeButton } from '../ui/widgets';
 import { H, W } from './TitleScene';
 
@@ -43,7 +45,8 @@ export class PartyScene extends Phaser.Scene {
         g.fillStyle(col, 1).fillRoundedRect(px + 240, y + 3, 6, 42, 3);
         txt(this, px + 256, y, `${sk.name}${sk.element !== 'none' ? `（${ELEMENT_LABEL[sk.element]}）` : ''}`, 15, '#fff', { fontStyle: 'bold' });
         txt(this, px + 510, y + 2, `CD ${sk.cooldown}`, 12, '#ffb86b').setOrigin(1, 0);
-        txt(this, px + 256, y + 20, sk.text, 12, '#b8c2d0', { wordWrap: { width: 300, useAdvancedWrap: true } });
+        // コンパクト(スマホ)は長文の代わりに要点を1行で大きく表示
+        txt(this, px + 256, y + 20, compact() ? skillSummary(sk).join('  ') : sk.text, 12, '#b8c2d0', { wordWrap: { width: 300, useAdvancedWrap: true } });
       });
     });
 

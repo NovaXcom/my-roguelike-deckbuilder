@@ -4,7 +4,8 @@ import { NODE_LABEL, type MapNode, type NodeType } from '../core/map';
 import { availableNodes, enterNode, memberMaxHp, usePotionOnMap } from '../core/run';
 import { game } from '../game';
 import { COLORS, drawBackground, txt } from '../ui/art';
-import { makeButton, panel } from '../ui/widgets';
+import { compact } from '../ui/device';
+import { makeButton, onTap, padHitArea, panel } from '../ui/widgets';
 import { H, W } from './TitleScene';
 
 const NODE_COLOR: Record<NodeType, number> = {
@@ -59,14 +60,14 @@ export class MapScene extends Phaser.Scene {
         .setOrigin(0.5).setAlpha(isAvail || isVisited ? 1 : 0.5)]);
       if (isAvail) {
         this.tweens.add({ targets: c, scale: 1.14, duration: 650, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
-        c.setSize(r * 2 + 10, r * 2 + 10).setInteractive({ useHandCursor: true });
+        padHitArea(c, r * 2 + 10, r * 2 + 10);
         const label = txt(this, x, y + r + 12, NODE_LABEL[n.type], 13, '#ffe066', { stroke: '#000', strokeThickness: 3 }).setOrigin(0.5);
         c.on('pointerover', () => label.setScale(1.15));
         c.on('pointerout', () => label.setScale(1));
-        c.on('pointerdown', () => this.enter(n.id));
+        onTap(c, () => this.enter(n.id));
       }
     }
-    txt(this, 640, BASE_Y + 52, '▲ 進行方向', 13, '#5b6370').setOrigin(0.5);
+    if (!compact()) txt(this, 640, BASE_Y + 52, '▲ 進行方向', 13, '#5b6370').setOrigin(0.5);
 
     // --- HUD（左: パーティ状態 / 右: 操作） ---
     panel(this, 16, 70, 250, 300, 0x4a5262);
