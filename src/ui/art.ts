@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { CharacterId } from '../core/types';
+import type { Role } from '../core/types';
 
 /** 画像アセット無しでも成立させるための Canvas(Graphics) 描画ユーティリティ群。 */
 export const FONT = '"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP","Meiryo",sans-serif';
@@ -80,7 +80,7 @@ export function drawCardsIcon(g: Phaser.GameObjects.Graphics, x: number, y: numb
 }
 
 /** キャラクターのシルエット（原点=足元中央）。 */
-export function drawHero(g: Phaser.GameObjects.Graphics, id: CharacterId, color: number, scale = 1): void {
+export function drawHero(g: Phaser.GameObjects.Graphics, id: Role, color: number, scale = 1): void {
   const s = scale;
   g.clear();
   const dark = Phaser.Display.Color.ValueToColor(color).darken(45).color;
@@ -98,7 +98,7 @@ export function drawHero(g: Phaser.GameObjects.Graphics, id: CharacterId, color:
   // 頭
   g.fillStyle(0xe8c9a0, 1);
   g.fillCircle(0, -140 * s, 20 * s);
-  if (id === 'ironbuster') {
+  if (id === 'knight') {
     g.fillStyle(0x9aa3ad, 1); // 兜
     g.fillRoundedRect(-22 * s, -164 * s, 44 * s, 26 * s, 8 * s);
     g.fillStyle(color, 1);
@@ -107,23 +107,20 @@ export function drawHero(g: Phaser.GameObjects.Graphics, id: CharacterId, color:
     g.lineBetween(34 * s, -50 * s, 62 * s, -150 * s);
     g.lineStyle(10 * s, 0x7a5a3a, 1);
     g.lineBetween(30 * s, -50 * s, 40 * s, -66 * s);
-  } else if (id === 'spellweaver') {
+    g.fillStyle(0x6b7280, 1); // タワーシールド
+    g.fillRoundedRect(-62 * s, -118 * s, 34 * s, 70 * s, 8 * s);
+    g.lineStyle(3 * s, color, 1);
+    g.strokeRoundedRect(-62 * s, -118 * s, 34 * s, 70 * s, 8 * s);
+  } else {
     g.fillStyle(dark, 1); // とんがり帽子
     g.fillTriangle(-26 * s, -152 * s, 26 * s, -152 * s, 6 * s, -205 * s);
     g.fillRect(-32 * s, -156 * s, 64 * s, 8 * s);
     g.lineStyle(6 * s, 0x7a5a3a, 1); // 杖
     g.lineBetween(40 * s, -20 * s, 48 * s, -160 * s);
-    g.fillStyle(0x00f2fe, 1);
-    g.fillCircle(48 * s, -168 * s, 11 * s);
-  } else {
-    g.fillStyle(dark, 1); // フード
-    g.fillPoints([
-      new Phaser.Math.Vector2(-24 * s, -130 * s), new Phaser.Math.Vector2(0, -175 * s),
-      new Phaser.Math.Vector2(24 * s, -130 * s), new Phaser.Math.Vector2(0, -122 * s),
-    ], true);
-    g.lineStyle(6 * s, 0xc7ced6, 1); // 双短剣
-    g.lineBetween(30 * s, -70 * s, 54 * s, -108 * s);
-    g.lineBetween(-30 * s, -70 * s, -54 * s, -108 * s);
+    for (const [c, dx, dy] of [[0xff7043, 48, -172], [0x6fd3ff, 30, -186], [0xffe066, 66, -186]] as const) {
+      g.fillStyle(c, 1);
+      g.fillCircle(dx * s, dy * s, 8 * s);
+    }
   }
   // 目
   g.fillStyle(0x111111, 1);

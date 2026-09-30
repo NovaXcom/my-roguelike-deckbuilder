@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { BattleScene } from './scenes/BattleScene';
-import { CharacterSelectScene } from './scenes/CharacterSelectScene';
+import { PartyScene } from './scenes/PartyScene';
 import { H, TitleScene, W } from './scenes/TitleScene';
 
 new Phaser.Game({
@@ -10,5 +10,5 @@ new Phaser.Game({
   height: H,
   backgroundColor: '#14110f',
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-  scene: [TitleScene, CharacterSelectScene, BattleScene],
+  scene: [TitleScene, PartyScene, BattleScene],
 });

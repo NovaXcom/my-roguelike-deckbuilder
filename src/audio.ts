@@ -72,15 +72,11 @@ class AudioManager {
     n.start(t);
   }
 
-  play(kind: 'click' | 'draw' | 'shuffle' | 'card' | 'block' | 'hit' | 'enemyHit' | 'turn' | 'win' | 'lose'): void {
+  play(kind: 'click' | 'skill' | 'block' | 'hit' | 'enemyHit' | 'turn' | 'win' | 'lose' | 'break' | 'chain' | 'heal' | 'magic'): void {
     if (!this.ctx || !this.master) return;
     switch (kind) {
       case 'click': this.tone('triangle', 660, 880, 0.08, 0.15); break;
-      case 'draw': this.burst(0.09, 3200, 1.2, 0.18, 'bandpass'); break;
-      case 'shuffle':
-        for (let i = 0; i < 5; i++) this.burst(0.07, 2500 + i * 300, 1, 0.14, 'bandpass', i * 0.05);
-        break;
-      case 'card': // ドシッという重い打撃音
+      case 'skill': // ドシッという重い打撃音
         this.tone('sine', 140, 38, 0.28, 0.7);
         this.burst(0.12, 400, 0.8, 0.4, 'lowpass');
         break;
@@ -96,6 +92,22 @@ class AudioManager {
       case 'enemyHit':
         this.tone('square', 300, 90, 0.16, 0.25);
         this.burst(0.14, 1400, 0.9, 0.4, 'bandpass');
+        break;
+      case 'magic':
+        this.tone('sine', 400, 1400, 0.3, 0.25);
+        this.burst(0.25, 3000, 1.5, 0.18, 'highpass');
+        break;
+      case 'heal': [660, 880, 1320].forEach((f, i) => this.tone('sine', f, f, 0.4, 0.18, i * 0.09)); break;
+      case 'break': // ガラスが砕ける音
+        this.burst(0.5, 4200, 0.6, 0.55, 'highpass');
+        this.tone('square', 900, 120, 0.4, 0.3);
+        this.tone('sine', 70, 30, 0.6, 0.7);
+        break;
+      case 'chain':
+        this.tone('sawtooth', 110, 880, 0.5, 0.3);
+        this.tone('sine', 60, 25, 0.9, 0.9, 0.35);
+        this.burst(0.6, 1800, 0.5, 0.6, 'bandpass', 0.35);
+        [523, 784, 1047].forEach((f, i) => this.tone('triangle', f, f, 0.5, 0.2, 0.45 + i * 0.08));
         break;
       case 'turn': this.tone('triangle', 330, 495, 0.2, 0.2); this.tone('triangle', 495, 660, 0.25, 0.18, 0.12); break;
       case 'win': [523, 659, 784, 1047].forEach((f, i) => this.tone('triangle', f, f, 0.35, 0.22, i * 0.14)); break;
