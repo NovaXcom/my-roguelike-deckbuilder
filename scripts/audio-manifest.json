@@ -2,10 +2,18 @@
   "style": "Dark fantasy RPG game sound, immersive atmospheric texture, high quality 16bit",
   "assets": [
     {
-      "id": "bgm_dungeon",
+      "id": "bgm_town",
       "type": "bgm",
-      "path": "src/assets/audio/bgm_dungeon.mp3",
-      "prompt": "Slow eerie dungeon exploration ambience, deep drone, distant dripping water, low choir pads, no drums",
+      "path": "src/assets/audio/bgm_town.mp3",
+      "prompt": "Calm warm town theme, gentle acoustic guitar and soft strings, hopeful mood of rebuilding, slow tempo",
+      "loop": true,
+      "duration": 30
+    },
+    {
+      "id": "bgm_map",
+      "type": "bgm",
+      "path": "src/assets/audio/bgm_map.mp3",
+      "prompt": "Dim dungeon exploration music, sparse low pads, subtle tension, distant echoes, slow, no drums",
       "loop": true,
       "duration": 30
     },
@@ -13,33 +21,385 @@
       "id": "bgm_battle",
       "type": "bgm",
       "path": "src/assets/audio/bgm_battle.mp3",
-      "prompt": "Tense battle theme, heavy war drums, low brass and strings ostinato, driving rhythm, seamless loop",
+      "prompt": "Tense battle music with steady tempo, driving drums and low strings, urgent but controlled",
       "loop": true,
       "duration": 30
     },
     {
-      "id": "se_slash",
-      "type": "se",
-      "path": "src/assets/audio/se_slash.wav",
-      "prompt": "Sharp sword slash whoosh with metallic impact, single hit",
-      "loop": false,
-      "duration": 1
+      "id": "bgm_boss",
+      "type": "bgm",
+      "path": "src/assets/audio/bgm_boss.mp3",
+      "prompt": "Epic heavy boss battle, massive orchestra, pounding drums, choir, dragon fight, grand and intense",
+      "loop": true,
+      "duration": 30
     },
     {
-      "id": "se_dragon_roar",
-      "type": "se",
-      "path": "src/assets/audio/se_dragon_roar.wav",
-      "prompt": "Massive dragon roar, deep growl with reverberating echo, single roar",
+      "id": "jg_win",
+      "type": "jingle",
+      "path": "src/assets/audio/jg_win.mp3",
+      "prompt": "Short triumphant victory fanfare, brass and strings, bright resolve",
       "loop": false,
       "duration": 4
     },
     {
-      "id": "se_level_up",
-      "type": "se",
-      "path": "src/assets/audio/se_level_up.wav",
-      "prompt": "Magical level up jingle, ascending shimmering chime arpeggio, heroic and bright",
+      "id": "jg_clear",
+      "type": "jingle",
+      "path": "src/assets/audio/jg_clear.mp3",
+      "prompt": "Grand dungeon cleared fanfare, epic orchestral triumph with choir, celebratory and long final chord",
       "loop": false,
-      "duration": 2
+      "duration": 10
+    },
+    {
+      "id": "jg_lose",
+      "type": "jingle",
+      "path": "src/assets/audio/jg_lose.mp3",
+      "prompt": "Somber defeat sting, slow descending minor strings, fading out",
+      "loop": false,
+      "duration": 5
+    },
+    {
+      "id": "jg_legendary",
+      "type": "jingle",
+      "path": "src/assets/audio/jg_legendary.mp3",
+      "prompt": "Magical legendary item discovery jingle, shimmering harp glissando and golden chime",
+      "loop": false,
+      "duration": 3
+    },
+    {
+      "id": "atk_slash_1",
+      "type": "se",
+      "path": "src/assets/audio/atk_slash_1.wav",
+      "prompt": "Sword slash whoosh with light metallic edge, single swing",
+      "loop": false,
+      "duration": 0.8
+    },
+    {
+      "id": "atk_slash_2",
+      "type": "se",
+      "path": "src/assets/audio/atk_slash_2.wav",
+      "prompt": "Sword slash whoosh with light metallic edge, single swing",
+      "loop": false,
+      "duration": 0.8
+    },
+    {
+      "id": "atk_slash_3",
+      "type": "se",
+      "path": "src/assets/audio/atk_slash_3.wav",
+      "prompt": "Sword slash whoosh with light metallic edge, single swing",
+      "loop": false,
+      "duration": 0.8
+    },
+    {
+      "id": "atk_bash",
+      "type": "se",
+      "path": "src/assets/audio/atk_bash.wav",
+      "prompt": "Shield bash heavy thud with metal clang, single hit",
+      "loop": false,
+      "duration": 0.8
+    },
+    {
+      "id": "atk_heavy",
+      "type": "se",
+      "path": "src/assets/audio/atk_heavy.wav",
+      "prompt": "Heavy two-handed weapon swing whoosh into massive impact",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "mag_cast_fire",
+      "type": "se",
+      "path": "src/assets/audio/mag_cast_fire.wav",
+      "prompt": "Fire spell charging, rising crackling whoosh",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "mag_cast_ice",
+      "type": "se",
+      "path": "src/assets/audio/mag_cast_ice.wav",
+      "prompt": "Ice spell charging, rising crystalline shimmer",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "mag_cast_thunder",
+      "type": "se",
+      "path": "src/assets/audio/mag_cast_thunder.wav",
+      "prompt": "Lightning spell charging, rising electric buzz and crackle",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "mag_hit_fire",
+      "type": "se",
+      "path": "src/assets/audio/mag_hit_fire.wav",
+      "prompt": "Fire explosion impact, burning burst",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "mag_hit_ice",
+      "type": "se",
+      "path": "src/assets/audio/mag_hit_ice.wav",
+      "prompt": "Ice shatter impact, crystal crack and burst",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "mag_hit_thunder",
+      "type": "se",
+      "path": "src/assets/audio/mag_hit_thunder.wav",
+      "prompt": "Lightning strike impact, sharp electric crack and boom",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "sup_guard",
+      "type": "se",
+      "path": "src/assets/audio/sup_guard.wav",
+      "prompt": "Raising a metal shield, short metallic clank",
+      "loop": false,
+      "duration": 0.6
+    },
+    {
+      "id": "sup_heal",
+      "type": "se",
+      "path": "src/assets/audio/sup_heal.wav",
+      "prompt": "Gentle healing magic, soft rising sparkle chime",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "sup_taunt",
+      "type": "se",
+      "path": "src/assets/audio/sup_taunt.wav",
+      "prompt": "Warrior battle cry with war horn blast",
+      "loop": false,
+      "duration": 1.5
+    },
+    {
+      "id": "hit_enemy_1",
+      "type": "se",
+      "path": "src/assets/audio/hit_enemy_1.wav",
+      "prompt": "Physical hit on monster, meaty punch impact",
+      "loop": false,
+      "duration": 0.5
+    },
+    {
+      "id": "hit_enemy_2",
+      "type": "se",
+      "path": "src/assets/audio/hit_enemy_2.wav",
+      "prompt": "Physical hit on monster, meaty punch impact",
+      "loop": false,
+      "duration": 0.5
+    },
+    {
+      "id": "hit_enemy_3",
+      "type": "se",
+      "path": "src/assets/audio/hit_enemy_3.wav",
+      "prompt": "Physical hit on monster, meaty punch impact",
+      "loop": false,
+      "duration": 0.5
+    },
+    {
+      "id": "hit_weak",
+      "type": "se",
+      "path": "src/assets/audio/hit_weak.wav",
+      "prompt": "Critical weak point hit, sharp strong impact with bright ring",
+      "loop": false,
+      "duration": 0.6
+    },
+    {
+      "id": "hit_resist",
+      "type": "se",
+      "path": "src/assets/audio/hit_resist.wav",
+      "prompt": "Dull muffled hit on armored target, low thud",
+      "loop": false,
+      "duration": 0.5
+    },
+    {
+      "id": "hit_party_s_1",
+      "type": "se",
+      "path": "src/assets/audio/hit_party_s_1.wav",
+      "prompt": "Small damage hit on hero, short body impact grunt-free",
+      "loop": false,
+      "duration": 0.5
+    },
+    {
+      "id": "hit_party_s_2",
+      "type": "se",
+      "path": "src/assets/audio/hit_party_s_2.wav",
+      "prompt": "Small damage hit on hero, short body impact grunt-free",
+      "loop": false,
+      "duration": 0.5
+    },
+    {
+      "id": "hit_party_l",
+      "type": "se",
+      "path": "src/assets/audio/hit_party_l.wav",
+      "prompt": "Big damage hit on hero, heavy painful impact",
+      "loop": false,
+      "duration": 0.8
+    },
+    {
+      "id": "hit_blocked",
+      "type": "se",
+      "path": "src/assets/audio/hit_blocked.wav",
+      "prompt": "Attack blocked by shield, loud metal clang",
+      "loop": false,
+      "duration": 0.6
+    },
+    {
+      "id": "fx_break",
+      "type": "se",
+      "path": "src/assets/audio/fx_break.wav",
+      "prompt": "Glass shatter with deep bass boom, shield gauge breaking",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "fx_chain",
+      "type": "se",
+      "path": "src/assets/audio/fx_chain.wav",
+      "prompt": "Chain attack combo, charge up then huge explosion then rising sweep",
+      "loop": false,
+      "duration": 1.5
+    },
+    {
+      "id": "en_slime",
+      "type": "se",
+      "path": "src/assets/audio/en_slime.wav",
+      "prompt": "Slime attack, wet squelch splat",
+      "loop": false,
+      "duration": 0.8
+    },
+    {
+      "id": "en_skeleton",
+      "type": "se",
+      "path": "src/assets/audio/en_skeleton.wav",
+      "prompt": "Skeleton attack, bone rattle and rusty sword swing",
+      "loop": false,
+      "duration": 0.9
+    },
+    {
+      "id": "en_golem",
+      "type": "se",
+      "path": "src/assets/audio/en_golem.wav",
+      "prompt": "Stone golem attack, heavy rock smash",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "en_dragon_claw",
+      "type": "se",
+      "path": "src/assets/audio/en_dragon_claw.wav",
+      "prompt": "Dragon claw swipe, huge whoosh and tearing slash",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "en_dragon_breath",
+      "type": "se",
+      "path": "src/assets/audio/en_dragon_breath.wav",
+      "prompt": "Dragon fire breath, long roaring flame blast",
+      "loop": false,
+      "duration": 3
+    },
+    {
+      "id": "die_large",
+      "type": "se",
+      "path": "src/assets/audio/die_large.wav",
+      "prompt": "Large monster defeated, deep groan and heavy collapse",
+      "loop": false,
+      "duration": 1.8
+    },
+    {
+      "id": "die_boss",
+      "type": "se",
+      "path": "src/assets/audio/die_boss.wav",
+      "prompt": "Boss defeated, massive dying roar and huge explosion",
+      "loop": false,
+      "duration": 3.5
+    },
+    {
+      "id": "party_down",
+      "type": "se",
+      "path": "src/assets/audio/party_down.wav",
+      "prompt": "Hero collapses, body falling with sad low tone",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "deny",
+      "type": "se",
+      "path": "src/assets/audio/deny.wav",
+      "prompt": "Action denied buzzer, short low error tone",
+      "loop": false,
+      "duration": 0.4
+    },
+    {
+      "id": "ui_click_1",
+      "type": "se",
+      "path": "src/assets/audio/ui_click_1.wav",
+      "prompt": "Soft UI button click",
+      "loop": false,
+      "duration": 0.2
+    },
+    {
+      "id": "ui_click_2",
+      "type": "se",
+      "path": "src/assets/audio/ui_click_2.wav",
+      "prompt": "Soft UI button click",
+      "loop": false,
+      "duration": 0.2
+    },
+    {
+      "id": "ui_click_3",
+      "type": "se",
+      "path": "src/assets/audio/ui_click_3.wav",
+      "prompt": "Soft UI button click",
+      "loop": false,
+      "duration": 0.2
+    },
+    {
+      "id": "ui_select",
+      "type": "se",
+      "path": "src/assets/audio/ui_select.wav",
+      "prompt": "UI confirm select, bright short blip",
+      "loop": false,
+      "duration": 0.3
+    },
+    {
+      "id": "ui_cancel",
+      "type": "se",
+      "path": "src/assets/audio/ui_cancel.wav",
+      "prompt": "UI cancel back, short descending blip",
+      "loop": false,
+      "duration": 0.3
+    },
+    {
+      "id": "map_battle",
+      "type": "se",
+      "path": "src/assets/audio/map_battle.wav",
+      "prompt": "Battle start sting, sharp ominous hit with rising tension",
+      "loop": false,
+      "duration": 1.2
+    },
+    {
+      "id": "chest_open",
+      "type": "se",
+      "path": "src/assets/audio/chest_open.wav",
+      "prompt": "Treasure chest opening creak with sparkling glitter",
+      "loop": false,
+      "duration": 1.5
+    },
+    {
+      "id": "coin",
+      "type": "se",
+      "path": "src/assets/audio/coin.wav",
+      "prompt": "Coin purchase, gold coins clinking",
+      "loop": false,
+      "duration": 0.6
     }
   ]
 }

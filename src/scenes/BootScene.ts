@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { AudioManager, type SoundBackend } from '../audio/AudioManager';
-import { SOUNDS, collectAudioUrls } from '../audio/audioIds';
+import { SOUNDS, collectAudioUrls, fileKeys } from '../audio/audioIds';
 
 // Only files that actually exist are matched; an empty folder yields {} and the game uses synth sounds.
 // In `build:local` these are inlined as data URLs by Vite/vite-plugin-singlefile.
@@ -16,7 +16,7 @@ export class BootScene extends Phaser.Scene {
   preload(): void {
     const urls = collectAudioUrls(audioModules);
     for (const s of SOUNDS) {
-      if (urls[s.id]) this.load.audio(s.id, urls[s.id]);
+      for (const key of fileKeys(s)) if (urls[key]) this.load.audio(key, urls[key]);
     }
     // A missing/undecodable file must not stop the game.
     this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (f: Phaser.Loader.File) => {

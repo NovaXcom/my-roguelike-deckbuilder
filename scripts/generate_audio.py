@@ -86,8 +86,8 @@ def load_manifest():
         for key in ("id", "type", "path", "prompt", "loop", "duration"):
             if key not in a:
                 raise ValueError(f"manifest asset {a.get('id', '?')} lacks '{key}'")
-        if a["type"] not in ("bgm", "se"):
-            raise ValueError(f"asset {a['id']}: type must be 'bgm' or 'se'")
+        if a["type"] not in ("bgm", "jingle", "se"):
+            raise ValueError(f"asset {a['id']}: type must be 'bgm', 'jingle' or 'se'")
         if not a["path"].lower().endswith((".mp3", ".wav")):
             raise ValueError(f"asset {a['id']}: path must end with .mp3 or .wav")
     return style, assets
@@ -96,7 +96,7 @@ def load_manifest():
 def build_prompt(style, asset):
     """Merge the shared style with the per-asset prompt."""
     extra = "seamless loop" if asset["loop"] and "loop" not in asset["prompt"].lower() else ""
-    kind = "background music" if asset["type"] == "bgm" else "sound effect"
+    kind = {"bgm": "background music", "jingle": "short musical jingle", "se": "sound effect"}[asset["type"]]
     return ", ".join(p for p in (style, kind, asset["prompt"], extra) if p)
 
 
@@ -130,7 +130,7 @@ class Generator:
         seconds = min(float(seconds), MAX_SECONDS)
         with torch.no_grad():
             if self.backend == "audiocraft":
-                m = self._audiocraft(kind)
+                m = self._audiocraft("se" if kind == "se" else "music")
                 m.set_generation_params(duration=seconds)
                 wav = m.generate([prompt])[0]                      # [channels, samples]
                 return wav.mean(dim=0).cpu().float().numpy(), int(m.sample_rate)
