@@ -36,7 +36,7 @@ export class ChestScene extends Phaser.Scene {
       if (opened) return;
       opened = true;
       btn.setEnabled(false);
-      audio.play('skill');
+      audio.play('chest_open');
       const reward = openChest(run);
       this.tweens.add({ targets: lid, angle: -55, y: -50, duration: 300, ease: 'Back.out' });
       for (let i = 0; i < 18; i++) {

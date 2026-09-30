@@ -28,7 +28,7 @@ export class TownScene extends Phaser.Scene {
 
     (['smith', 'alchemy', 'training'] as Facility[]).forEach((f, i) => this.buildPanel(f, 60 + i * (PANEL_W + 30)));
 
-    makeButton(this, W / 2 + 110, 668, 300, 60, '冒険に出る', () => { audio.play('click'); this.scene.start('Party'); }, { size: 28 });
+    makeButton(this, W / 2 + 110, 668, 300, 60, '冒険に出る', () => { audio.play('ui_click'); this.scene.start('Party'); }, { size: 28 });
     makeButton(this, 130, 668, 200, 46, '← タイトルへ', () => this.scene.start('Title'), { size: 16, color: 0x7b8798 });
   }
 
@@ -77,7 +77,7 @@ export class TownScene extends Phaser.Scene {
       cost === null ? 'MAX' : `強化する  ◆ ${cost}`,
       () => {
         if (upgrade(meta, f)) {
-          audio.play('heal');
+          audio.play('sup_heal');
           saveMeta();
           this.scene.restart();
         }

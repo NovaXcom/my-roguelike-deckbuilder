@@ -12,12 +12,14 @@
     "typecheck": "tsc --noEmit",
     "verify:standalone": "node scripts/verify-standalone.cjs",
     "package:itch": "npm run build && npm run build:local && node scripts/package-itch.mjs",
-    "verify:itch": "node scripts/verify-itch.cjs"
+    "verify:itch": "node scripts/verify-itch.cjs",
+    "audio:measure": "node scripts/measure-audio.cjs"
   },
   "dependencies": {
     "phaser": "^3.90.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.3",
     "fflate": "^0.8.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",

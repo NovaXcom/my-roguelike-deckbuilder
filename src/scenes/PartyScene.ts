@@ -50,7 +50,7 @@ export class PartyScene extends Phaser.Scene {
       });
     });
 
-    makeButton(this, W / 2, 648, 300, 60, '出撃!', () => { audio.play('click'); this.scene.start('Map'); }, { size: 30 });
+    makeButton(this, W / 2, 648, 300, 60, '出撃!', () => { audio.play('ui_click'); this.scene.start('Map'); }, { size: 30 });
     makeButton(this, 120, 668, 190, 44, '← 拠点へ', () => this.scene.start('Town'), { size: 16, color: 0x7b8798 });
   }
 }

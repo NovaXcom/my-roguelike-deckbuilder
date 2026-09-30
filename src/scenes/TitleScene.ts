@@ -35,7 +35,7 @@ export class TitleScene extends Phaser.Scene {
 
     const start = () => {
       audio.unlock(); // Autoplay 制限回避: 最初のユーザー操作で AudioContext を開放（グローバル解錠と二重でも安全）
-      audio.play('select');
+      audio.play('ui_select');
       this.scene.start('Town');
     };
     onTap(btn, start);

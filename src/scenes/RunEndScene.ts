@@ -12,6 +12,12 @@ export class RunEndScene extends Phaser.Scene {
     super('RunEnd');
   }
 
+  private jingleDone = false;
+
+  init(data?: { jingleDone?: boolean }): void {
+    this.jingleDone = !!data?.jingleDone;
+  }
+
   create(): void {
     const run = game.run;
     if (!run) { this.scene.start('Town'); return; }
@@ -22,7 +28,9 @@ export class RunEndScene extends Phaser.Scene {
     const reached = Math.max(0, ...run.visited.map((id) => run.map.nodes[id].row)) + 1;
 
     drawBackground(this, W, H);
-    audio.play(won ? 'win' : 'lose');
+    // 戦闘で全滅した場合は戦闘画面で敗北ジングル再生済み
+    if (won) audio.play('jg_clear');
+    else if (!this.jingleDone) audio.play('jg_lose');
     const title = txt(this, W / 2, 170, won ? 'ダンジョン踏破!' : '力尽きた…', 76, won ? '#f6e3b4' : '#ff7a7a', {
       fontStyle: 'bold', stroke: '#000', strokeThickness: 10,
     }).setOrigin(0.5).setScale(0.3);

@@ -9,6 +9,7 @@ Phaser 3 + TypeScript + Vite + Vitest 製。設計は `GAME_DESIGN.md` / `ART_DI
 | `npm test` | Vitest 単体テスト (`tests/`) |
 | `npm run build` | 通常ビルド → `dist/` (itch.io 用) |
 | `npm run build:local` | 単一HTMLビルド → `dist-local/index.html` (ダブルクリックで起動可) |
+| `npm run audio:measure` | `src/assets/audio` の音声を実測し、目標ラウドネスに合わせた補正値を `src/audio/trims.json` に出力（`-- --check` で検証のみ）。要 Playwright |
 | `npm run package:itch` | **itch.io 投稿用ZIP** を `release/` に生成（手順は [docs/ITCHIO.md](docs/ITCHIO.md)） |
 | `npm run verify:itch` | ZIPを itch.io 相当の条件(サブパス+別オリジンiframe, PC/スマホ)で実ブラウザ検証。要 Playwright |
 | `npm run verify:standalone` | 単一HTMLを空ディレクトリへコピーして実ブラウザ検証（外部通信なし・画面遷移・音声解錠・20MB以内）。要 Playwright |
@@ -29,7 +30,7 @@ Phaser 3 + TypeScript + Vite + Vitest 製。設計は `GAME_DESIGN.md` / `ART_DI
   - `battle.ts` 戦闘 / `data.ts` スキル・敵 / `equipment.ts` 装備とドロップ / `map.ts` マップ生成 / `meta.ts` 拠点・パッシブ / `run.ts` 1回の挑戦の進行
 - `src/scenes/` — Title / Town / Party / Map / Battle / Loot / Chest / Rest / Shop / Gear / RunEnd
 - `src/ui/` — Canvas描画のキャラ・敵・ウィジェット（画像アセット不要）
-- `src/audio.ts` — WebAudio 合成の SE とドローンBGM（最初のクリックで開放）
+- `src/audio/` — サウンド。`src/assets/audio/` の音声ファイル(wav/mp3)を再生し、無い音は WebAudio 合成音にフォールバック（`index.ts` 管理 / `ids.ts` マニフェスト / `cues.ts` 状況→音ID / `synth.ts` 合成音）
 - `tests/` — 戦闘・マップ・装備・拠点・ラン進行、演出パラメータ、音量設計、および自動プレイBotによる全ラン通しテスト
 - `scripts/verify-standalone.cjs` — 単一HTMLのスタンドアロン動作検証
 
@@ -39,6 +40,12 @@ Phaser 3 + TypeScript + Vite + Vitest 製。設計は `GAME_DESIGN.md` / `ART_DI
 - ブレイク中に**魔法**を当てる → **チェイン**（ダメージ×2 + カットイン）。弱点属性は×1.5、耐性は×0.5。
 - シールドが残っている間、敵へのHPダメージは×0.75。
 - 敵のインテントに標的が表示される。後衛狙いは、ナイトの「挑発の構え」で前衛に逸らせる。
+
+## 音声の差し替え
+1. 音声ファイルを `src/assets/audio/` に置く。ファイル名は `src/audio/ids.ts` のID（バリエーションは `atk_slash_1..3` のように連番）。wav / mp3 対応。
+2. `npm run audio:measure` で音量を実測して補正値を再生成（効果音・BGM・ジングルの音量階層を自動で揃える）。
+3. `npm run build`（またはパッケージ化）。ファイルが無いIDは合成音で鳴るので、段階的に差し替えられる。
+- BGMは場面ごとに切替（拠点/マップ/戦闘/ボス、クロスフェード）。ジングル・チェイン中はBGMを自動で下げる。
 
 ## 演出・音響（マイルストーン4）
 - **打撃感**: ダメージ量に応じたヒットストップ/画面揺れ/火花、弧を描いて弾むダメージ数字、被弾の赤フラッシュ、撃破時の崩壊演出。数値計算は `src/ui/juice.ts`（テスト対象）。

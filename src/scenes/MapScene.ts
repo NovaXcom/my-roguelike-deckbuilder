@@ -87,7 +87,7 @@ export class MapScene extends Phaser.Scene {
 
     makeButton(this, 141, 410, 220, 44, '装備を確認', () => this.scene.start('Gear'), { size: 18 });
     const pot = makeButton(this, 141, 466, 220, 44, `ポーション使用 ×${run.potions}`, () => {
-      if (usePotionOnMap(run)) { audio.play('heal'); this.scene.restart(); }
+      if (usePotionOnMap(run)) { audio.play('sup_heal'); this.scene.restart(); }
     }, { size: 18, color: 0x6fcf97, enabled: run.potions > 0 && run.party.some((m, i) => m.hp < memberMaxHp(run, i)) });
     void pot;
     makeButton(this, 141, 660, 220, 40, '挑戦を諦める', () => { run.finished = 'defeat'; this.scene.start('RunEnd'); }, { size: 14, color: 0x7b8798 });
@@ -105,7 +105,7 @@ export class MapScene extends Phaser.Scene {
     const run = game.run!;
     const node = enterNode(run, id);
     if (!node) return;
-    audio.play('click');
+    audio.play(node.type === 'battle' || node.type === 'boss' ? 'map_battle' : 'ui_click');
     this.scene.start(NODE_SCENE[node.type]);
   }
 }

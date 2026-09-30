@@ -36,7 +36,7 @@ export class RestScene extends Phaser.Scene {
     });
 
     const done = () => this.scene.start('Map');
-    makeButton(this, W / 2 - 200, 600, 340, 80, `休息する\n全員のHPを${REST_RATIO * 100}%回復`, () => { rest(run, 'heal'); audio.play('heal'); this.time.delayedCall(250, done); }, { size: 20, color: 0x6fcf97 });
-    makeButton(this, W / 2 + 200, 600, 340, 80, '修練する\n全員の最大HP +6', () => { rest(run, 'train'); audio.play('block'); this.time.delayedCall(250, done); }, { size: 20, color: 0xe08a3c });
+    makeButton(this, W / 2 - 200, 600, 340, 80, `休息する\n全員のHPを${REST_RATIO * 100}%回復`, () => { rest(run, 'heal'); audio.play('sup_heal'); this.time.delayedCall(250, done); }, { size: 20, color: 0x6fcf97 });
+    makeButton(this, W / 2 + 200, 600, 340, 80, '修練する\n全員の最大HP +6', () => { rest(run, 'train'); audio.play('sup_guard'); this.time.delayedCall(250, done); }, { size: 20, color: 0xe08a3c });
   }
 }

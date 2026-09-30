@@ -1,10 +1,9 @@
 /**
- * WebAudio 合成のみで SE/BGM を鳴らす（音声ファイル不要）。
+ * WebAudio 合成音（音声ファイルが無い/読み込み前のフォールバック）。
  *
- * - AudioContext は最初のユーザー操作(pointerdown/keydown/touchend)まで生成しない（Autoplay制限対策）。
  * - 合成ロジックは (ctx, 出力先) を受け取る純粋な関数にしてあり、OfflineAudioContext で
  *   実際にレンダリングしてピーク/ラウドネスを測定・調整できる（measureSfx / measureBgm）。
- * - バス構成: SE → SEバス → コンプレッサー → マスター / BGM → BGMバス → マスター
+ * - 実際の再生管理（ファイル読み込み・BGM切替・バス構成）は index.ts。
  */
 
 export type SfxKind =
@@ -47,9 +46,6 @@ const TRIM: Record<SfxKind, number> = {
 };
 
 export const BGM_TARGET_DB = -30;
-const MASTER_GAIN = 0.85;
-const SFX_BUS_GAIN = 1;
-const BGM_BUS_GAIN = 1;
 
 /** 再現性のあるノイズ（測定が毎回同じ結果になるよう疑似乱数） */
 export function makeNoise(ctx: BaseAudioContext, seconds = 2): AudioBuffer {
@@ -336,106 +332,3 @@ export async function measureBgm(mood: BgmMood = 'calm'): Promise<Measure> {
   const buf = await ctx.startRendering();
   return analyze(buf.getChannelData(0).slice(sr * 3), sr);
 }
-
-// ---------------------------------------------------------------- 実行時マネージャ
-export type AudioStatus = 'locked' | 'running' | 'suspended';
-
-class AudioManager {
-  private ctx: AudioContext | null = null;
-  private master: GainNode | null = null;
-  private sfxBus: GainNode | null = null;
-  private noise: AudioBuffer | null = null;
-  private bgm: ReturnType<typeof createBgm> | null = null;
-  private timer: number | undefined;
-  private mood: BgmMood = 'calm';
-  muted = false;
-
-  constructor() {
-    try { this.muted = localStorage.getItem('partyrogue.mute') === '1'; } catch { /* 保存不可 */ }
-  }
-
-  status(): AudioStatus {
-    if (!this.ctx) return 'locked';
-    return this.ctx.state === 'running' ? 'running' : 'suspended';
-  }
-
-  /**
-   * 最初のユーザー操作でグローバルに解錠する。タイトルの「クリックでスタート」以外
-   * （キー入力・タッチ・別ボタン）が最初の操作でも確実に AudioContext を開放する。
-   */
-  installGestureUnlock(target: Window = window): void {
-    const events = ['pointerdown', 'keydown', 'touchend', 'mousedown'] as const;
-    const handler = () => {
-      this.unlock();
-      if (this.ctx?.state === 'running') events.forEach((e) => target.removeEventListener(e, handler, true));
-    };
-    events.forEach((e) => target.addEventListener(e, handler, true));
-    // タブ復帰時に suspended/interrupted なら再開
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && this.ctx && this.ctx.state !== 'running') void this.ctx.resume().catch(() => undefined);
-    });
-  }
-
-  /** 最初のユーザー操作から呼ぶ。以降は何度呼んでも安全。 */
-  unlock(): void {
-    if (!this.ctx) {
-      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctor) return;
-      const ctx = new Ctor();
-      this.ctx = ctx;
-      this.master = ctx.createGain();
-      this.master.gain.value = this.muted ? 0 : MASTER_GAIN;
-      // ピークの重なり(チェイン+BGM等)で歪まないようマスター前にリミッター的コンプレッサー
-      const comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -14;
-      comp.knee.value = 10;
-      comp.ratio.value = 6;
-      comp.attack.value = 0.003;
-      comp.release.value = 0.2;
-      comp.connect(this.master).connect(ctx.destination);
-      this.sfxBus = ctx.createGain();
-      this.sfxBus.gain.value = SFX_BUS_GAIN;
-      this.sfxBus.connect(comp);
-      const bgmBus = ctx.createGain();
-      bgmBus.gain.value = BGM_BUS_GAIN;
-      bgmBus.connect(comp);
-      this.noise = makeNoise(ctx);
-      this.bgm = createBgm(ctx, bgmBus, this.noise);
-      this.bgm.setMood(this.mood);
-      this.timer = window.setInterval(() => {
-        if (this.ctx && this.ctx.state === 'running') this.bgm?.tick(this.ctx.currentTime);
-      }, 200);
-    }
-    if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => undefined);
-  }
-
-  toggleMute(): boolean {
-    this.muted = !this.muted;
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : MASTER_GAIN, this.ctx.currentTime, 0.02);
-    try { localStorage.setItem('partyrogue.mute', this.muted ? '1' : '0'); } catch { /* 保存不可 */ }
-    return this.muted;
-  }
-
-  setMood(m: BgmMood): void {
-    this.mood = m;
-    this.bgm?.setMood(m);
-  }
-
-  play(kind: SfxKind): void {
-    const ctx = this.ctx;
-    if (!ctx || !this.sfxBus || !this.noise) return;
-    if (ctx.state === 'running') {
-      synthSfx(ctx, this.sfxBus, this.noise, kind);
-    } else if (ctx.state === 'suspended') {
-      // 解錠直後(resume完了前)の最初の音も取りこぼさない
-      const bus = this.sfxBus, noise = this.noise;
-      void ctx.resume().then(() => synthSfx(ctx, bus, noise, kind)).catch(() => undefined);
-    }
-  }
-
-  dispose(): void {
-    if (this.timer) window.clearInterval(this.timer);
-  }
-}
-
-export const audio = new AudioManager();

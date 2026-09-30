@@ -61,8 +61,7 @@ export class LootScene extends Phaser.Scene {
       return;
     }
 
-    audio.play(item.rarity === 'common' ? 'coin' : 'loot');
-    if (item.rarity === 'legendary') this.time.delayedCall(350, () => audio.play('win'));
+    audio.play(item.rarity === 'legendary' ? 'jg_legendary' : item.rarity === 'rare' ? 'loot' : 'coin');
     const card = itemCard(this, 250, 380, 340, 340, item, '獲得した装備');
     card.setScale(0.5).setAlpha(0);
     this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 300, ease: 'Back.out' });

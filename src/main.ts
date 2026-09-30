@@ -11,6 +11,7 @@ import { ShopScene } from './scenes/ShopScene';
 import { TownScene } from './scenes/TownScene';
 import { H, TitleScene, W } from './scenes/TitleScene';
 import { audio, measureBgm, measureSfx, SFX_KINDS } from './audio';
+import { bgmForScene } from './audio/cues';
 import { game } from './game';
 import { addSystemButtons } from './ui/widgets';
 
@@ -39,6 +40,10 @@ phaser.events.once('ready', () => {
   phaser.scene.scenes.forEach((s) => s.events.on('create', () => {
     s.cameras.main.fadeIn(180, 0, 0, 0);
     addSystemButtons(s);
+    // 場面ごとのBGM（戦闘は BattleScene 側でボス判定して切替）
+    const key = s.scene.key;
+    if (key === 'RunEnd') audio.playBgm(null, 0.4);
+    else if (key !== 'Battle') audio.playBgm(bgmForScene(key));
   }));
 });
 

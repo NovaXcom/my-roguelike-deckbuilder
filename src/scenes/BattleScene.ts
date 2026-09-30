@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { audio } from '../audio';
+import { bgmForScene, castCue, deathCue, enemyAttackCue, hurtCue, impactCues, type Cue } from '../audio/cues';
 import {
   BattleEvent, BattleState, allActed, canUse, currentIntent, endPlayerTurn, intentValue, previewSkill,
   resolveTarget, usePotion, useSkill,
@@ -193,13 +194,11 @@ export class BattleScene extends Phaser.Scene {
     });
     this.input.dragDistanceThreshold = 6;
     this.setupDrag();
-    audio.setMood('battle');
-    this.events.once('shutdown', () => audio.setMood('calm'));
+    audio.playBgm(bgmForScene('Battle', { boss: this.node.type === 'boss' })); // ボス戦は専用BGM
     this.preview = txt(this, ENEMY.x + 100, ENEMY.y - 120, '', 34, '#ffffff', { fontStyle: 'bold', stroke: '#000', strokeThickness: 6, align: 'center' })
       .setOrigin(0.5).setDepth(1600).setAlpha(0);
 
     this.refreshAll();
-    audio.play('turn');
   }
 
   // ------------------------------------------------------------------ 構築
@@ -272,7 +271,7 @@ export class BattleScene extends Phaser.Scene {
   private arm(b: SkillBtn): void {
     if (this.armed && this.armed !== b) this.liftBtn(this.armed, false);
     this.armed = b;
-    audio.play('select');
+    audio.play('ui_select');
     this.liftBtn(b, true);
     this.showPreview(b);
     this.showTip(b, true);
@@ -460,6 +459,7 @@ export class BattleScene extends Phaser.Scene {
       const b = this.buttons.find((x) => x.c === obj);
       if (!b) return;
       if (this.busy || !canUse(this.state, b.member, b.skill.id)) {
+        audio.play('deny');
         this.tweens.add({ targets: obj, x: obj.x + 6, duration: 40, yoyo: true, repeat: 2 });
         return;
       }
@@ -467,7 +467,7 @@ export class BattleScene extends Phaser.Scene {
       this.hideTip();
       this.dragBtn = b;
       this.justDragged = true;
-      audio.play('select');
+      audio.play('ui_select');
       this.tweens.killTweensOf(obj);
       this.tweens.add({ targets: obj, y: BTN_Y, scale: 0.94, alpha: 0.7, duration: 90 });
       // ポインタに追従するスキル名チップ
@@ -523,6 +523,7 @@ export class BattleScene extends Phaser.Scene {
   private onSkill(b: SkillBtn): void {
     const s = this.state;
     if (this.busy || !canUse(s, b.member, b.skill.id)) {
+      audio.play('deny');
       this.tweens.add({ targets: b.c, x: b.c.x + 6, duration: 40, yoyo: true, repeat: 2 });
       return;
     }
@@ -537,13 +538,13 @@ export class BattleScene extends Phaser.Scene {
     const p = HERO_POS[b.member];
     const offensive = !!sk.damage || !!sk.breakPower;
     if (sk.kind === 'physical') {
-      audio.play('skill');
+      this.playCue(castCue(sk));
       this.tweens.add({
         targets: hero, x: ENEMY.x - 150, duration: 150, ease: 'Cubic.in', yoyo: true, hold: 60,
         onYoyo: () => this.playSeq(events), onComplete: () => { hero.x = p.x; },
       });
     } else if (offensive) {
-      audio.play('magic');
+      this.playCue(castCue(sk));
       const col = ELEMENT_COLOR[sk.element];
       const orb = this.add.circle(p.x + 40, p.y - 160, 14, col).setDepth(2000);
       this.tweens.add({ targets: hero, y: p.y - 8, duration: 120, yoyo: true });
@@ -555,6 +556,11 @@ export class BattleScene extends Phaser.Scene {
       this.shieldRing(p.x, p.y - 100, sk.healAll ? 0x6fcf97 : COLORS.block);
       this.time.delayedCall(150, () => this.playSeq(events));
     }
+  }
+
+  /** 音IDと再生速度(Cue)を鳴らす */
+  private playCue(cue: Cue | null): void {
+    if (cue) audio.play(cue.id, { rate: cue.rate });
   }
 
   // ------------------------------------------------------------------ イベント再生
@@ -587,7 +593,7 @@ export class BattleScene extends Phaser.Scene {
       case 'damage': {
         if (e.chain) break; // チェインは cut-in 側で演出
         d.enemyHp -= e.amount;
-        audio.play('enemyHit');
+        impactCues(e).forEach((c) => this.playCue(c));
         const col = e.element === 'none' ? '#ffdf6b' : hex(ELEMENT_COLOR[e.element]);
         this.damagePopup(ENEMY.x, ENEMY.y - 140, e.amount, col, { weak: e.weak });
         if (e.weak) this.popup(ENEMY.x + 100, ENEMY.y - 185, '弱点!', '#ff9a3c', 26);
@@ -600,7 +606,7 @@ export class BattleScene extends Phaser.Scene {
         break;
       case 'break': {
         d.broken = true;
-        audio.play('break');
+        audio.play('fx_break');
         const sh = shakeFor(0, 'break');
         this.cameras.main.flash(150, 255, 255, 255);
         this.cameras.main.shake(sh.ms, sh.intensity);
@@ -617,17 +623,18 @@ export class BattleScene extends Phaser.Scene {
         break;
       case 'guard':
         d.guard[e.member] += e.amount;
-        audio.play('block');
+        audio.play('sup_guard');
         this.shieldRing(HERO_POS[e.member].x, HERO_POS[e.member].y - 90, COLORS.block);
         this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 200, `+${e.amount} ガード`, '#9cc7ff', 26);
         break;
       case 'heal':
         d.hp[e.member] += e.amount;
-        audio.play('heal');
+        audio.play('sup_heal');
         this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 200, `+${e.amount}`, '#7be495', 36);
         this.shieldRing(HERO_POS[e.member].x, HERO_POS[e.member].y - 90, 0x6fcf97);
         break;
       case 'taunt':
+        audio.play('sup_taunt');
         this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 230, '挑発!', '#ffb86b', 34);
         break;
       case 'stunned':
@@ -639,6 +646,7 @@ export class BattleScene extends Phaser.Scene {
         this.popup(ENEMY.x, ENEMY.y - 110, 'シールド回復', '#f6c453', 22);
         break;
       case 'enemyAttack': {
+        this.playCue(enemyAttackCue(this.state.enemy.def.id, e.intent));
         const to = e.target === -1 ? { x: (HERO_POS[0].x + HERO_POS[1].x) / 2 } : HERO_POS[e.target];
         this.tweens.add({ targets: this.enemyGfx, x: to.x + 140, duration: 150, yoyo: true, ease: 'Cubic.in', hold: 40 });
         break;
@@ -648,7 +656,7 @@ export class BattleScene extends Phaser.Scene {
         d.hp[e.member] -= e.amount;
         d.guard[e.member] = Math.max(0, d.guard[e.member] - e.blocked);
         if (e.amount > 0) {
-          audio.play('hit');
+          this.playCue(hurtCue(e.amount));
           this.damagePopup(p.x, p.y - 190, e.amount, '#ff8a8a', {});
           this.sparks(p.x, p.y - 90, 0xff6b6b, sparkCount(e.amount));
           const sh = shakeFor(e.amount, 'hurt');
@@ -658,13 +666,14 @@ export class BattleScene extends Phaser.Scene {
           this.flashAdd(this.heroes[e.member]);
           this.hitStop(hitStopMs(e.amount, 'hurt'));
         } else {
-          audio.play('block');
+          this.playCue(hurtCue(0));
           this.popup(p.x, p.y - 190, 'ガード!', '#9cc7ff', 32);
           this.shieldRing(p.x, p.y - 90, COLORS.block);
         }
         break;
       }
       case 'down':
+        audio.play('party_down');
         this.tweens.add({ targets: this.heroes[e.member], alpha: 0.3, angle: -12, duration: 350 });
         this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 230, '戦闘不能', '#ff7a7a', 28);
         break;
@@ -698,7 +707,8 @@ export class BattleScene extends Phaser.Scene {
   /** チェイン: 全画面カットイン + 大ダメージ演出（約1.3秒） */
   private cutIn(element: Element, amount: number): void {
     const col = ELEMENT_COLOR[element];
-    audio.play('chain');
+    audio.play('fx_chain');
+    audio.duck(0.3, 1.9); // カットイン中はBGMを下げる
     const D = 5000;
     const all: Phaser.GameObjects.GameObject[] = [];
     const add = <T extends Phaser.GameObjects.GameObject>(o: T): T => { all.push(o); return o; };
@@ -738,7 +748,6 @@ export class BattleScene extends Phaser.Scene {
     this.time.delayedCall(1000, () => {
       this.disp.enemyHp -= amount;
       this.drawBars();
-      audio.play('enemyHit');
       this.sparks(ENEMY.x, ENEMY.y - 70, col, 34);
       this.shockwave(ENEMY.x, ENEMY.y - 70, col);
       this.flashAdd(this.enemyGfx);
@@ -750,7 +759,7 @@ export class BattleScene extends Phaser.Scene {
 
   /** 撃破演出: 光の粒になって崩れ落ちる */
   private enemyDeath(done: () => void): void {
-    audio.play('break');
+    this.playCue(deathCue(this.state.enemy.def.id));
     this.intentBox.setVisible(false);
     this.stars.setVisible(false);
     this.cameras.main.shake(320, 0.014);
@@ -853,7 +862,7 @@ export class BattleScene extends Phaser.Scene {
     this.busy = true;
     this.disarm();
     this.clearPreview();
-    audio.play('click');
+    audio.play('ui_click');
     const events = endPlayerTurn(s);
     this.refreshButtons();
     this.playSeq(events, () => {
@@ -869,7 +878,10 @@ export class BattleScene extends Phaser.Scene {
     this.busy = true;
     const run = game.run!;
     const reward = finishBattle(run, this.state, this.node); // HP持ち越し・報酬付与・ラン終了判定
-    audio.play(won ? 'win' : 'lose');
+    // 勝利ジングルは通常戦闘のみ（ボス撃破は結果画面で踏破ジングル）。BGMは止めてジングルを聴かせる
+    audio.playBgm(null, 0.4);
+    if (!won) audio.play('jg_lose');
+    else if (!run.finished) audio.play('jg_win');
     this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.65).setDepth(6000).setInteractive();
     const boss = this.node.type === 'boss';
     const title = txt(this, W / 2, 240, won ? (boss ? 'ボス撃破!' : '勝利!') : '全滅…', 84, won ? '#f6e3b4' : '#ff7a7a', {
@@ -881,10 +893,10 @@ export class BattleScene extends Phaser.Scene {
         .setOrigin(0.5).setDepth(6001);
     }
     const next = () => {
-      if (run.finished) this.scene.start('RunEnd');
+      if (run.finished) this.scene.start('RunEnd', { jingleDone: !won });
       else this.scene.start('Loot', { title: '戦利品', reward, returnTo: { scene: 'Map' } });
     };
-    makeButton(this, W / 2, 440, 300, 60, won ? '戦利品へ' : '結果へ', () => { audio.play('click'); next(); }, { size: 26 }).c.setDepth(6001);
+    makeButton(this, W / 2, 440, 300, 60, won ? '戦利品へ' : '結果へ', () => { audio.play('ui_click'); next(); }, { size: 26 }).c.setDepth(6001);
   }
 }
 
