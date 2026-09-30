@@ -5,6 +5,7 @@ import { GearScene } from './scenes/GearScene';
 import { LootScene } from './scenes/LootScene';
 import { MapScene } from './scenes/MapScene';
 import { PartyScene } from './scenes/PartyScene';
+import { PreloadScene } from './scenes/PreloadScene';
 import { RestScene } from './scenes/RestScene';
 import { RunEndScene } from './scenes/RunEndScene';
 import { ShopScene } from './scenes/ShopScene';
@@ -27,7 +28,7 @@ const phaser = new Phaser.Game({
   fps: { target: 60 },
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: [
-    TitleScene, TownScene, PartyScene, MapScene, BattleScene, LootScene,
+    PreloadScene, TitleScene, TownScene, PartyScene, MapScene, BattleScene, LootScene,
     ChestScene, RestScene, ShopScene, GearScene, RunEndScene,
   ],
 });
@@ -37,7 +38,7 @@ audio.installGestureUnlock();
 
 // シーン遷移をなめらかに（各シーン生成時にフェードイン）
 phaser.events.once('ready', () => {
-  phaser.scene.scenes.forEach((s) => s.events.on('create', () => {
+  phaser.scene.scenes.filter((s) => s.scene.key !== 'Preload').forEach((s) => s.events.on('create', () => {
     s.cameras.main.fadeIn(180, 0, 0, 0);
     addSystemButtons(s);
     // 場面ごとのBGM（戦闘は BattleScene 側でボス判定して切替）

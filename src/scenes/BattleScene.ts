@@ -11,6 +11,8 @@ import { game } from '../game';
 import { ELEMENT_COLOR, ELEMENT_LABEL, SKILLS } from '../core/data';
 import type { Element, SkillDef } from '../core/types';
 import { COLORS, drawBackground, drawHero, drawShield, drawEnemy, drawSword, txt } from '../ui/art';
+import { ENEMY_DISPLAY_H, HERO_DISPLAY_H, HERO_SPRITE, bgKeyFor, enemySpriteKey, skillIconKey, type HeroPose } from '../ui/assetMap';
+import { hasImg } from '../ui/assets';
 import { makeButton, onTap, padHitArea, type Button } from '../ui/widgets';
 import { compact } from '../ui/device';
 import { skillSummary } from '../ui/skillText';
@@ -22,8 +24,8 @@ const ENEMY = { x: 990, y: 350 };
 const enemyRect = new Phaser.Geom.Rectangle(ENEMY.x - 150, ENEMY.y - 230, 300, 270);
 const PLAY_LINE_Y = 470; // 補助スキルをドラッグでドロップして使う境界線
 const PANEL_W = 4 * 140 + 3 * 8; // パネル幅は固定。スキル数に応じてボタン幅を分割
-const BTN_H = 168;
-const BTN_Y = 612;
+const BTN_H = 196; // アイコン分だけ高く
+const BTN_Y = 610;
 const PANEL_X = [30, 666];
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
@@ -35,6 +37,9 @@ interface Disp {
   hp: number[];
   guard: number[];
 }
+
+/** 図形描画(Graphics)または画像(Image)で表示するキャラ */
+type Actor = Phaser.GameObjects.Graphics | Phaser.GameObjects.Image;
 
 interface SkillBtn {
   member: number;
@@ -67,8 +72,11 @@ export class BattleScene extends Phaser.Scene {
   private busy = false;
   private buttons: SkillBtn[] = [];
 
-  private heroes: Phaser.GameObjects.Graphics[] = [];
-  private enemyGfx!: Phaser.GameObjects.Graphics;
+  private heroes: Actor[] = [];
+  private heroBase: number[] = []; // 各キャラの基準スケール(画像は原寸→表示サイズの縮尺)
+  private enemyBase = 1;
+  private intentImg!: Phaser.GameObjects.Image;
+  private enemyGfx!: Actor;
   private stars!: Phaser.GameObjects.Container;
   private bars!: Phaser.GameObjects.Graphics;
   private hpTexts: Phaser.GameObjects.Text[] = [];
@@ -94,6 +102,8 @@ export class BattleScene extends Phaser.Scene {
     this.busy = false;
     this.buttons = [];
     this.heroes = [];
+    this.heroBase = [];
+    this.enemyBase = 1;
     this.hpTexts = [];
     this.guardTexts = [];
     this.tags = [];
@@ -110,15 +120,17 @@ export class BattleScene extends Phaser.Scene {
     this.node = run.map.nodes[run.current];
     this.state = startBattle(run, this.node);
     this.syncDisp();
-    drawBackground(this, W, H);
     const s = this.state;
+    drawBackground(this, W, H, bgKeyFor('Battle', { boss: this.node.type === 'boss', row: this.node.row, enemyId: s.enemy.def.id }));
+    // スキルパネル領域を暗くして文字を読みやすくする（背景画像の上）
+    this.add.rectangle(W / 2, 604, W, 232, 0x0b0908, 0.62).setDepth(-90);
 
-    // --- パーティ ---
+    // --- パーティ（画像があればスプライト、無ければ図形描画） ---
     s.party.forEach((m, i) => {
-      const g = this.add.graphics().setPosition(HERO_POS[i].x, HERO_POS[i].y);
-      drawHero(g, m.def.id, m.def.color, 1.15);
-      this.tweens.add({ targets: g, scaleY: 1.02, duration: 1300 + i * 200, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
-      this.heroes.push(g);
+      const g = this.makeHero(m.def.id, m.def.color, HERO_POS[i].x, HERO_POS[i].y);
+      this.heroBase.push(g.base);
+      this.heroes.push(g.actor);
+      this.breatheHero(i, 1300 + i * 200);
       this.hpTexts.push(txt(this, HERO_POS[i].x, HERO_POS[i].y + 40, '', 14, '#fff', { fontStyle: 'bold' }).setOrigin(0.5).setDepth(6));
       this.guardTexts.push(txt(this, HERO_POS[i].x - 112, HERO_POS[i].y + 40, '', 16, '#fff', { fontStyle: 'bold' }).setOrigin(0.5).setDepth(6));
     });
@@ -126,10 +138,19 @@ export class BattleScene extends Phaser.Scene {
     txt(this, HERO_POS[0].x, HERO_POS[0].y - 236, '前衛', 14, '#7b8798').setOrigin(0.5);
 
     // --- 敵 ---
-    this.enemyGfx = this.add.graphics().setPosition(ENEMY.x, ENEMY.y);
-    drawEnemy(this.enemyGfx, s.enemy.def.id, s.enemy.def.color);
-    this.tweens.add({ targets: this.enemyGfx, scaleY: 0.94, scaleX: 1.04, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
-    this.stars = this.add.container(ENEMY.x, ENEMY.y - 130);
+    const spriteKey = enemySpriteKey(s.enemy.def.id);
+    if (hasImg(this, spriteKey)) {
+      const img = this.add.image(ENEMY.x, ENEMY.y, spriteKey).setOrigin(0.5, 1);
+      this.enemyBase = (ENEMY_DISPLAY_H[s.enemy.def.id] ?? 200) / img.height;
+      img.setScale(this.enemyBase);
+      this.add.ellipse(ENEMY.x, ENEMY.y, img.displayWidth * 0.8, 24, 0x000000, 0.35).setDepth(-1);
+      this.enemyGfx = img;
+    } else {
+      this.enemyGfx = this.add.graphics().setPosition(ENEMY.x, ENEMY.y);
+      drawEnemy(this.enemyGfx, s.enemy.def.id, s.enemy.def.color);
+    }
+    this.tweens.add({ targets: this.enemyGfx, scaleY: this.enemyBase * 0.94, scaleX: this.enemyBase * 1.04, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    this.stars = this.add.container(ENEMY.x, ENEMY.y - (hasImg(this, spriteKey) ? (ENEMY_DISPLAY_H[s.enemy.def.id] ?? 200) - 10 : 130));
     for (let k = 0; k < 3; k++) {
       const a = (k / 3) * Math.PI * 2;
       this.stars.add(this.add.star(Math.cos(a) * 46, Math.sin(a) * 12, 5, 4, 9, 0xffe066));
@@ -147,8 +168,11 @@ export class BattleScene extends Phaser.Scene {
     this.intentGfx = this.add.graphics();
     this.intentValue = txt(this, 0, 36, '', 24, '#fff', { fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
     this.intentLabel = txt(this, 0, 68, '', 15, '#e8dfd3', { stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
-    this.intentBox = this.add.container(ENEMY.x, ENEMY.y - 245, [this.intentGfx, this.intentValue, this.intentLabel]);
-    this.tweens.add({ targets: this.intentBox, y: ENEMY.y - 255, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    this.intentImg = this.add.image(0, 0, hasImg(this, 'icon_status_intent_attack') ? 'icon_status_intent_attack' : '__DEFAULT').setVisible(false);
+    // 背の高い敵の頭に行動予告が被らないよう、敵の高さに合わせて位置を上げる
+    const intentY = Math.max(66, ENEMY.y - (hasImg(this, spriteKey) ? (ENEMY_DISPLAY_H[s.enemy.def.id] ?? 200) : 110) - 72);
+    this.intentBox = this.add.container(ENEMY.x, hasImg(this, spriteKey) ? intentY : ENEMY.y - 245, [this.intentGfx, this.intentImg, this.intentValue, this.intentLabel]);
+    this.tweens.add({ targets: this.intentBox, y: this.intentBox.y - 10, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
 
     this.turnText = txt(this, W / 2, 24, '', 22, '#f6e3b4', { fontStyle: 'bold' }).setOrigin(0.5);
 
@@ -208,10 +232,14 @@ export class BattleScene extends Phaser.Scene {
     const col = skill.element !== 'none' ? ELEMENT_COLOR[skill.element] : skill.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;
     const kindLabel = skill.kind === 'support' ? '補助' : skill.kind === 'physical' ? '物理' : ELEMENT_LABEL[skill.element] + '魔法';
     // 名前は幅に収まらなければ折り返す（コンパクト時は最小16pxのため）
-    const title = txt(this, 0, -BTN_H / 2 + (cmp ? 8 : 12), skill.name, cmp ? 16 : Math.min(16, Math.floor((BTN_W - 8) / Math.max(4, skill.name.length))), '#fff',
+    const iconKey = skillIconKey(skill.id);
+    const iconSize = cmp ? 40 : 50; // コンパクト時は文字が最小16pxになるため、アイコンを小さくして縦の余白を確保
+    const icon = hasImg(this, iconKey) ? this.add.image(0, -BTN_H / 2 + iconSize / 2 + 6, iconKey).setDisplaySize(iconSize, iconSize) : null;
+    const iy = icon ? (cmp ? 46 : 58) : 0; // アイコン分だけ下へずらす
+    const title = txt(this, 0, -BTN_H / 2 + iy + (cmp ? 8 : 12), skill.name, cmp ? 16 : Math.min(16, Math.floor((BTN_W - 8) / Math.max(4, skill.name.length))), '#fff',
       { fontStyle: 'bold', align: 'center', wordWrap: { width: BTN_W - 8, useAdvancedWrap: true } }).setOrigin(0.5, 0);
     const chipW = cmp ? 62 : 44, chipH = cmp ? 24 : 18;
-    const chipY = -BTN_H / 2 + (cmp ? 52 : 40);
+    const chipY = -BTN_H / 2 + iy + (cmp ? 52 : 40);
     const chip = this.add.graphics();
     chip.fillStyle(col, 1).fillRoundedRect(-BTN_W / 2 + 6, chipY, chipW, chipH, chipH / 2);
     const chipText = txt(this, -BTN_W / 2 + 6 + chipW / 2, chipY + chipH / 2, kindLabel, 11, '#111', { fontStyle: 'bold' }).setOrigin(0.5);
@@ -221,8 +249,8 @@ export class BattleScene extends Phaser.Scene {
     const body = txt(this, 0, chipY + chipH + 8, bodyText, cmp ? 16 : BTN_W < 130 ? 11 : 12, cmp ? '#ffd9a0' : '#e8dfd3', {
       align: cmp ? 'center' : 'left', fontStyle: cmp ? 'bold' : 'normal', wordWrap: { width: BTN_W - 14, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
-    const status = txt(this, 0, BTN_H / 2 - 20, '', 13, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
-    const c = this.add.container(x, BTN_Y, [bg, title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
+    const status = txt(this, 0, BTN_H / 2 - 16, '', 13, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
+    const c = this.add.container(x, BTN_Y, [bg, ...(icon ? [icon] : []), title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
     c.setInteractive({ useHandCursor: true });
     const btn: SkillBtn = { member, skill, c, bg, status, w: BTN_W, hover: false };
     this.buttons.push(btn);
@@ -377,6 +405,7 @@ export class BattleScene extends Phaser.Scene {
     g.clear();
     if (s.phase === 'won') { this.intentBox.setVisible(false); return; }
     this.intentBox.setVisible(true);
+    this.intentImg.setVisible(false);
     const it = currentIntent(s);
     const ti = resolveTarget(s, it);
     const target = ti === -1 ? '全体' : s.party[ti].def.name;
@@ -388,7 +417,9 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
     g.lineStyle(3, 0xff5c5c, 1).strokeCircle(0, 0, 34);
-    drawSword(g, 0, 0, 52, 0xff8a8a);
+    const iconKey = it.target === 'all' ? 'icon_status_intent_attack_all' : 'icon_status_intent_attack';
+    if (hasImg(this, iconKey)) this.intentImg.setTexture(iconKey).setDisplaySize(50, 50).setVisible(true);
+    else drawSword(g, 0, 0, 52, 0xff8a8a);
     this.intentValue.setText(String(intentValue(s, it))).setColor('#ff9a9a').setFontSize(24);
     this.intentLabel.setText(`${it.name} → ${target}`);
   }
@@ -489,7 +520,7 @@ export class BattleScene extends Phaser.Scene {
         const over = Phaser.Geom.Rectangle.Contains(enemyRect, p.x, p.y);
         const pv = previewSkill(this.state, b.skill, b.member);
         this.drawTargetLine(from.x, from.y - 150, p.x, p.y, over && pv.chain);
-        this.enemyGfx.setScale(over ? 1.08 : 1);
+        this.enemyGfx.setScale(this.enemyBase * (over ? 1.08 : 1));
         this.preview.setAlpha(over ? 0.95 : 0.4);
       } else {
         const ok = p.y < PLAY_LINE_Y;
@@ -508,7 +539,7 @@ export class BattleScene extends Phaser.Scene {
       this.ghost?.destroy();
       this.ghost = null;
       this.clearPreview();
-      this.enemyGfx.setScale(1);
+      this.enemyGfx.setScale(this.enemyBase);
       this.tweens.add({ targets: b.c, y: BTN_Y, scale: 1, alpha: 1, duration: 140, ease: 'Back.out' });
       b.c.setDepth(0);
       b.hover = false;
@@ -539,12 +570,14 @@ export class BattleScene extends Phaser.Scene {
     const offensive = !!sk.damage || !!sk.breakPower;
     if (sk.kind === 'physical') {
       this.playCue(castCue(sk));
+      this.heroPose(b.member, 'attack', 520);
       this.tweens.add({
         targets: hero, x: ENEMY.x - 150, duration: 150, ease: 'Cubic.in', yoyo: true, hold: 60,
         onYoyo: () => this.playSeq(events), onComplete: () => { hero.x = p.x; },
       });
     } else if (offensive) {
       this.playCue(castCue(sk));
+      this.heroPose(b.member, 'attack', 650);
       const col = ELEMENT_COLOR[sk.element];
       const orb = this.add.circle(p.x + 40, p.y - 160, 14, col).setDepth(2000);
       this.tweens.add({ targets: hero, y: p.y - 8, duration: 120, yoyo: true });
@@ -662,6 +695,7 @@ export class BattleScene extends Phaser.Scene {
           const sh = shakeFor(e.amount, 'hurt');
           this.cameras.main.shake(sh.ms, sh.intensity);
           if (shouldFlashHurt(e.amount)) this.cameras.main.flash(110, 255, 60, 60);
+          this.heroPose(e.member, 'hit', 380);
           this.tweens.add({ targets: this.heroes[e.member], x: p.x - 18, duration: 50, yoyo: true, repeat: 2 });
           this.flashAdd(this.heroes[e.member]);
           this.hitStop(hitStopMs(e.amount, 'hurt'));
@@ -674,7 +708,8 @@ export class BattleScene extends Phaser.Scene {
       }
       case 'down':
         audio.play('party_down');
-        this.tweens.add({ targets: this.heroes[e.member], alpha: 0.3, angle: -12, duration: 350 });
+        if (HERO_SPRITE[this.state.party[e.member].def.id]?.down && hasImg(this, HERO_SPRITE[this.state.party[e.member].def.id]!.down)) this.heroPose(e.member, 'down');
+        else this.tweens.add({ targets: this.heroes[e.member], alpha: 0.3, angle: -12, duration: 350 });
         this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 230, '戦闘不能', '#ff7a7a', 28);
         break;
       default:
@@ -694,8 +729,48 @@ export class BattleScene extends Phaser.Scene {
     this.hitStop(hitStopMs(amount, 'hit'));
   }
 
+  /** キャラを生成。役職に画像があればスプライト(足元原点)、無ければ図形描画 */
+  private makeHero(role: 'knight' | 'elementalist', color: number, x: number, y: number): { actor: Actor; base: number } {
+    const sprite = HERO_SPRITE[role];
+    if (sprite && hasImg(this, sprite.idle)) {
+      const img = this.add.image(x, y, sprite.idle).setOrigin(0.5, 1);
+      const base = HERO_DISPLAY_H / img.height; // 全ポーズ共通の縮尺（待機ポーズの高さ基準）
+      img.setScale(base);
+      this.add.ellipse(x, y, 130, 22, 0x000000, 0.35).setDepth(-1);
+      return { actor: img, base };
+    }
+    const g = this.add.graphics().setPosition(x, y);
+    drawHero(g, role, color, 1.15);
+    return { actor: g, base: 1 };
+  }
+
+  private breatheHero(i: number, duration: number): void {
+    const a = this.heroes[i];
+    const b = this.heroBase[i];
+    this.tweens.add({ targets: a, scaleY: b * 1.02, duration, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+  }
+
+  /**
+   * ポーズ画像があれば差し替える（idle以外は revertMs 後に待機へ戻す。down は戻さない）。
+   * 差し替え中は呼吸の揺れを止め、戻すときに再開する。
+   */
+  private heroPose(i: number, pose: HeroPose, revertMs = 0): void {
+    const a = this.heroes[i];
+    const sprite = HERO_SPRITE[this.state.party[i].def.id];
+    const key = sprite?.[pose];
+    if (!(a instanceof Phaser.GameObjects.Image) || !sprite || !hasImg(this, key)) return;
+    this.tweens.killTweensOf(a);
+    a.setTexture(key).setScale(this.heroBase[i]);
+    if (pose === 'idle') { this.breatheHero(i, 1300 + i * 200); return; }
+    if (pose === 'down' || revertMs <= 0) return;
+    this.time.delayedCall(revertMs, () => {
+      if (!a.scene || this.state.party[i].hp <= 0) return;
+      this.heroPose(i, 'idle');
+    });
+  }
+
   /** 一瞬だけ加算合成にして白く光らせる（画像アセット不要のヒット発光） */
-  private flashAdd(g: Phaser.GameObjects.Graphics): void {
+  private flashAdd(g: Actor): void {
     g.setBlendMode(Phaser.BlendModes.ADD);
     this.time.delayedCall(70, () => g.setBlendMode(Phaser.BlendModes.NORMAL));
   }
@@ -722,8 +797,16 @@ export class BattleScene extends Phaser.Scene {
       const line = add(this.add.rectangle(W + len, y, len, 3, 0xffffff, 0.5).setDepth(D + 2));
       this.tweens.add({ targets: line, x: -len, duration: 260 + Math.random() * 240, delay: 120 + Math.random() * 300, repeat: 1 });
     }
-    const hero = add(this.add.graphics().setDepth(D + 3).setPosition(-260, 520));
-    drawHero(hero, 'elementalist', 0x4a90e2, 2.2);
+    let hero: Actor;
+    if (hasImg(this, 'cutin_elementalist_bust')) {
+      // 立ち絵(胸像)が用意されていればカットインに使用
+      const bust = this.add.image(-300, 600, 'cutin_elementalist_bust').setOrigin(0.5, 1).setDepth(D + 3);
+      bust.setScale(560 / bust.height);
+      hero = add(bust);
+    } else {
+      hero = add(this.add.graphics().setDepth(D + 3).setPosition(-260, 520));
+      drawHero(hero, 'elementalist', 0x4a90e2, 2.2);
+    }
     const title = add(txt(this, 800, 300, 'CHAIN!', 120, '#ffffff', { fontStyle: 'bold', stroke: hex(col), strokeThickness: 14 })
       .setOrigin(0.5).setDepth(D + 4).setScale(2.6).setAlpha(0).setAngle(-6));
     const sub = add(txt(this, W + 500, 388, `${ELEMENT_LABEL[element]}属性 ─ 属性爆発`, 30, hex(col), { fontStyle: 'bold', stroke: '#000', strokeThickness: 6 })
@@ -766,7 +849,7 @@ export class BattleScene extends Phaser.Scene {
     this.sparks(ENEMY.x, ENEMY.y - 80, this.state.enemy.def.color, 40);
     this.shockwave(ENEMY.x, ENEMY.y - 80, 0xffffff);
     this.tweens.killTweensOf(this.enemyGfx);
-    this.tweens.add({ targets: this.enemyGfx, alpha: 0, scaleX: 1.3, scaleY: 0.4, angle: 6, duration: 700, ease: 'Cubic.in' });
+    this.tweens.add({ targets: this.enemyGfx, alpha: 0, scaleX: this.enemyBase * 1.3, scaleY: this.enemyBase * 0.4, angle: 6, duration: 700, ease: 'Cubic.in' });
     this.time.delayedCall(950, done);
   }
 

@@ -22,10 +22,10 @@ export class GearScene extends Phaser.Scene {
       const x0 = 40 + i * 620;
       txt(this, x0 + 290, 90, `${m.role === 'knight' ? 'ナイト' : 'エレメンタリスト'}  HP ${m.hp}/${memberMaxHp(run, i)}`, 20, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
       (['weapon', 'armor', 'accessory'] as Slot[]).forEach((slot, k) => {
-        itemCard(this, x0 + 100 + k * 190, 300, 180, 300, m.gear[slot], SLOT_LABEL[slot]).setScale(0.98);
+        itemCard(this, x0 + 100 + k * 190, 305, 180, 350, m.gear[slot], SLOT_LABEL[slot]);
       });
       const skills = memberSkills(run, i).map((s) => SKILLS[s].name).join(' / ');
-      txt(this, x0 + 290, 500, `使用可能スキル\n${skills}`, 14, '#b8c2d0', { align: 'center', wordWrap: { width: 560, useAdvancedWrap: true } }).setOrigin(0.5, 0);
+      txt(this, x0 + 290, 508, `使用可能スキル\n${skills}`, 14, '#b8c2d0', { align: 'center', wordWrap: { width: 560, useAdvancedWrap: true } }).setOrigin(0.5, 0);
     });
     makeButton(this, W / 2, 650, 240, 54, '← マップへ', () => this.scene.start('Map'), { size: 22 });
   }

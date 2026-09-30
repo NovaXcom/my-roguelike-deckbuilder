@@ -4,6 +4,8 @@ import { NODE_LABEL, type MapNode, type NodeType } from '../core/map';
 import { availableNodes, enterNode, memberMaxHp, usePotionOnMap } from '../core/run';
 import { game } from '../game';
 import { COLORS, drawBackground, txt } from '../ui/art';
+import { nodeIconKey } from '../ui/assetMap';
+import { hasImg } from '../ui/assets';
 import { compact } from '../ui/device';
 import { makeButton, onTap, padHitArea, panel } from '../ui/widgets';
 import { H, W } from './TitleScene';
@@ -56,8 +58,15 @@ export class MapScene extends Phaser.Scene {
       g.fillStyle(0x000000, 0.5).fillCircle(2, 3, r);
       g.fillStyle(isVisited ? 0x3a3f4a : col, isAvail || isVisited ? 1 : 0.35).fillCircle(0, 0, r);
       g.lineStyle(n.id === run.current ? 6 : 3, n.id === run.current ? 0xffffff : isAvail ? 0xffe066 : 0x1a1714, 1).strokeCircle(0, 0, r);
-      c.add([g, txt(this, 0, 0, isVisited && n.id !== run.current ? '✓' : NODE_GLYPH[n.type], n.type === 'boss' ? 28 : 20, '#ffffff', { fontStyle: 'bold' })
-        .setOrigin(0.5).setAlpha(isAvail || isVisited ? 1 : 0.5)]);
+      const iconKey = nodeIconKey(n.type, isVisited && n.id !== run.current ? 'visited' : 'normal');
+      if (hasImg(this, iconKey)) {
+        // 画像アイコン（無ければ従来の文字グリフ）
+        const size = n.type === 'boss' ? 84 : 46;
+        c.add([g, this.add.image(0, 0, iconKey).setDisplaySize(size, size).setAlpha(isAvail || isVisited ? 1 : 0.5)]);
+      } else {
+        c.add([g, txt(this, 0, 0, isVisited && n.id !== run.current ? '✓' : NODE_GLYPH[n.type], n.type === 'boss' ? 28 : 20, '#ffffff', { fontStyle: 'bold' })
+          .setOrigin(0.5).setAlpha(isAvail || isVisited ? 1 : 0.5)]);
+      }
       if (isAvail) {
         this.tweens.add({ targets: c, scale: 1.14, duration: 650, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
         padHitArea(c, r * 2 + 10, r * 2 + 10);
@@ -72,9 +81,14 @@ export class MapScene extends Phaser.Scene {
     // --- HUD（左: パーティ状態 / 右: 操作） ---
     panel(this, 16, 70, 250, 300, 0x4a5262);
     txt(this, 30, 82, `第 ${(run.current === null ? 0 : map.nodes[run.current].row) + 1} 階層 / ${map.rows}`, 16, '#f6e3b4', { fontStyle: 'bold' });
-    txt(this, 30, 110, `ゴールド  ${run.gold} G`, 16, '#ffe066');
-    txt(this, 30, 136, `魔導石    ◆ ${run.stones}`, 16, '#7fe9ff');
-    txt(this, 30, 162, `ポーション ×${run.potions}`, 16, '#7be495');
+    const hudLine = (y: number, iconKey: string, label: string, color: string) => {
+      const withIcon = hasImg(this, iconKey);
+      if (withIcon) this.add.image(42, y + 9, iconKey).setDisplaySize(24, 24);
+      txt(this, withIcon ? 60 : 30, y, label, 16, color);
+    };
+    hudLine(110, 'icon_status_gold', `ゴールド  ${run.gold} G`, '#ffe066');
+    hudLine(136, 'icon_status_mana_stone', `魔導石  ${run.stones}`, '#7fe9ff');
+    hudLine(162, 'icon_status_potion', `ポーション ×${run.potions}`, '#7be495');
     const bars = this.add.graphics();
     run.party.forEach((m, i) => {
       const y = 214 + i * 68;
@@ -95,9 +109,14 @@ export class MapScene extends Phaser.Scene {
     // 凡例
     (['battle', 'chest', 'rest', 'shop', 'boss'] as NodeType[]).forEach((t, i) => {
       const y = 100 + i * 30;
-      const g = this.add.graphics();
-      g.fillStyle(NODE_COLOR[t], 1).fillCircle(1050, y, 10);
-      txt(this, 1070, y, `${NODE_GLYPH[t]}：${NODE_LABEL[t]}`, 14, '#d8d0c4').setOrigin(0, 0.5);
+      if (hasImg(this, nodeIconKey(t))) {
+        this.add.image(1052, y, nodeIconKey(t)).setDisplaySize(28, 28);
+        txt(this, 1074, y, NODE_LABEL[t], 14, '#d8d0c4').setOrigin(0, 0.5);
+      } else {
+        const g = this.add.graphics();
+        g.fillStyle(NODE_COLOR[t], 1).fillCircle(1050, y, 10);
+        txt(this, 1070, y, `${NODE_GLYPH[t]}：${NODE_LABEL[t]}`, 14, '#d8d0c4').setOrigin(0, 0.5);
+      }
     });
   }
 

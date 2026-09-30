@@ -3,6 +3,7 @@ import { audio } from '../audio';
 import { REST_RATIO, memberMaxHp, rest } from '../core/run';
 import { game } from '../game';
 import { COLORS, drawBackground, txt } from '../ui/art';
+import { hasImg } from '../ui/assets';
 import { makeButton } from '../ui/widgets';
 import { H, W } from './TitleScene';
 
@@ -19,11 +20,22 @@ export class RestScene extends Phaser.Scene {
     txt(this, W / 2, 70, '休憩所', 42, '#f6e3b4', { fontStyle: 'bold', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5);
 
     // 焚き火
-    const fire = this.add.graphics().setPosition(W / 2, 330);
-    fire.fillStyle(0x5a3a1c, 1).fillRoundedRect(-70, 40, 140, 16, 6);
-    fire.fillStyle(0xff7043, 1).fillTriangle(-40, 40, 40, 40, 0, -60);
-    fire.fillStyle(0xffd166, 1).fillTriangle(-22, 40, 22, 40, 0, -20);
-    this.tweens.add({ targets: fire, scaleY: 1.12, scaleX: 0.95, duration: 260, yoyo: true, repeat: -1 });
+    const frames = ['prop_campfire_1', 'prop_campfire_2', 'prop_campfire_3'].filter((k) => hasImg(this, k));
+    if (frames.length >= 2) {
+      // 焚き火の画像を順に切り替えて揺らぎを表現（高さを揃えて足元固定）
+      this.add.circle(W / 2, 360, 150, 0xff7043, 0.12);
+      const fireImg = this.add.image(W / 2, 400, frames[0]).setOrigin(0.5, 1);
+      const fit = () => fireImg.setScale(200 / fireImg.height);
+      fit();
+      let frame = 0;
+      this.time.addEvent({ delay: 170, loop: true, callback: () => { frame = (frame + 1) % frames.length; fireImg.setTexture(frames[frame]); fit(); } });
+    } else {
+      const fire = this.add.graphics().setPosition(W / 2, 330);
+      fire.fillStyle(0x5a3a1c, 1).fillRoundedRect(-70, 40, 140, 16, 6);
+      fire.fillStyle(0xff7043, 1).fillTriangle(-40, 40, 40, 40, 0, -60);
+      fire.fillStyle(0xffd166, 1).fillTriangle(-22, 40, 22, 40, 0, -20);
+      this.tweens.add({ targets: fire, scaleY: 1.12, scaleX: 0.95, duration: 260, yoyo: true, repeat: -1 });
+    }
 
     const bars = this.add.graphics();
     run.party.forEach((m, i) => {

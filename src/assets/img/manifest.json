@@ -1,0 +1,282 @@
+{
+ "char_knight_idle": {
+  "w": 178,
+  "h": 282
+ },
+ "char_knight_attack": {
+  "w": 196,
+  "h": 238
+ },
+ "char_knight_hit": {
+  "w": 176,
+  "h": 248
+ },
+ "char_knight_down": {
+  "w": 200,
+  "h": 126
+ },
+ "char_elementalist_idle": {
+  "w": 202,
+  "h": 284
+ },
+ "char_elementalist_attack": {
+  "w": 238,
+  "h": 286
+ },
+ "char_elementalist_hit": {
+  "w": 218,
+  "h": 302
+ },
+ "char_elementalist_down": {
+  "w": 202,
+  "h": 120
+ },
+ "enemy_slime": {
+  "w": 158,
+  "h": 106
+ },
+ "enemy_bat": {
+  "w": 300,
+  "h": 194
+ },
+ "enemy_skeleton": {
+  "w": 194,
+  "h": 204
+ },
+ "enemy_golem": {
+  "w": 330,
+  "h": 276
+ },
+ "enemy_dragon": {
+  "w": 566,
+  "h": 348
+ },
+ "icon_equip_weapon_common": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_equip_weapon_rare": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_equip_weapon_legendary": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_equip_armor_common": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_equip_armor_rare": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_equip_armor_legendary": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_equip_accessory_common": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_equip_accessory_rare": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_equip_accessory_legendary": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_equip_dragon_claw": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_skill_slash": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_shield_bash": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_provoke": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_guardian": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_firebolt": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_ice_lance": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_thunder": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_heal": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_cleave": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_sword_guard": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_dragon_slash": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_holy_strike": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_blizzard": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_inferno": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_meteor": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_skill_thunderstorm": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_element_fire": {
+  "w": 48,
+  "h": 48
+ },
+ "icon_element_ice": {
+  "w": 48,
+  "h": 48
+ },
+ "icon_element_thunder": {
+  "w": 48,
+  "h": 48
+ },
+ "icon_element_none": {
+  "w": 48,
+  "h": 48
+ },
+ "icon_status_intent_attack": {
+  "w": 64,
+  "h": 64
+ },
+ "icon_status_intent_attack_all": {
+  "w": 64,
+  "h": 64
+ },
+ "icon_status_guard": {
+  "w": 64,
+  "h": 64
+ },
+ "icon_status_shield_gauge": {
+  "w": 64,
+  "h": 64
+ },
+ "icon_status_break": {
+  "w": 64,
+  "h": 64
+ },
+ "icon_status_gold": {
+  "w": 64,
+  "h": 64
+ },
+ "icon_status_heal": {
+  "w": 64,
+  "h": 64
+ },
+ "icon_status_potion": {
+  "w": 64,
+  "h": 64
+ },
+ "icon_node_battle": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_node_chest": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_node_rest": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_node_shop": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_node_boss": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_node_visited": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_node_current": {
+  "w": 96,
+  "h": 96
+ },
+ "bg_battle_dungeon": {
+  "w": 1280,
+  "h": 720
+ },
+ "bg_battle_boss": {
+  "w": 1280,
+  "h": 720
+ },
+ "bg_battle_crypt": {
+  "w": 1280,
+  "h": 720
+ },
+ "bg_map": {
+  "w": 1280,
+  "h": 720
+ },
+ "bg_base": {
+  "w": 1280,
+  "h": 720
+ },
+ "bg_title": {
+  "w": 1280,
+  "h": 720
+ },
+ "prop_chest_closed": {
+  "w": 156,
+  "h": 150
+ },
+ "prop_chest_open": {
+  "w": 174,
+  "h": 162
+ },
+ "prop_campfire_1": {
+  "w": 111,
+  "h": 144
+ },
+ "prop_campfire_2": {
+  "w": 96,
+  "h": 138
+ },
+ "prop_campfire_3": {
+  "w": 132,
+  "h": 156
+ },
+ "cutin_elementalist_bust": {
+  "w": 656,
+  "h": 736
+ }
+}

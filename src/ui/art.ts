@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import type { Role } from '../core/types';
+import { bgDim, bgKeyFor } from './assetMap';
 import { fontSize } from './device';
 
 /** 画像アセット無しでも成立させるための Canvas(Graphics) 描画ユーティリティ群。 */
@@ -27,7 +28,17 @@ export function txt(
     .setResolution(2);
 }
 
-export function drawBackground(scene: Phaser.Scene, w: number, h: number): void {
+/**
+ * 背景。場面に対応する画像があればそれを(暗幕付きで)表示し、無ければ図形描画。
+ * key を渡すと場面標準の背景を上書き（戦闘で敵に応じて切り替える用途）。null で強制的に図形描画。
+ */
+export function drawBackground(scene: Phaser.Scene, w: number, h: number, key?: string | null): void {
+  const k = key === undefined ? bgKeyFor(scene.scene.key) : key;
+  if (k && scene.textures.exists(k)) {
+    scene.add.image(w / 2, h / 2, k).setDisplaySize(w, h).setDepth(-100);
+    scene.add.rectangle(w / 2, h / 2, w, h, 0x0b0908, bgDim(scene.scene.key)).setDepth(-99);
+    return;
+  }
   const g = scene.add.graphics();
   g.fillGradientStyle(0x2d3748, 0x2d3748, 0x1e1b18, 0x1e1b18, 1);
   g.fillRect(0, 0, w, h);

@@ -29,7 +29,7 @@ Phaser 3 + TypeScript + Vite + Vitest 製。設計は `GAME_DESIGN.md` / `ART_DI
 - `src/core/` — UI非依存のロジック（Vitest対象）
   - `battle.ts` 戦闘 / `data.ts` スキル・敵 / `equipment.ts` 装備とドロップ / `map.ts` マップ生成 / `meta.ts` 拠点・パッシブ / `run.ts` 1回の挑戦の進行
 - `src/scenes/` — Title / Town / Party / Map / Battle / Loot / Chest / Rest / Shop / Gear / RunEnd
-- `src/ui/` — Canvas描画のキャラ・敵・ウィジェット（画像アセット不要）
+- `src/ui/` — 画像の読み込み/対応表(`assets.ts` `assetMap.ts`)、Canvas描画のフォールバック(`art.ts`)、ウィジェット。画像が無い素材は図形描画で表示される
 - `src/audio/` — サウンド。`src/assets/audio/` の音声ファイル(wav/mp3)を再生し、無い音は WebAudio 合成音にフォールバック（`index.ts` 管理 / `ids.ts` マニフェスト / `cues.ts` 状況→音ID / `synth.ts` 合成音）
 - `tests/` — 戦闘・マップ・装備・拠点・ラン進行、演出パラメータ、音量設計、および自動プレイBotによる全ラン通しテスト
 - `scripts/verify-standalone.cjs` — 単一HTMLのスタンドアロン動作検証
@@ -40,6 +40,12 @@ Phaser 3 + TypeScript + Vite + Vitest 製。設計は `GAME_DESIGN.md` / `ART_DI
 - ブレイク中に**魔法**を当てる → **チェイン**（ダメージ×2 + カットイン）。弱点属性は×1.5、耐性は×0.5。
 - シールドが残っている間、敵へのHPダメージは×0.75。
 - 敵のインテントに標的が表示される。後衛狙いは、ナイトの「挑発の構え」で前衛に逸らせる。
+
+## 画像の差し替え
+- 素材の元は `art/sheet/concept-sheet.webp`（アセット一覧の1枚絵）。`python3 scripts/build-assets.py`（要 Pillow / numpy / scipy）で切り出し・WebP化して `src/assets/img/` に出力する（確認用一覧は `art/preview.png`）。
+- 画像キーとゲーム内での使われ方の対応は `src/ui/assetMap.ts`。整合性は `tests/assets.test.ts` が検証。
+- 元画像の解像度が低いため、背景は拡大+ぼかしで使用。高解像度の素材ができたら、同じキー名のWebPで置き換えればよい。
+- タイトル名は `src/scenes/TitleScene.ts` の `GAME_TITLE` / `GAME_SUBTITLE`（素材のロゴ表記に合わせて「エターナル・オーブ ─ 永遠の旅路」）。
 
 ## 音声の差し替え
 1. 音声ファイルを `src/assets/audio/` に置く。ファイル名は `src/audio/ids.ts` のID（バリエーションは `atk_slash_1..3` のように連番）。wav / mp3 対応。

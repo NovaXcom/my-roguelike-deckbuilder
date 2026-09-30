@@ -5,6 +5,8 @@ import { RARITY_LABEL, statLines } from '../core/equipment';
 import { memberMaxHp, memberSkills } from '../core/run';
 import { startRun } from '../game';
 import { drawBackground, drawHero, txt } from '../ui/art';
+import { HERO_SPRITE } from '../ui/assetMap';
+import { hasImg } from '../ui/assets';
 import { compact } from '../ui/device';
 import { skillSummary } from '../ui/skillText';
 import { hex, makeButton } from '../ui/widgets';
@@ -28,8 +30,18 @@ export class PartyScene extends Phaser.Scene {
       const g = this.add.graphics();
       g.fillStyle(0x2d3748, 0.9).fillRoundedRect(px, 110, 580, 480, 16);
       g.lineStyle(3, m.color, 1).strokeRoundedRect(px, 110, 580, 480, 16);
-      const hero = this.add.graphics().setPosition(px + 105, 380);
-      drawHero(hero, id, m.color, 1.1);
+      // 立ち絵: 騎士はスプライト、エレメンタリストは胸像（戦闘用の立ち絵が無いため）。無ければ図形描画
+      const sprite = HERO_SPRITE[id];
+      if (sprite && hasImg(this, sprite.idle)) {
+        const img = this.add.image(px + 115, 400, sprite.idle).setOrigin(0.5, 1);
+        img.setScale(270 / img.height);
+      } else if (id === 'elementalist' && hasImg(this, 'cutin_elementalist_bust')) {
+        const bust = this.add.image(px + 115, 390, 'cutin_elementalist_bust').setOrigin(0.5, 1);
+        bust.setScale(196 / bust.height);
+      } else {
+        const hero = this.add.graphics().setPosition(px + 105, 380);
+        drawHero(hero, id, m.color, 1.1);
+      }
       txt(this, px + 240, 126, m.name, 28, '#fff', { fontStyle: 'bold' });
       txt(this, px + 240, 164, m.title, 14, hex(m.color));
       txt(this, px + 240, 190, `HP ${memberMaxHp(run, i)}`, 19, '#ff8a8a', { fontStyle: 'bold' });

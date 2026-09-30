@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { RARITY_COLOR, RARITY_LABEL, SLOT_LABEL, statLines, type EquipItem } from '../core/equipment';
 import { SKILLS } from '../core/data';
 import { audio } from '../audio';
+import { equipIconKey } from './assetMap';
+import { hasImg } from './assets';
 import { COLORS, txt } from './art';
 import { HIT_PAD_COMPACT, compact } from './device';
 
@@ -88,13 +90,21 @@ export function itemCard(scene: Phaser.Scene, x: number, y: number, w: number, h
     c.add(txt(scene, 0, 0, 'なし', 18, '#7b8798').setOrigin(0.5));
     return c;
   }
-  c.add(txt(scene, 0, top + 32, item.name, 20, '#ffffff', { fontStyle: 'bold' }).setOrigin(0.5, 0));
-  c.add(txt(scene, 0, top + 60, `${RARITY_LABEL[item.rarity]} ・ ${SLOT_LABEL[item.slot]}`, 13, hex(col), { fontStyle: 'bold' }).setOrigin(0.5, 0));
+  // 装備アイコン（レア度色の丸台座の上）。画像が無ければ従来の文字のみ
+  const iconKey = equipIconKey(item);
+  const off = hasImg(scene, iconKey) ? 70 : 0;
+  if (off) {
+    const disc = scene.add.graphics();
+    disc.fillStyle(col, 0.22).fillCircle(0, top + 62, 38).lineStyle(2, col, 0.9).strokeCircle(0, top + 62, 38);
+    c.add([disc, scene.add.image(0, top + 62, iconKey).setDisplaySize(64, 64)]);
+  }
+  c.add(txt(scene, 0, top + 32 + off, item.name, 20, '#ffffff', { fontStyle: 'bold' }).setOrigin(0.5, 0));
+  c.add(txt(scene, 0, top + 60 + off, `${RARITY_LABEL[item.rarity]} ・ ${SLOT_LABEL[item.slot]}`, 13, hex(col), { fontStyle: 'bold' }).setOrigin(0.5, 0));
   const lines = statLines(item.stats);
-  c.add(txt(scene, 0, top + 88, lines.join('\n'), 15, '#e8dfd3', { align: 'center', lineSpacing: 4 }).setOrigin(0.5, 0));
+  c.add(txt(scene, 0, top + 88 + off, lines.join('\n'), 15, '#e8dfd3', { align: 'center', lineSpacing: 4 }).setOrigin(0.5, 0));
   if (item.skill) {
     const sk = SKILLS[item.skill];
-    const sy = top + 88 + lines.length * 24 + 10;
+    const sy = top + 88 + off + lines.length * 24 + 10;
     c.add(txt(scene, 0, sy, `固有スキル\n${sk.name}`, 14, '#ffd166', { fontStyle: 'bold', align: 'center' }).setOrigin(0.5, 0));
     c.add(txt(scene, 0, sy + 44, sk.text, 12, '#b8c2d0', { align: 'center', wordWrap: { width: w - 24, useAdvancedWrap: true } }).setOrigin(0.5, 0));
   }

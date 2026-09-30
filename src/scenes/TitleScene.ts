@@ -4,6 +4,9 @@ import { COLORS, drawBackground, txt } from '../ui/art';
 import { isTouchDevice } from '../ui/device';
 import { onTap, padHitArea } from '../ui/widgets';
 
+/** ゲームタイトル（素材一覧のロゴ表記に合わせた）。変更はここと index.html の <title> */
+export const GAME_TITLE = 'エターナル・オーブ';
+export const GAME_SUBTITLE = '永遠の旅路';
 export const W = 1280;
 export const H = 720;
 
@@ -14,10 +17,11 @@ export class TitleScene extends Phaser.Scene {
 
   create(): void {
     drawBackground(this, W, H);
-    const title = txt(this, W / 2, 230, 'オリジナル・\nパーティローグRPG', 68, '#f6e3b4', {
-      fontStyle: 'bold', align: 'center', stroke: '#000', strokeThickness: 8,
+    const title = txt(this, W / 2, 210, GAME_TITLE, 84, '#f6e3b4', {
+      fontStyle: 'bold', align: 'center', stroke: '#000', strokeThickness: 9,
     }).setOrigin(0.5);
-    this.tweens.add({ targets: title, y: 240, duration: 2400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    this.tweens.add({ targets: title, y: 220, duration: 2400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    txt(this, W / 2, 290, `─ ${GAME_SUBTITLE} ─`, 32, '#9fd8ff', { stroke: '#000', strokeThickness: 6 }).setOrigin(0.5);
 
     txt(this, W / 2, 380, '2人パーティ × スキル・クールダウン × ブレイク＆チェイン', 20, '#9fb0c8').setOrigin(0.5);
 
