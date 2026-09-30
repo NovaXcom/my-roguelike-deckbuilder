@@ -10,6 +10,7 @@ import { RunEndScene } from './scenes/RunEndScene';
 import { ShopScene } from './scenes/ShopScene';
 import { TownScene } from './scenes/TownScene';
 import { H, TitleScene, W } from './scenes/TitleScene';
+import { audio, measureBgm, measureSfx, SFX_KINDS } from './audio';
 import { game } from './game';
 
 const phaser = new Phaser.Game({
@@ -25,5 +26,13 @@ const phaser = new Phaser.Game({
   ],
 });
 
+// 最初のユーザー操作（クリック/キー/タッチ）で AudioContext を確実に開放する
+audio.installGestureUnlock();
+
+// シーン遷移をなめらかに（各シーン生成時にフェードイン）
+phaser.events.once('ready', () => {
+  phaser.scene.scenes.forEach((s) => s.events.on('create', () => s.cameras.main.fadeIn(180, 0, 0, 0)));
+});
+
 // ブラウザ自動検証用: URL に ?debug を付けたときだけ内部状態を公開する
-if (location.search.includes('debug')) (window as unknown as Record<string, unknown>).__partyrogue = { game, phaser };
+if (location.search.includes('debug')) (window as unknown as Record<string, unknown>).__partyrogue = { game, phaser, audio, audioTools: { measureSfx, measureBgm, SFX_KINDS } };

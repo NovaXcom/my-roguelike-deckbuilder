@@ -33,7 +33,7 @@ export class ShopScene extends Phaser.Scene {
       makeButton(this, x, 530, 220, 52, `購入  ${price} G`, () => {
         const bought = buyItem(run, nodeId, i);
         if (!bought) return;
-        audio.play('click');
+        audio.play('coin');
         this.scene.start('Loot', {
           title: '購入した装備', reward: { gold: 0, stones: 0, item: bought }, returnTo: { scene: 'Shop' },
         });
@@ -50,7 +50,7 @@ export class ShopScene extends Phaser.Scene {
     txt(this, 1140, 360, '全員のHPを35%回復\n戦闘中は行動を消費しない', 12, '#b8c2d0', { align: 'center' }).setOrigin(0.5, 0);
     txt(this, 1140, 420, `所持 ×${run.potions} ／ 在庫 ${stock.potionsLeft}`, 14, '#e8dfd3').setOrigin(0.5);
     makeButton(this, 1140, 530, 200, 52, `購入  ${POTION_PRICE} G`, () => {
-      if (buyPotion(run, nodeId)) { audio.play('heal'); this.scene.restart(); }
+      if (buyPotion(run, nodeId)) { audio.play('coin'); this.scene.restart(); }
     }, { size: 20, color: 0x6fcf97, enabled: stock.potionsLeft > 0 && run.gold >= POTION_PRICE });
 
     makeButton(this, W / 2, 660, 260, 54, '店を出る', () => this.scene.start('Map'), { size: 22 });

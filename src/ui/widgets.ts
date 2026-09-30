@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { RARITY_COLOR, RARITY_LABEL, SLOT_LABEL, statLines, type EquipItem } from '../core/equipment';
 import { SKILLS } from '../core/data';
+import { audio } from '../audio';
 import { COLORS, txt } from './art';
 
 export const hex = (c: number): string => '#' + c.toString(16).padStart(6, '0');
@@ -28,7 +29,7 @@ export function makeButton(
     c.setAlpha(enabled ? 1 : 0.55);
   };
   paint(false);
-  c.on('pointerover', () => paint(true));
+  c.on('pointerover', () => { paint(true); if (enabled) audio.play('hover'); });
   c.on('pointerout', () => paint(false));
   c.on('pointerdown', () => { if (enabled) onClick(); });
   return {

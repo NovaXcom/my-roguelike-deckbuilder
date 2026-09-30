@@ -61,7 +61,8 @@ export class LootScene extends Phaser.Scene {
       return;
     }
 
-    audio.play(item.rarity === 'legendary' ? 'chain' : item.rarity === 'rare' ? 'heal' : 'click');
+    audio.play(item.rarity === 'common' ? 'coin' : 'loot');
+    if (item.rarity === 'legendary') this.time.delayedCall(350, () => audio.play('win'));
     const card = itemCard(this, 250, 380, 340, 340, item, '獲得した装備');
     card.setScale(0.5).setAlpha(0);
     this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 300, ease: 'Back.out' });
@@ -91,7 +92,7 @@ export class LootScene extends Phaser.Scene {
     const sell = SELL_VALUE[item.rarity];
     makeButton(this, 1080, 560, 250, 54, `売却  +${sell} G`, () => {
       sellItem(run, item);
-      audio.play('click');
+      audio.play('coin');
       leave();
     }, { size: 20, color: 0xf6c453 });
     if (!run.party.some((_, i) => canEquip(run, i, item))) txt(this, 690, 300, '装備できるキャラがいない', 18, '#ff8a8a').setOrigin(0.5);
@@ -101,7 +102,7 @@ export class LootScene extends Phaser.Scene {
   private doEquip(member: number, item: EquipItem, leave: () => void): void {
     const run = game.run!;
     equip(run, member, item);
-    audio.play('block');
-    this.time.delayedCall(150, leave);
+    audio.play('equip');
+    this.time.delayedCall(200, leave);
   }
 }

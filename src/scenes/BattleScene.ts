@@ -11,10 +11,13 @@ import { ELEMENT_COLOR, ELEMENT_LABEL, SKILLS } from '../core/data';
 import type { Element, SkillDef } from '../core/types';
 import { COLORS, drawBackground, drawHero, drawShield, drawEnemy, drawSword, txt } from '../ui/art';
 import { makeButton, type Button } from '../ui/widgets';
+import { hitStopMs, popupFontSize, shakeFor, shouldFlashHurt, sparkCount } from '../ui/juice';
 import { H, W } from './TitleScene';
 
 const HERO_POS = [{ x: 430, y: 400 }, { x: 200, y: 400 }]; // [前衛, 後衛]
 const ENEMY = { x: 990, y: 350 };
+const enemyRect = new Phaser.Geom.Rectangle(ENEMY.x - 150, ENEMY.y - 230, 300, 270);
+const PLAY_LINE_Y = 470; // 補助スキルをドラッグでドロップして使う境界線
 const PANEL_W = 4 * 140 + 3 * 8; // パネル幅は固定。スキル数に応じてボタン幅を分割
 const BTN_H = 168;
 const BTN_Y = 612;
@@ -37,10 +40,11 @@ interface SkillBtn {
   c: Phaser.GameObjects.Container;
   bg: Phaser.GameObjects.Graphics;
   status: Phaser.GameObjects.Text;
+  hover: boolean;
 }
 
 const EVENT_MS: Record<BattleEvent['type'], number> = {
-  skill: 0, damage: 260, shield: 0, break: 500, chain: 1900, stunned: 550, recover: 500,
+  skill: 0, damage: 260, shield: 0, break: 600, chain: 1450, stunned: 550, recover: 500,
   guard: 250, heal: 300, taunt: 250, enemyAttack: 380, hurt: 450, down: 450,
 };
 
@@ -49,6 +53,9 @@ export class BattleScene extends Phaser.Scene {
   private node!: MapNode;
   private potionBtn!: Button;
   private resultShown = false;
+  private dragBtn: SkillBtn | null = null;
+  private justDragged = false;
+  private ghost: Phaser.GameObjects.Container | null = null;
   private disp!: Disp;
   private busy = false;
   private buttons: SkillBtn[] = [];
@@ -84,6 +91,9 @@ export class BattleScene extends Phaser.Scene {
     this.guardTexts = [];
     this.tags = [];
     this.resultShown = false;
+    this.dragBtn = null;
+    this.justDragged = false;
+    this.ghost = null;
   }
 
   create(): void {
@@ -165,6 +175,10 @@ export class BattleScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-SPACE', () => this.endTurn());
 
     this.arrow = this.add.graphics().setDepth(1500);
+    this.input.dragDistanceThreshold = 6;
+    this.setupDrag();
+    audio.setMood('battle');
+    this.events.once('shutdown', () => audio.setMood('calm'));
     this.preview = txt(this, ENEMY.x + 100, ENEMY.y - 120, '', 34, '#ffffff', { fontStyle: 'bold', stroke: '#000', strokeThickness: 6, align: 'center' })
       .setOrigin(0.5).setDepth(1600).setAlpha(0);
 
@@ -188,11 +202,44 @@ export class BattleScene extends Phaser.Scene {
     const status = txt(this, 0, BTN_H / 2 - 20, '', 13, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
     const c = this.add.container(x, BTN_Y, [bg, title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
     c.setInteractive({ useHandCursor: true });
-    const btn: SkillBtn = { member, skill, c, bg, status, w: BTN_W };
+    const btn: SkillBtn = { member, skill, c, bg, status, w: BTN_W, hover: false };
     this.buttons.push(btn);
-    c.on('pointerover', () => { this.paintBtn(btn, true); this.showPreview(btn); });
-    c.on('pointerout', () => { this.paintBtn(btn, false); this.clearPreview(); });
-    c.on('pointerdown', () => this.onSkill(btn));
+    this.input.setDraggable(c);
+    c.on('pointerover', () => {
+      btn.hover = true;
+      this.paintBtn(btn, true);
+      if (this.dragBtn) return;
+      if (!this.busy && canUse(this.state, member, skill.id)) {
+        audio.play('hover');
+        this.liftBtn(btn, true);
+        this.showPreview(btn);
+      }
+    });
+    c.on('pointerout', () => {
+      btn.hover = false;
+      this.paintBtn(btn, false);
+      if (this.dragBtn) return;
+      this.liftBtn(btn, false);
+      this.clearPreview();
+    });
+    c.on('pointerdown', () => {
+      if (!this.busy && canUse(this.state, member, skill.id)) this.tweens.add({ targets: c, scale: 0.95, duration: 60, ease: 'Quad.out' });
+    });
+    // クリックで使用（ドラッグ操作の終了時は誤発火させない）
+    c.on('pointerup', () => {
+      if (this.justDragged || this.dragBtn) return;
+      this.liftBtn(btn, btn.hover);
+      this.onSkill(btn);
+    });
+  }
+
+  /** ホバー時にふわりと浮き上がる（離すと戻る） */
+  private liftBtn(b: SkillBtn, on: boolean): void {
+    this.tweens.killTweensOf(b.c);
+    this.tweens.add({
+      targets: b.c, y: on ? BTN_Y - 14 : BTN_Y, scale: on ? 1.06 : 1, duration: on ? 110 : 150, ease: on ? 'Cubic.out' : 'Cubic.inOut',
+    });
+    b.c.setDepth(on ? 50 : 0);
   }
 
   private syncDisp(): void {
@@ -217,7 +264,6 @@ export class BattleScene extends Phaser.Scene {
     g.fillStyle(ok ? (hover ? 0x3b4657 : 0x2d3748) : 0x1f2126, 1).fillRoundedRect(-BTN_W / 2, -BTN_H / 2, BTN_W, BTN_H, 10);
     g.lineStyle(ok && hover ? 4 : 2, ok ? col : 0x444a52, 1).strokeRoundedRect(-BTN_W / 2, -BTN_H / 2, BTN_W, BTN_H, 10);
     b.c.setAlpha(ok ? 1 : 0.55);
-    b.c.y = ok && hover ? BTN_Y - 10 : BTN_Y;
     if (!alive(m)) b.status.setText('戦闘不能').setColor('#ff7a7a');
     else if (cdLeft > 0) b.status.setText(`あと${cdLeft}ターン`).setColor('#ffb86b');
     else if (m.acted) b.status.setText('行動済み').setColor('#9fb0c8');
@@ -234,7 +280,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshButtons(): void {
-    this.buttons.forEach((b) => this.paintBtn(b, false));
+    this.buttons.forEach((b) => this.paintBtn(b, b.hover));
     this.state.party.forEach((m, i) => {
       this.tags[i].setText(!alive(m) ? '戦闘不能' : m.acted ? '行動済み' : '行動可能')
         .setColor(!alive(m) ? '#ff7a7a' : m.acted ? '#7b8798' : '#7be495');
@@ -343,6 +389,70 @@ export class BattleScene extends Phaser.Scene {
     this.preview.setAlpha(0);
   }
 
+  /** スキルをドラッグして敵にドロップ（補助スキルは上部へドロップ）。クリックでも使用可能。 */
+  private setupDrag(): void {
+    this.input.on('dragstart', (p: Phaser.Input.Pointer, obj: Phaser.GameObjects.Container) => {
+      const b = this.buttons.find((x) => x.c === obj);
+      if (!b) return;
+      if (this.busy || !canUse(this.state, b.member, b.skill.id)) {
+        this.tweens.add({ targets: obj, x: obj.x + 6, duration: 40, yoyo: true, repeat: 2 });
+        return;
+      }
+      this.dragBtn = b;
+      this.justDragged = true;
+      audio.play('select');
+      this.tweens.killTweensOf(obj);
+      this.tweens.add({ targets: obj, y: BTN_Y, scale: 0.94, alpha: 0.7, duration: 90 });
+      // ポインタに追従するスキル名チップ
+      const chip = this.add.graphics();
+      chip.fillStyle(0x2d3748, 0.95).fillRoundedRect(-70, -18, 140, 36, 10);
+      chip.lineStyle(3, this.state.party[b.member].def.color, 1).strokeRoundedRect(-70, -18, 140, 36, 10);
+      this.ghost = this.add.container(p.x, p.y - 28, [chip, txt(this, 0, 0, b.skill.name, 15, '#fff', { fontStyle: 'bold' }).setOrigin(0.5)]).setDepth(1700);
+      this.ghost.setScale(0.6);
+      this.tweens.add({ targets: this.ghost, scale: 1, duration: 120, ease: 'Back.out' });
+      this.showPreview(b);
+    });
+    this.input.on('drag', (p: Phaser.Input.Pointer) => {
+      const b = this.dragBtn;
+      if (!b) return;
+      this.ghost?.setPosition(p.x, p.y - 28);
+      const offensive = !!b.skill.damage || !!b.skill.breakPower;
+      const from = HERO_POS[b.member];
+      if (offensive) {
+        const over = Phaser.Geom.Rectangle.Contains(enemyRect, p.x, p.y);
+        const pv = previewSkill(this.state, b.skill, b.member);
+        this.drawTargetLine(from.x, from.y - 150, p.x, p.y, over && pv.chain);
+        this.enemyGfx.setScale(over ? 1.08 : 1);
+        this.preview.setAlpha(over ? 0.95 : 0.4);
+      } else {
+        const ok = p.y < PLAY_LINE_Y;
+        const g = this.arrow;
+        g.clear();
+        g.lineStyle(3, ok ? 0x7be495 : 0x7b8798, 0.9).lineBetween(280, PLAY_LINE_Y, 1000, PLAY_LINE_Y);
+        this.preview.setAlpha(0);
+        this.ghost?.setAlpha(ok ? 1 : 0.7);
+      }
+    });
+    this.input.on('dragend', (p: Phaser.Input.Pointer) => {
+      const b = this.dragBtn;
+      if (!b) return;
+      this.dragBtn = null;
+      this.time.delayedCall(80, () => { this.justDragged = false; });
+      this.ghost?.destroy();
+      this.ghost = null;
+      this.clearPreview();
+      this.enemyGfx.setScale(1);
+      this.tweens.add({ targets: b.c, y: BTN_Y, scale: 1, alpha: 1, duration: 140, ease: 'Back.out' });
+      b.c.setDepth(0);
+      b.hover = false;
+      const offensive = !!b.skill.damage || !!b.skill.breakPower;
+      const ok = offensive ? Phaser.Geom.Rectangle.Contains(enemyRect, p.x, p.y) : p.y < PLAY_LINE_Y;
+      if (ok) this.onSkill(b);
+      else this.tweens.add({ targets: b.c, x: b.c.x + 5, duration: 40, yoyo: true, repeat: 1 });
+      this.paintBtn(b, false);
+    });
+  }
+
   private onSkill(b: SkillBtn): void {
     const s = this.state;
     if (this.busy || !canUse(s, b.member, b.skill.id)) {
@@ -397,7 +507,8 @@ export class BattleScene extends Phaser.Scene {
 
   private afterAction(): void {
     const p = this.state.phase;
-    if (p === 'won' || p === 'lost') { this.showResult(p === 'won'); return; }
+    if (p === 'won') { this.enemyDeath(() => this.showResult(true)); return; }
+    if (p === 'lost') { this.showResult(false); return; }
     if (allActed(this.state)) this.time.delayedCall(350, () => this.endTurn());
   }
 
@@ -405,28 +516,33 @@ export class BattleScene extends Phaser.Scene {
     const d = this.disp;
     switch (e.type) {
       case 'damage': {
-        const col = hex(ELEMENT_COLOR[e.element]);
         if (e.chain) break; // チェインは cut-in 側で演出
         d.enemyHp -= e.amount;
         audio.play('enemyHit');
-        this.popup(ENEMY.x + Phaser.Math.Between(-25, 25), ENEMY.y - 140, `-${e.amount}`, e.element === 'none' ? '#ffdf6b' : col, 44 + Math.min(20, e.amount));
-        if (e.weak) this.popup(ENEMY.x + 90, ENEMY.y - 175, '弱点!', '#ff9a3c', 26);
-        if (e.resist) this.popup(ENEMY.x + 90, ENEMY.y - 175, '耐性', '#9fb0c8', 24);
+        const col = e.element === 'none' ? '#ffdf6b' : hex(ELEMENT_COLOR[e.element]);
+        this.damagePopup(ENEMY.x, ENEMY.y - 140, e.amount, col, { weak: e.weak });
+        if (e.weak) this.popup(ENEMY.x + 100, ENEMY.y - 185, '弱点!', '#ff9a3c', 26);
+        if (e.resist) this.popup(ENEMY.x + 100, ENEMY.y - 185, '耐性', '#9fb0c8', 24);
         this.impact(e.amount, ELEMENT_COLOR[e.element] || 0xffd166);
         break;
       }
       case 'shield':
         d.enemyShield = Math.max(0, d.enemyShield - e.amount);
         break;
-      case 'break':
+      case 'break': {
         d.broken = true;
         audio.play('break');
-        this.popup(ENEMY.x, ENEMY.y - 200, 'BREAK!', '#ffe066', 64);
-        this.cameras.main.flash(180, 255, 255, 255);
-        this.cameras.main.shake(380, 0.014);
+        const sh = shakeFor(0, 'break');
+        this.cameras.main.flash(150, 255, 255, 255);
+        this.cameras.main.shake(sh.ms, sh.intensity);
+        this.popup(ENEMY.x - 150, ENEMY.y - 150, 'BREAK!', '#ffe066', 70);
+        this.shockwave(ENEMY.x, ENEMY.y - 70, 0xffe066);
+        this.shards(ENEMY.x, ENEMY.y - 70, 0xffe066);
         this.sparks(ENEMY.x, ENEMY.y - 60, 0xffe066, 26);
-        this.hitStop(110);
+        this.zoomPunch(1.05);
+        this.hitStop(hitStopMs(0, 'break'));
         break;
+      }
       case 'chain':
         this.cutIn(e.element, e.amount);
         break;
@@ -454,7 +570,7 @@ export class BattleScene extends Phaser.Scene {
         this.popup(ENEMY.x, ENEMY.y - 110, 'シールド回復', '#f6c453', 22);
         break;
       case 'enemyAttack': {
-        const to = HERO_POS[e.target];
+        const to = e.target === -1 ? { x: (HERO_POS[0].x + HERO_POS[1].x) / 2 } : HERO_POS[e.target];
         this.tweens.add({ targets: this.enemyGfx, x: to.x + 140, duration: 150, yoyo: true, ease: 'Cubic.in', hold: 40 });
         break;
       }
@@ -464,14 +580,18 @@ export class BattleScene extends Phaser.Scene {
         d.guard[e.member] = Math.max(0, d.guard[e.member] - e.blocked);
         if (e.amount > 0) {
           audio.play('hit');
-          this.popup(p.x, p.y - 190, `-${e.amount}`, '#ff8a8a', 44);
-          this.sparks(p.x, p.y - 90, 0xff6b6b, 12);
-          this.cameras.main.shake(160 + e.amount * 6, Math.min(0.02, 0.004 + e.amount * 0.0006));
-          this.tweens.add({ targets: this.heroes[e.member], x: p.x - 16, duration: 50, yoyo: true, repeat: 2 });
-          this.hitStop(80);
+          this.damagePopup(p.x, p.y - 190, e.amount, '#ff8a8a', {});
+          this.sparks(p.x, p.y - 90, 0xff6b6b, sparkCount(e.amount));
+          const sh = shakeFor(e.amount, 'hurt');
+          this.cameras.main.shake(sh.ms, sh.intensity);
+          if (shouldFlashHurt(e.amount)) this.cameras.main.flash(110, 255, 60, 60);
+          this.tweens.add({ targets: this.heroes[e.member], x: p.x - 18, duration: 50, yoyo: true, repeat: 2 });
+          this.flashAdd(this.heroes[e.member]);
+          this.hitStop(hitStopMs(e.amount, 'hurt'));
         } else {
           audio.play('block');
           this.popup(p.x, p.y - 190, 'ガード!', '#9cc7ff', 32);
+          this.shieldRing(p.x, p.y - 90, COLORS.block);
         }
         break;
       }
@@ -485,50 +605,91 @@ export class BattleScene extends Phaser.Scene {
     this.drawBars();
   }
 
+  /** 敵への命中演出: 火花・画面揺れ・ヒットストップ・発光・ノックバック */
   private impact(amount: number, color: number): void {
-    this.sparks(ENEMY.x, ENEMY.y - 70, color, 14);
-    this.cameras.main.shake(140 + amount * 6, Math.min(0.02, 0.004 + amount * 0.0006));
-    this.tweens.add({ targets: this.enemyGfx, x: ENEMY.x + 16, duration: 50, yoyo: true, repeat: 2 });
-    this.hitStop(90);
+    const sh = shakeFor(amount, 'hit');
+    this.sparks(ENEMY.x, ENEMY.y - 70, color, sparkCount(amount));
+    this.cameras.main.shake(sh.ms, sh.intensity);
+    this.tweens.add({ targets: this.enemyGfx, x: ENEMY.x + 16 + Math.min(14, amount * 0.6), duration: 50, yoyo: true, repeat: 2 });
+    this.flashAdd(this.enemyGfx);
+    if (amount >= 15) this.zoomPunch(1.03);
+    this.hitStop(hitStopMs(amount, 'hit'));
   }
 
-  /** チェイン: 全画面カットイン + 大ダメージ演出 */
+  /** 一瞬だけ加算合成にして白く光らせる（画像アセット不要のヒット発光） */
+  private flashAdd(g: Phaser.GameObjects.Graphics): void {
+    g.setBlendMode(Phaser.BlendModes.ADD);
+    this.time.delayedCall(70, () => g.setBlendMode(Phaser.BlendModes.NORMAL));
+  }
+
+  private zoomPunch(zoom: number): void {
+    this.tweens.add({ targets: this.cameras.main, zoom, duration: 80, yoyo: true, ease: 'Quad.out' });
+  }
+
+  /** チェイン: 全画面カットイン + 大ダメージ演出（約1.3秒） */
   private cutIn(element: Element, amount: number): void {
     const col = ELEMENT_COLOR[element];
     audio.play('chain');
     const D = 5000;
-    const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0).setDepth(D);
-    const band = this.add.rectangle(W / 2, 330, W, 250, col, 0.9).setDepth(D + 1).setScale(1, 0.05);
-    const stripe = this.add.rectangle(W / 2, 330, W, 220, 0x000000, 0.55).setDepth(D + 1).setScale(1, 0.05);
-    const hero = this.add.graphics().setDepth(D + 2).setPosition(-260, 520);
+    const all: Phaser.GameObjects.GameObject[] = [];
+    const add = <T extends Phaser.GameObjects.GameObject>(o: T): T => { all.push(o); return o; };
+    const dim = add(this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0).setDepth(D));
+    const band = add(this.add.rectangle(W / 2, 330, W, 250, col, 0.92).setDepth(D + 1).setScale(1, 0.05));
+    const stripe = add(this.add.rectangle(W / 2, 330, W, 214, 0x000000, 0.55).setDepth(D + 1).setScale(1, 0.05));
+    // スピード線
+    for (let i = 0; i < 14; i++) {
+      const y = 230 + Math.random() * 200;
+      const len = 260 + Math.random() * 520;
+      const line = add(this.add.rectangle(W + len, y, len, 3, 0xffffff, 0.5).setDepth(D + 2));
+      this.tweens.add({ targets: line, x: -len, duration: 260 + Math.random() * 240, delay: 120 + Math.random() * 300, repeat: 1 });
+    }
+    const hero = add(this.add.graphics().setDepth(D + 3).setPosition(-260, 520));
     drawHero(hero, 'elementalist', 0x4a90e2, 2.2);
-    const title = txt(this, W + 500, 300, 'CHAIN!', 120, '#ffffff', { fontStyle: 'bold', stroke: hex(col), strokeThickness: 14 })
-      .setOrigin(0.5).setDepth(D + 3);
-    const sub = txt(this, W + 500, 385, `${ELEMENT_LABEL[element]}属性 ─ 属性爆発`, 30, hex(col), { fontStyle: 'bold', stroke: '#000', strokeThickness: 6 })
-      .setOrigin(0.5).setDepth(D + 3);
-    const all = [dim, band, stripe, hero, title, sub];
-    this.tweens.add({ targets: dim, fillAlpha: 0.65, duration: 200 });
-    this.tweens.add({ targets: [band, stripe], scaleY: 1, duration: 220, ease: 'Cubic.out' });
-    this.tweens.add({ targets: hero, x: 300, duration: 380, ease: 'Cubic.out', delay: 100 });
-    this.tweens.add({ targets: [title, sub], x: 800, duration: 380, ease: 'Cubic.out', delay: 160 });
-    // 命中: フラッシュ・大揺れ・ダメージ表示
-    this.time.delayedCall(950, () => {
-      this.cameras.main.flash(260, 255, 255, 255);
-      this.cameras.main.shake(520, 0.03);
-      const big = txt(this, W / 2, 470, `-${amount}`, 130, hex(col), { fontStyle: 'bold', stroke: '#000', strokeThickness: 14 })
-        .setOrigin(0.5).setDepth(D + 4).setScale(0.3);
-      this.tweens.add({ targets: big, scale: 1, duration: 200, ease: 'Back.out' });
-      all.push(big);
+    const title = add(txt(this, 800, 300, 'CHAIN!', 120, '#ffffff', { fontStyle: 'bold', stroke: hex(col), strokeThickness: 14 })
+      .setOrigin(0.5).setDepth(D + 4).setScale(2.6).setAlpha(0).setAngle(-6));
+    const sub = add(txt(this, W + 500, 388, `${ELEMENT_LABEL[element]}属性 ─ 属性爆発`, 30, hex(col), { fontStyle: 'bold', stroke: '#000', strokeThickness: 6 })
+      .setOrigin(0.5).setDepth(D + 4));
+    this.tweens.add({ targets: dim, fillAlpha: 0.68, duration: 150 });
+    this.tweens.add({ targets: [band, stripe], scaleY: 1, duration: 200, ease: 'Back.out' });
+    this.tweens.add({ targets: hero, x: 300, duration: 300, ease: 'Cubic.out', delay: 60 });
+    this.tweens.add({ targets: title, scale: 1, alpha: 1, angle: 0, duration: 260, ease: 'Back.out', delay: 140 });
+    this.tweens.add({ targets: sub, x: 800, duration: 300, ease: 'Cubic.out', delay: 240 });
+    // 命中の瞬間: フラッシュ → ヒットストップ → ダメージ数字
+    this.time.delayedCall(620, () => {
+      this.cameras.main.flash(180, 255, 255, 255);
+      const sh = shakeFor(amount, 'chain');
+      this.cameras.main.shake(sh.ms, sh.intensity);
+      const big = add(txt(this, W / 2, 476, `-${amount}`, 130, hex(col), { fontStyle: 'bold', stroke: '#000', strokeThickness: 14 })
+        .setOrigin(0.5).setDepth(D + 5).setScale(0.3));
+      this.tweens.add({ targets: big, scale: 1, duration: 180, ease: 'Back.out' });
+      this.zoomPunch(1.06);
+      this.hitStop(hitStopMs(amount, 'chain'));
     });
-    this.time.delayedCall(1300, () => {
+    // カットインを畳み、敵に大ダメージを反映
+    this.time.delayedCall(1000, () => {
       this.disp.enemyHp -= amount;
       this.drawBars();
       audio.play('enemyHit');
-      this.sparks(ENEMY.x, ENEMY.y - 70, col, 30);
-      this.tweens.add({ targets: all, alpha: 0, duration: 380, onComplete: () => all.forEach((o) => o.destroy()) });
-      this.popup(ENEMY.x, ENEMY.y - 140, `-${amount}`, hex(col), 72);
-      this.tweens.add({ targets: this.enemyGfx, x: ENEMY.x + 22, duration: 60, yoyo: true, repeat: 4 });
+      this.sparks(ENEMY.x, ENEMY.y - 70, col, 34);
+      this.shockwave(ENEMY.x, ENEMY.y - 70, col);
+      this.flashAdd(this.enemyGfx);
+      this.tweens.add({ targets: all, alpha: 0, duration: 280, onComplete: () => all.forEach((o) => o.destroy()) });
+      this.damagePopup(ENEMY.x, ENEMY.y - 140, amount, hex(col), { chain: true });
+      this.tweens.add({ targets: this.enemyGfx, x: ENEMY.x + 24, duration: 60, yoyo: true, repeat: 4 });
     });
+  }
+
+  /** 撃破演出: 光の粒になって崩れ落ちる */
+  private enemyDeath(done: () => void): void {
+    audio.play('break');
+    this.intentBox.setVisible(false);
+    this.stars.setVisible(false);
+    this.cameras.main.shake(320, 0.014);
+    this.sparks(ENEMY.x, ENEMY.y - 80, this.state.enemy.def.color, 40);
+    this.shockwave(ENEMY.x, ENEMY.y - 80, 0xffffff);
+    this.tweens.killTweensOf(this.enemyGfx);
+    this.tweens.add({ targets: this.enemyGfx, alpha: 0, scaleX: 1.3, scaleY: 0.4, angle: 6, duration: 700, ease: 'Cubic.in' });
+    this.time.delayedCall(950, done);
   }
 
   private hitStop(ms: number): void {
@@ -536,9 +697,23 @@ export class BattleScene extends Phaser.Scene {
     this.time.delayedCall(ms, () => this.tweens.resumeAll());
   }
 
+  /** ダメージ数字: 大きく弾んで弧を描き、上へ消える */
+  private damagePopup(x: number, y: number, amount: number, color: string, opts: { weak?: boolean; chain?: boolean }): void {
+    const size = popupFontSize(amount, opts);
+    const t = txt(this, x + Phaser.Math.Between(-18, 18), y, `-${amount}`, size, color, { fontStyle: 'bold', stroke: '#000', strokeThickness: Math.round(size / 8) + 3 })
+      .setOrigin(0.5).setDepth(3000).setScale(0.2).setAngle(Phaser.Math.Between(-9, 9));
+    const drift = Phaser.Math.Between(-36, 36);
+    this.tweens.add({ targets: t, scale: 1.35, duration: 100, ease: 'Back.out', onComplete: () => this.tweens.add({ targets: t, scale: 1, duration: 110, ease: 'Quad.out' }) });
+    this.tweens.add({ targets: t, x: t.x + drift, angle: 0, duration: 900, ease: 'Sine.out' });
+    this.tweens.add({
+      targets: t, y: y - 85, duration: 360, ease: 'Quad.out',
+      onComplete: () => this.tweens.add({ targets: t, y: y - 45, alpha: 0, duration: 520, ease: 'Quad.in', onComplete: () => t.destroy() }),
+    });
+  }
+
   private popup(x: number, y: number, s: string, color: string, size: number): void {
     const t = txt(this, x, y, s, size, color, { fontStyle: 'bold', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5).setDepth(3000).setScale(0.4);
-    this.tweens.add({ targets: t, scale: 1, duration: 120, ease: 'Back.out' });
+    this.tweens.add({ targets: t, scale: 1, duration: 130, ease: 'Back.out' });
     this.tweens.add({ targets: t, y: y - 60, alpha: 0, duration: 800, delay: 300, ease: 'Cubic.out', onComplete: () => t.destroy() });
   }
 
@@ -546,12 +721,31 @@ export class BattleScene extends Phaser.Scene {
     for (let i = 0; i < n; i++) {
       const c = this.add.circle(x, y, Phaser.Math.Between(3, 6), color).setDepth(2500);
       const a = Math.random() * Math.PI * 2;
-      const dist = Phaser.Math.Between(40, 130);
+      const dist = Phaser.Math.Between(40, 140);
       this.tweens.add({
-        targets: c, x: x + Math.cos(a) * dist, y: y + Math.sin(a) * dist, alpha: 0, scale: 0.2,
+        targets: c, x: x + Math.cos(a) * dist, y: y + Math.sin(a) * dist + 20, alpha: 0, scale: 0.2,
         duration: 450, ease: 'Cubic.out', onComplete: () => c.destroy(),
       });
     }
+  }
+
+  /** ブレイク: ガラス片が飛び散る */
+  private shards(x: number, y: number, color: number): void {
+    for (let i = 0; i < 14; i++) {
+      const s = Phaser.Math.Between(8, 18);
+      const tri = this.add.triangle(x, y, 0, s, s, s, s / 2, 0, color, 0.95).setDepth(2600).setStrokeStyle(2, 0xffffff, 0.8);
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 3.4;
+      const dist = Phaser.Math.Between(90, 230);
+      this.tweens.add({
+        targets: tri, x: x + Math.cos(a) * dist, y: y + Math.sin(a) * dist + 60, angle: Phaser.Math.Between(-360, 360), alpha: 0,
+        duration: 650, ease: 'Cubic.out', onComplete: () => tri.destroy(),
+      });
+    }
+  }
+
+  private shockwave(x: number, y: number, color: number): void {
+    const c = this.add.circle(x, y, 30).setStrokeStyle(6, color, 1).setDepth(2550);
+    this.tweens.add({ targets: c, scale: 6, alpha: 0, duration: 480, ease: 'Cubic.out', onComplete: () => c.destroy() });
   }
 
   private shieldRing(x: number, y: number, color: number): void {

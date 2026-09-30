@@ -9,7 +9,8 @@
     "build:local": "tsc --noEmit && vite build --mode singlefile",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:standalone": "node scripts/verify-standalone.cjs"
   },
   "dependencies": {
     "phaser": "^3.90.0"

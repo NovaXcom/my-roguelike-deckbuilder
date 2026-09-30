@@ -32,8 +32,8 @@ export class TitleScene extends Phaser.Scene {
     txt(this, W / 2, 660, '※ 最初のクリックで音声が有効になります', 14, '#7b8798').setOrigin(0.5);
 
     const start = () => {
-      audio.unlock(); // Autoplay 制限回避: 最初のユーザー操作で AudioContext を開放
-      audio.play('click');
+      audio.unlock(); // Autoplay 制限回避: 最初のユーザー操作で AudioContext を開放（グローバル解錠と二重でも安全）
+      audio.play('select');
       this.scene.start('Town');
     };
     btn.on('pointerdown', start);
