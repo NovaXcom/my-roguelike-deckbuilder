@@ -1,0 +1,106 @@
+{
+  "common_style": "Dark fantasy RPG game asset, stylized 2D digital painting, dark slate tones, cinematic lighting",
+  "common_negative": "lowres, blurry, jpeg artifacts, watermark, text, signature, logo, worst quality, low quality, bad anatomy, extra limbs, deformed, cropped",
+  "assets": [
+    {
+      "id": "bg_title",
+      "category": "bg",
+      "path": "src/assets/bg/title.png",
+      "prompt": "ruined gothic castle silhouette under a stormy night sky, distant torches, wide landscape, empty foreground for title text",
+      "negative_prompt": "characters, people, ui, frame, lowres, blurry, worst quality, watermark, text",
+      "transparent": false,
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "id": "bg_base",
+      "category": "bg",
+      "path": "src/assets/bg/base.png",
+      "prompt": "half-ruined medieval town square being rebuilt, blacksmith forge glowing, alchemist hut, training yard, dusk, wide landscape",
+      "negative_prompt": "characters, people, ui, frame, lowres, blurry, worst quality, watermark, text",
+      "transparent": false,
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "id": "bg_dungeon",
+      "category": "bg",
+      "path": "src/assets/bg/dungeon.png",
+      "prompt": "damp stone dungeon hall, mossy pillars, dim blue torchlight, misty floor, wide battle stage, empty center",
+      "negative_prompt": "characters, people, monsters, ui, frame, lowres, blurry, worst quality, watermark, text",
+      "transparent": false,
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "id": "char_knight",
+      "category": "character",
+      "path": "src/assets/characters/knight.png",
+      "prompt": "armored knight with tower shield and longsword, red cape, full body, standing pose, front view, single character, plain background",
+      "negative_prompt": "multiple characters, background scenery, lowres, blurry, worst quality, bad anatomy, watermark, text",
+      "transparent": true,
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "id": "char_elementalist",
+      "category": "character",
+      "path": "src/assets/characters/elementalist.png",
+      "prompt": "elementalist mage in blue robe holding a staff with swirling fire ice and lightning, full body, standing pose, front view, single character, plain background",
+      "negative_prompt": "multiple characters, background scenery, lowres, blurry, worst quality, bad anatomy, watermark, text",
+      "transparent": true,
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "id": "enemy_dragon",
+      "category": "enemy",
+      "path": "src/assets/enemies/dragon.png",
+      "prompt": "menacing dark dragon, spread wings, glowing eyes, full body, single monster, plain background",
+      "negative_prompt": "multiple monsters, background scenery, lowres, blurry, worst quality, watermark, text",
+      "transparent": true,
+      "width": 768,
+      "height": 768
+    },
+    {
+      "id": "enemy_slime",
+      "category": "enemy",
+      "path": "src/assets/enemies/slime.png",
+      "prompt": "toxic green slime monster with glowing core, glossy, single monster, plain background",
+      "negative_prompt": "multiple monsters, background scenery, lowres, blurry, worst quality, watermark, text",
+      "transparent": true,
+      "width": 512,
+      "height": 512
+    },
+    {
+      "id": "enemy_skeleton",
+      "category": "enemy",
+      "path": "src/assets/enemies/skeleton.png",
+      "prompt": "skeleton warrior with rusted sword and cracked round shield, full body, single monster, plain background",
+      "negative_prompt": "multiple monsters, background scenery, lowres, blurry, worst quality, watermark, text",
+      "transparent": true,
+      "width": 512,
+      "height": 768
+    },
+    {
+      "id": "cutin_magic",
+      "category": "cutin",
+      "path": "src/assets/cutins/magic.png",
+      "prompt": "dramatic cut-in illustration of a mage casting a huge explosive elemental spell, dynamic angle, speed lines, close-up",
+      "negative_prompt": "ui, frame, lowres, blurry, worst quality, watermark, text",
+      "transparent": false,
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "id": "cutin_chain",
+      "category": "cutin",
+      "path": "src/assets/cutins/chain.png",
+      "prompt": "dramatic cut-in illustration of a knight slashing while lightning and flames burst around, chain attack finisher, dynamic angle",
+      "negative_prompt": "ui, frame, lowres, blurry, worst quality, watermark, text",
+      "transparent": false,
+      "width": 1280,
+      "height": 720
+    }
+  ]
+}
