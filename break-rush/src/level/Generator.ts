@@ -72,7 +72,7 @@ export function generateLevel(seed: number, opts: GenOptions): Level {
   const withEnemies = opts.enemies !== false;
 
   const floor = (x0: number, x1: number, top: number, halfW = LANE) => {
-    const b: Box = { minX: x0, maxX: x1, minY: top - FLOOR_DEPTH, maxY: top, minZ: -halfW, maxZ: halfW };
+    const b: Box = { minX: x0, maxX: x1, minY: top - FLOOR_DEPTH, maxY: top, minZ: -halfW, maxZ: halfW, tag: 'floor' };
     boxes.push(b);
     return b;
   };
@@ -143,7 +143,7 @@ export function generateLevel(seed: number, opts: GenOptions): Level {
       const len = 16;
       floor(cur.x, cur.x + len, cur.y);
       // low ceiling to slide under
-      boxes.push({ minX: cur.x + 6, maxX: cur.x + 10, minY: cur.y + 1.1, maxY: cur.y + 4, minZ: -LANE - 0.5, maxZ: LANE + 0.5 });
+      boxes.push({ minX: cur.x + 6, maxX: cur.x + 10, minY: cur.y + 1.1, maxY: cur.y + 4, minZ: -LANE - 0.5, maxZ: LANE + 0.5, tag: 'ceiling' });
       wp(cur.x + 3.5, 0, 'slide');
       wp(cur.x + 10.5, 0, 'run');
       cur.x += len;
@@ -175,7 +175,7 @@ export function generateLevel(seed: number, opts: GenOptions): Level {
       for (let i = 0; i < n; i++) {
         const z = i % 2 === 0 ? 0 : rng.pick([-1, 1]);
         // a pillar is a narrower floor centred on z
-        const b: Box = { minX: cur.x, maxX: cur.x + w, minY: cur.y - FLOOR_DEPTH, maxY: cur.y, minZ: z - 1.5, maxZ: z + 1.5 };
+        const b: Box = { minX: cur.x, maxX: cur.x + w, minY: cur.y - FLOOR_DEPTH, maxY: cur.y, minZ: z - 1.5, maxZ: z + 1.5, tag: 'pillar' };
         boxes.push(b);
         wp(cur.x + w * 0.4, z);
         wp(cur.x + w, z, 'jump');
@@ -210,7 +210,7 @@ export function generateLevel(seed: number, opts: GenOptions): Level {
       for (let i = 0; i < 3; i++) {
         const bx = cur.x + 6 + i * 6;
         const bz = rng.pick([-4, 4]);
-        boxes.push({ minX: bx, maxX: bx + 1.6, minY: cur.y, maxY: cur.y + 1.4, minZ: bz - 0.8, maxZ: bz + 0.8 });
+        boxes.push({ minX: bx, maxX: bx + 1.6, minY: cur.y, maxY: cur.y + 1.4, minZ: bz - 0.8, maxZ: bz + 0.8, tag: 'cover' });
       }
       const n = Math.min(2 + opts.stage, 6);
       for (let i = 0; i < n; i++) {

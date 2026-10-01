@@ -177,6 +177,14 @@ export class Combat {
     return best;
   }
 
+  get deflectCooldownLeft(): number {
+    return this.deflectCd;
+  }
+
+  resetAttack(): void {
+    this.attackCd = 0;
+  }
+
   canAttack(): boolean {
     return this.attackCd <= 0;
   }

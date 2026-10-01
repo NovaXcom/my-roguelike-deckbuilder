@@ -12,6 +12,13 @@ class AudioSystem {
   private master: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   muted = false;
+  private vol = 0.7;
+
+  /** 0..1 user volume. */
+  volume(v: number): void {
+    this.vol = v;
+    if (this.master) this.master.gain.value = 0.5 * v;
+  }
 
   /** Safe to call on every input event; creates/resumes the context as needed. */
   unlock(): void {
@@ -22,7 +29,7 @@ class AudioSystem {
         if (!AC) return;
         this.ctx = new AC();
         this.master = this.ctx.createGain();
-        this.master.gain.value = 0.35;
+        this.master.gain.value = 0.5 * this.vol;
         this.master.connect(this.ctx.destination);
         const len = this.ctx.sampleRate;
         this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);

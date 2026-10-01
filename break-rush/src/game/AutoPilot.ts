@@ -13,7 +13,6 @@ export class AutoPilot {
   private dashedForWp = -1;
   private walljumpDone = -1;
   private afterWallJump = false;
-  private lastJumpHeld = false;
   constructor(private route: Waypoint[]) {}
 
   get done(): boolean {
@@ -108,7 +107,6 @@ export class AutoPilot {
       inp.moveX = 1;
       inp.moveZ = 0;
     }
-    this.lastJumpHeld = inp.jumpHeld;
     return inp;
   }
 }

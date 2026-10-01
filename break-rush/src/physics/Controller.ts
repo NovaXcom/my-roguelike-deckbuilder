@@ -13,6 +13,8 @@ export interface Box {
   hazard?: boolean;
   /** Decoration only: no collision. */
   ghost?: boolean;
+  /** Rendering hint only. */
+  tag?: 'floor' | 'cover' | 'ceiling' | 'pillar';
 }
 
 export interface MoveInput {
