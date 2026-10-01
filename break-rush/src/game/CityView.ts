@@ -148,6 +148,10 @@ export class CityView {
   private steamT = 0;
   /** Extra chromatic aberration from big hits (decays on its own). */
   aberr = 0;
+  /** Just-dodge slow motion look. */
+  witch = false;
+  private witchK = 0;
+  private ghosts: { obj: THREE.Object3D; mat: THREE.MeshBasicMaterial; life: number; max: number }[] = [];
   readonly fx: Effects;
   readonly particles: Particles;
   private stageGroup = new THREE.Group();
@@ -798,7 +802,7 @@ export class CityView {
     const pa = p.state === 'attack' ? p.atk : null;
     this.playerRig.setWeapon(p.weapon === 'gun' ? 'pistol' : p.weapon);
     this.playerRig.root.visible = !playerHidden;
-    this.playerRig.update({ state: p.state, anim: p.anim, t: p.t, dur: p.dur, walk: p.walk, facing: p.facing, x: p.x, z: p.z, atk: pa ? { wind: pa.wind, strike: pa.strike, rec: pa.rec } : null, guardUp: p.state === 'guard' }, dt, time);
+    this.playerRig.update({ state: p.state, anim: p.anim, t: p.t, dur: p.dur, walk: p.walk, facing: p.facing, x: p.x, y: p.y, z: p.z, atk: pa ? { wind: pa.wind, strike: pa.strike, rec: pa.rec } : null, guardUp: p.state === 'guard' }, dt, time);
     this.playerRig.setGlow(0xffffff, p.flash > 0 ? 0.6 : p.invuln > 0.35 ? 0.15 + Math.sin(time * 40) * 0.1 : 0);
 
     const seen = new Set<number>();
@@ -862,6 +866,19 @@ export class CityView {
     // follow light + shadow frustum on the action
     this.sun.position.set(p.x + this.look.sunDir[0] * 40, this.look.sunDir[1] * 40, p.z + this.look.sunDir[2] * 40);
     this.sun.target.position.set(p.x, 0, p.z);
+  }
+
+  /** A fading after-image of the player (rolls, lunges, air dashes). */
+  addGhost(color: number): void {
+    if (this.ghosts.length > 14) return;
+    const obj = this.playerRig.root.clone(true);
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) { m.material = mat; m.castShadow = false; }
+    });
+    this.scene.add(obj);
+    this.ghosts.push({ obj, mat, life: 0.32, max: 0.32 });
   }
 
   private makePickup(kind: 'bat' | 'pipe' | 'gun' | 'health'): THREE.Object3D {
@@ -945,7 +962,17 @@ export class CityView {
     this.particles.update(dt);
     this.sky.position.copy(this.camera.position);
     this.aberr *= Math.pow(0.002, dt);
-    this.grade.uniforms.aberr.value = 0.0006 + this.aberr;
+    this.witchK += ((this.witch ? 1 : 0) - this.witchK) * Math.min(1, dt * 9);
+    this.grade.uniforms.aberr.value = 0.0006 + this.aberr + this.witchK * 0.0025;
+    this.grade.uniforms.sat.value = 1.08 - this.witchK * 0.55;
+    (this.grade.uniforms.tint.value as THREE.Color).setRGB(1 - this.witchK * 0.15, 1 - this.witchK * 0.02, 1 + this.witchK * 0.22);
+    this.grade.uniforms.vig.value = 0.38 + this.witchK * 0.25;
+    for (let i = this.ghosts.length - 1; i >= 0; i--) {
+      const g = this.ghosts[i];
+      g.life -= dt;
+      g.mat.opacity = Math.max(0, 0.4 * (g.life / g.max));
+      if (g.life <= 0) { this.scene.remove(g.obj); g.mat.dispose(); this.ghosts.splice(i, 1); }
+    }
     this.grade.uniforms.time.value = (this.grade.uniforms.time.value + dt * 60) % 1000;
     this.steamT -= dt;
     if (this.steamT <= 0 && this.steam.length) {

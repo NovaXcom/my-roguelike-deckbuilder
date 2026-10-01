@@ -95,3 +95,16 @@ button.big:hover:not(:disabled) { background: #e8452f; }
 .pcard .pn { display: block; font-weight: 800; letter-spacing: .14em; color: #ffd24a; font-size: 14px; }
 .pcard .pd { display: block; font-size: 12px; margin-top: 6px; text-transform: none; letter-spacing: .02em; line-height: 1.5; color: #d4d8e2; }
 @media (max-width: 700px) { .pcards { flex-direction: column; } }
+
+.style { position: absolute; left: 24px; top: 34%; opacity: 0; transition: opacity .3s; text-shadow: 0 3px 8px rgba(0,0,0,.8); }
+.style.on { opacity: 1; }
+.style .sl { font-size: 96px; font-weight: 900; font-style: italic; line-height: .9; color: #cfd2da; transform-origin: left center; }
+.style .sw { font-size: 14px; letter-spacing: .3em; color: #fff; margin: 2px 0 6px 4px; min-height: 18px; }
+.style .sb { width: 150px; height: 5px; background: rgba(255,255,255,.2); }
+.style .sb i { display: block; height: 100%; background: linear-gradient(90deg, #ffd24a, #ff6a3a); }
+.style .sl[data-r="1"] { color: #fff; } .style .sl[data-r="2"] { color: #7fd8ff; } .style .sl[data-r="3"] { color: #ffe06a; }
+.style .sl[data-r="4"] { color: #ffa030; } .style .sl[data-r="5"] { color: #ff5a3a; }
+.style .sl[data-r="6"] { background: linear-gradient(#fff08a, #ff4ad0); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; filter: drop-shadow(0 3px 6px rgba(0,0,0,.8)); }
+.style .sl.up { animation: rankup .4s ease-out; } .style .sl.down { animation: rankdown .4s ease-out; }
+@keyframes rankup { 0% { transform: scale(1.9) rotate(-6deg); } 100% { transform: scale(1); } }
+@keyframes rankdown { 0% { transform: scale(.7); opacity: .4; } 100% { transform: scale(1); opacity: 1; } }

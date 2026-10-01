@@ -1,4 +1,5 @@
 import { PERKS } from '../brawl/perks';
+import { STYLE_RANKS, STYLE_WORDS } from '../brawl/data';
 import { STAGES } from '../brawl/stages';
 import { Game } from './Game';
 import { formatTime, Rank, STAGE_COUNT } from './Progress';
@@ -45,6 +46,7 @@ export class Hud {
   private toastEl!: HTMLElement;
   private hintEl!: HTMLElement;
   private perksEl!: HTMLElement;
+  private styleEl!: HTMLElement;
   private flashEl!: HTMLElement;
   private markers!: HTMLElement;
   private floaters: Floater[] = [];
@@ -67,6 +69,7 @@ export class Hud {
         <div id="toast"></div>
         <div id="hint"></div>
         <div id="perks" class="hidden"></div>
+        <div class="style" id="style"><div class="sl">D</div><div class="sw"></div><div class="sb"><i></i></div></div>
         <div class="cross"></div>
       </div>
       <div id="title" class="layer panel hidden"></div>
@@ -92,6 +95,7 @@ export class Hud {
     this.toastEl = q('#toast');
     this.hintEl = q('#hint');
     this.perksEl = q('#perks');
+    this.styleEl = q('#style');
     this.flashEl = q('#flash');
     this.markers = q('#markers');
   }
@@ -126,8 +130,8 @@ export class Hud {
       </div>
       <div class="keys">
         <b>WASD</b> 移動 · <b>MOUSE</b> カメラ · <b>左クリック</b> 攻撃（4連コンボ・自動で敵へ踏み込む） · <b>E</b> 強攻撃<br>
-        <b>右クリック / Shift</b> カウンター — 敵の<i class="bl">青いリング</i>が閉じる瞬間に · <b>Space</b> 回避 — <i class="rd">赤い攻撃</i>はこれだけ<br>
-        <b>F</b> 掴んで投げる · <b>Q</b> 武器を拾う · <b>G</b> 銃を撃つ／武器を投げる · <b>R</b> RUSH（ゲージ満タン）<br>強攻撃で<b>打ち上げ</b>→追撃でお手玉→もう一度強攻撃で叩きつけ · 倒れた弱い敵に強攻撃で<b>フィニッシュ</b> · 赤い樽は爆発 · ゲームパッド対応
+        <b>右クリック / Shift</b> ガード（押しっぱなしで構え続け、離せば即解除）— 敵の<i class="bl">青いリング</i>の直前に押すとカウンター · <b>Space</b> 回避 — <i class="rd">赤い攻撃</i>はこれだけ。<b>攻撃の直前ギリギリ</b>に回避すると<b>ジャストドッジ</b>で敵がスロー<br>
+        <b>F</b> 掴んで投げる · <b>Q</b> 武器を拾う · <b>G</b> 銃を撃つ／武器を投げる · <b>R</b> RUSH（ゲージ満タン）<br>強攻撃で<b>打ち上げ</b>→自分も飛び上がり<b>空中コンボ</b>（攻撃連打・Spaceで空中ダッシュ・強攻撃で叩きつけ）。技を使い分けると<b>スタイルランク</b>(D〜SSS)が上がって得点倍率UP · 倒れた弱い敵に強攻撃で<b>フィニッシュ</b> · 赤い樽は爆発 · ゲームパッド対応
       </div>`;
     this.title.classList.remove('hidden');
     const g = this.game;
@@ -205,6 +209,13 @@ export class Hud {
     this.perksEl.querySelectorAll<HTMLButtonElement>('.pcard').forEach((b) => { b.onclick = () => g.choosePerk(b.dataset.id); });
   }
 
+  rankChanged(n: number, up: boolean): void {
+    const l = this.styleEl.querySelector('.sl') as HTMLElement;
+    l.className = `sl r${n}`;
+    void l.offsetWidth;
+    l.classList.add(up ? 'up' : 'down');
+  }
+
   hidePerks(): void {
     this.perksEl.classList.add('hidden');
   }
@@ -266,6 +277,12 @@ export class Hud {
     this.meterBox.classList.toggle('full', p.meter >= 100);
     this.set(this.weaponEl, 'weapon', p.weapon ? (p.weapon === 'gun' ? `PISTOL ${'●'.repeat(Math.max(0, p.uses))}  [G] SHOOT` : `${p.weapon === 'bat' ? 'BAT' : 'PIPE'} ×${p.uses}  [G] THROW`) : '');
     if (w.status !== 'perk') this.perksEl.classList.add('hidden');
+    const sr = w.styleRank;
+    this.styleEl.classList.toggle('on', w.style > 4);
+    this.set(this.styleEl.querySelector('.sl') as HTMLElement, 'sl', STYLE_RANKS[sr]);
+    (this.styleEl.querySelector('.sl') as HTMLElement).dataset.r = String(sr);
+    this.set(this.styleEl.querySelector('.sw') as HTMLElement, 'sw', STYLE_WORDS[sr]);
+    (this.styleEl.querySelector('.sb i') as HTMLElement).style.width = `${Math.round(w.styleProgress * 100)}%`;
     this.set(this.scoreEl, 'score', w.score.toLocaleString());
     const left = w.aliveCount;
     this.set(this.waveEl, 'wave', `${g.run.endless ? `WAVE ${w.wave + 1}` : `WAVE ${Math.max(1, w.wave + 1)}/${w.totalWaves}`} · ${left} LEFT`);

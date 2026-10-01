@@ -78,6 +78,10 @@ const ATTACKS: Record<string, Attack> = {
   shootP: { wind: P({ bS: 1.4, bE: 0.15, aS: 1.0, aE: 1.8, twist: 0.45, lean: -0.05 }), strike: P({ bS: 1.65, bE: 0.12, aS: 1.0, aE: 1.8, twist: 0.5, lean: 0.06 }) },
   throwW: { wind: P({ bS: 2.8, bE: 0.9, lean: 0.3, twist: 0.6, y: -0.1 }), strike: P({ bS: 1.0, bE: 0.1, lean: -0.45, twist: -0.3, fwd: 0.22, y: -0.18 }) },
   finish: { wind: P({ rH: 1.4, rK: -1.1, lean: 0.25, aS: 1.8, bS: 1.8, y: -0.05 }), strike: P({ rH: 0.2, rK: -0.1, y: -0.55, lean: -0.85, aS: 0.7, bS: 0.7, aE: 0.4, bE: 0.4, fwd: 0.32, lH: 0.9 }) },
+  airL: { wind: P({ aS: 0.7, aE: 2.2, twist: -0.6, lean: -0.2, y: -0.2, lH: 0.9, lK: -1.0, rK: -1.3 }), strike: P({ aS: 1.6, aE: 0.1, twist: -0.15, lean: -0.35, fwd: 0.25, y: -0.2, lH: 0.9, lK: -1.0, rK: -1.3 }) },
+  airR: { wind: P({ bS: 0.5, bE: 2.3, twist: 0.3, lean: -0.2, y: -0.2, lH: 0.9, lK: -1.0, rK: -1.3 }), strike: P({ bS: 1.6, bE: 0.1, twist: 0.65, lean: -0.35, fwd: 0.28, y: -0.2, lH: 0.9, lK: -1.0, rK: -1.3 }) },
+  airKick: { wind: P({ rH: 0.1, rK: -1.7, lean: 0.25, aS: 1.4, bS: 1.4, y: -0.2, lH: 0.5, lK: -0.9 }), strike: P({ rH: 1.7, rK: -0.05, lean: 0.55, aS: 0.4, bS: 0.4, aX: 0.9, bX: 0.9, y: -0.1, lH: 0.4, lK: -0.9 }) },
+  airSlam: { wind: P({ aS: 2.8, bS: 2.8, aE: 0.5, bE: 0.5, lean: 0.4, y: -0.1, lH: 0.9, lK: -1.2, rH: 0.4, rK: -1.4 }), strike: P({ aS: 0.5, bS: 0.5, aE: 0.2, bE: 0.2, lean: -0.9, y: -0.35, fwd: 0.3, lH: 0.7, rH: -0.5 }) },
   shoot: { wind: P({ bS: 1.45, bE: 0.15, aS: 1.0, aE: 1.8, twist: 0.45, lean: -0.05, head: 0.0 }), strike: P({ bS: 1.7, bE: 0.12, aS: 1.0, aE: 1.8, twist: 0.5, lean: 0.06, head: 0.0 }) },
 };
 
@@ -459,6 +463,8 @@ export class Rig {
         if (u < w) p = mix(STANCE, def.wind, ease(Math.min(1, u / Math.max(0.01, w * 0.9))));
         else if (u < w + st) p = mix(def.wind, def.strike, ease((u - w) / Math.max(0.01, st * 0.7 > 1 ? 1 : st * 0.7)));
         else p = mix(def.strike, STANCE, ease(Math.min(1, (u - w - st) / Math.max(0.05, tot - w - st))));
+        if (a === 'airKick') p.yaw = Math.PI * 2 * Math.min(1, u / Math.max(0.05, w + st + 0.05));
+        if (a === 'airSlam') p.pitch = -0.6 * Math.min(1, Math.max(0, (u - w * 0.5) / 0.15));
         return { pose: p, rate: u < w + st ? 55 : 22 };
       }
       case 'dodge': {
@@ -503,6 +509,10 @@ export class Rig {
         const p = s.t < 0.34 ? mix(reach, heave, ease(u)) : mix(thr, STANCE, ease(Math.min(1, (s.t - 0.34) / 0.3)));
         return { pose: p, rate: 40 };
       }
+      case 'air': {
+        const p = P({ y: -0.18, lean: -0.25, aS: 1.3, aE: 1.2, bS: 1.1, bE: 1.4, lH: 0.8, lK: -1.0, rH: -0.3, rK: -1.3, twist: -0.2 + Math.sin(time * 5) * 0.08 });
+        return { pose: p, rate: 16 };
+      }
       case 'launched': {
         const p = P({ y: -0.28, aS: 2.2, aX: 0.9, aE: 0.6, bS: 2.0, bX: 0.9, bE: 0.5, lH: 0.7, rH: 0.3, lK: -0.9, rK: -0.4, lean: 0.5, head: 0.5, twist: 0 });
         p.pitch = 0.75 + Math.sin(time * 7) * 0.25;
@@ -535,7 +545,7 @@ export class Rig {
     for (const key of KEYS) {
       // angles that wrap are applied directly, everything else is smoothed
       if (key === 'pitch' && (s.state === 'dodge' || s.state === 'thrown')) c[key] = tgt[key];
-      else if (key === 'yaw' && s.state === 'rush') c[key] = tgt[key];
+      else if (key === 'yaw' && (s.state === 'rush' || s.anim === 'airKick')) c[key] = tgt[key];
       else if (key === 'roll' && s.state === 'thrown') c[key] = tgt[key];
       else c[key] += (tgt[key] - c[key]) * k;
     }

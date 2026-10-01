@@ -5,6 +5,7 @@ import { SlowMo } from '../combat/SlowMo';
 import { endlessStage, STAGES, StageDef } from '../brawl/stages';
 import { botCommand } from '../brawl/bot';
 import { PERKS } from '../brawl/perks';
+import { STYLE_WORDS } from '../brawl/data';
 import { emptyCmd, PlayerCmd, World, WorldEvent } from '../brawl/World';
 import { CityView } from './CityView';
 import { Hud } from './Hud';
@@ -328,6 +329,13 @@ export class Game {
       const d = Math.hypot(e.x - w.player.x, e.z - w.player.z);
       if (d < nd) { nd = d; bx = (e.x - w.player.x) * 0.22; bz = (e.z - w.player.z) * 0.22; }
     }
+    this.view.witch = w.witchT > 0;
+    this.ghostT -= realDt;
+    const pl = w.player;
+    if (this.ghostT <= 0 && (pl.state === 'dodge' || pl.state === 'rush' || (pl.state === 'attack' && pl.lungeV > 11 && pl.t < pl.lungeT))) {
+      this.ghostT = 0.04;
+      this.view.addGhost(w.witchT > 0 ? 0x88aaff : pl.state === 'rush' ? 0xffd24a : 0xcfe4ff);
+    }
     this.view.sync(w, realDt * scale, this.clock, false);
     this.view.updateCamera(w, this.yaw, this.pitch, realDt, { x: bx, z: bz });
   }
@@ -357,6 +365,7 @@ export class Game {
   }
 
   private dustT = 0;
+  private ghostT = 0;
   private footDust(dt: number): void {
     const p = this.world.player;
     this.dustT -= dt;
@@ -478,6 +487,39 @@ export class Game {
           p.burst(e.x ?? 0, 1, e.z ?? 0, 20, 6, 0xc0b8a8, 0.2, 0.5, 4);
           audio.play('boom', 1.2);
           break;
+        case 'justdodge':
+          this.slow.trigger(now, 160, 0.5);
+          v.aberr = Math.max(v.aberr, 0.008);
+          v.fovKick = Math.max(v.fovKick, 6);
+          audio.play('dodge', 0.7);
+          audio.play('counter', 1.5);
+          p.burst(e.x ?? 0, 1, e.z ?? 0, 22, 8, 0x9ac8ff, 0.1, 0.5, 2);
+          this.hud.toast('JUST DODGE', 1.0, 'blue');
+          break;
+        case 'airUp':
+          v.fovKick = Math.max(v.fovKick, 8);
+          p.burst(e.x ?? 0, 0.3, e.z ?? 0, 18, 6, 0xc8c2b8, 0.22, 0.6, 2);
+          v.fx.ring(e.x ?? 0, 0.2, e.z ?? 0, 2.6, 0xffffff, 0.35);
+          audio.play('skill', 1.3);
+          break;
+        case 'airSlam':
+          v.fx.ring(e.x ?? 0, 0.15, e.z ?? 0, 4.5, 0xffe9b0, 0.5);
+          p.burst(e.x ?? 0, 0.2, e.z ?? 0, 36, 9, 0xc8c2b8, 0.28, 0.7, 3);
+          v.shake = Math.max(v.shake, 0.7);
+          v.aberr = Math.max(v.aberr, 0.01);
+          this.hitStop.trigger(now, 90);
+          audio.play('boom', 0.8);
+          this.hud.toast('AIR SLAM', 0.8, 'yellow');
+          break;
+        case 'playerLand':
+          p.burst(e.x ?? 0, 0.1, e.z ?? 0, 10, 4, 0xc8c2b8, 0.18, 0.4, 2);
+          break;
+        case 'rank': {
+          const n = e.n ?? 0;
+          this.hud.rankChanged(n, e.by === 'up');
+          if (e.by === 'up' && n > 0) { this.hud.toast(STYLE_WORDS[n] + '!', 0.9, n >= 4 ? 'red' : n >= 3 ? 'yellow' : 'white'); audio.play('milestone', 0.9 + n * 0.08); }
+          break;
+        }
         case 'perkOffer':
           this.hud.showPerks(this.world.perkChoices);
           break;
