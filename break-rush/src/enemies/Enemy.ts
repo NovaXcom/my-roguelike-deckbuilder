@@ -26,7 +26,7 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite implements Heal
   abstract readonly speed: number;
   nextContactAt = 0;
   private stunUntil = 0;
-  private flashUntil = 0;
+  protected flashUntil = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string, maxHp: number, maxBreak: number) {
     super(scene, x, y, texture);

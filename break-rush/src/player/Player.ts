@@ -3,6 +3,7 @@ import { ATTACK_STEPS, DODGE, PLAYER, RUSH } from '../config';
 import { Health, Rect, applyDamage, isDead } from '../combat/DamageSystem';
 import { AttackState, attackHitbox, canAttack, isAttackActive, newAttackState, startAttack } from './PlayerAttack';
 import { DodgeState, canDodge, consumeCounter, counterReady, isDodging, newDodgeState, startDodge } from './Dodge';
+import { BASE_STATS, PlayerStats } from '../systems/UpgradeSystem';
 import { afterImage } from '../effects/HitEffect';
 
 export interface RushTarget {
@@ -17,6 +18,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
   facing: 1 | -1 = 1;
   readonly attack: AttackState = newAttackState();
   readonly dodge: DodgeState = newDodgeState();
+  stats: PlayerStats = BASE_STATS;
   private invulnUntil = 0;
   private moveLockUntil = 0;
   private dodgeActive = false;
@@ -136,7 +138,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
       const right = this.keys.right.isDown || this.keys.d.isDown;
       if (left === right) this.setVelocityX(0);
       else {
-        this.setVelocityX(left ? -PLAYER.speed : PLAYER.speed);
+        this.setVelocityX((left ? -1 : 1) * PLAYER.speed * this.stats.speedMult);
         this.facing = left ? -1 : 1;
       }
     }

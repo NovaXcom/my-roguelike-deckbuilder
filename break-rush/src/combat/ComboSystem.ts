@@ -2,7 +2,12 @@ import { COMBO, COMBO_MILESTONES } from '../config';
 
 export class ComboSystem {
   max = 0;
+  /** Extra combo time from upgrades. */
+  windowBonusMs = 0;
   private hits = 0;
+
+  /** getWindow lets upgrades extend the combo time. */
+  constructor(private getWindow: () => number = () => COMBO.windowMs) {}
   private expireAt = 0;
 
   /** Current combo; 0 once the window has lapsed. */
@@ -12,7 +17,7 @@ export class ComboSystem {
 
   add(now: number, n = 1): number {
     this.hits = this.current(now) + n;
-    this.expireAt = now + COMBO.windowMs;
+    this.expireAt = now + this.getWindow();
     this.max = Math.max(this.max, this.hits);
     return this.hits;
   }
@@ -20,7 +25,7 @@ export class ComboSystem {
   /** 1 → 0 as the combo timer runs out. */
   remainingRatio(now: number): number {
     if (this.current(now) === 0) return 0;
-    return (this.expireAt - now) / COMBO.windowMs;
+    return (this.expireAt - now) / this.getWindow();
   }
 
   reset(): void {

@@ -1,50 +1,32 @@
 import Phaser from 'phaser';
 import { Grunt } from '../enemies/Grunt';
 import { Enemy } from '../enemies/Enemy';
-import { GROUND_Y, HORDE, WORLD_WIDTH } from '../config';
+import { GROUND_Y, WORLD_WIDTH } from '../config';
 
-/** Keeps a few grunts alive and periodically drops a large horde (BREAK CHANCE). */
+/** Owns the enemy group. Waves are driven by the stage script, not by timers. */
 export class EnemySpawner {
   readonly group: Phaser.GameObjects.Group;
-  private lastSpawn = 0;
-  private nextHordeAt: number;
 
-  constructor(
-    private scene: Phaser.Scene,
-    private playerRef: Phaser.GameObjects.Components.Transform,
-    private onHorde: () => void = () => {},
-    private target = 3,
-  ) {
+  constructor(private scene: Phaser.Scene, private playerRef: Phaser.GameObjects.Components.Transform) {
     this.group = scene.add.group({ runChildUpdate: false });
-    this.nextHordeAt = scene.time.now + HORDE.firstMs;
   }
 
-  update(): void {
-    const now = this.scene.time.now;
-    if (now >= this.nextHordeAt) {
-      this.nextHordeAt = now + HORDE.intervalMs;
-      this.spawnHorde(HORDE.count);
-      this.onHorde();
-    }
-    if (this.group.countActive() < this.target && now > this.lastSpawn + 1500) {
-      this.spawnOne();
-      this.lastSpawn = now;
+  /** Spawns grunts alternating left/right of the player, staggered so they arrive in a stream. */
+  spawn(count: number): void {
+    for (let i = 0; i < count; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const offset = 480 + Math.floor(i / 2) * 36 + Phaser.Math.Between(0, 20);
+      const x = Phaser.Math.Clamp(this.playerRef.x + side * offset, 40, WORLD_WIDTH - 40);
+      this.group.add(new Grunt(this.scene, x, GROUND_Y - 40));
     }
   }
 
-  private spawnX(offset: number): number {
-    const side = this.playerRef.x > WORLD_WIDTH / 2 ? -1 : 1;
-    return Phaser.Math.Clamp(this.playerRef.x + side * offset, 40, WORLD_WIDTH - 40);
+  add(enemy: Enemy): void {
+    this.group.add(enemy);
   }
 
-  private spawnOne(): void {
-    this.group.add(new Grunt(this.scene, this.spawnX(Phaser.Math.Between(450, 650)), GROUND_Y - 40));
-  }
-
-  private spawnHorde(n: number): void {
-    for (let i = 0; i < n; i++) {
-      this.group.add(new Grunt(this.scene, this.spawnX(520 + i * 22), GROUND_Y - 40));
-    }
+  aliveCount(): number {
+    return this.enemies.filter((e) => e.active && !e.dead).length;
   }
 
   get enemies(): Enemy[] {

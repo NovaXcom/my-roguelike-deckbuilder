@@ -74,5 +74,17 @@ export const COMBO_MILESTONES = [10, 25, 50, 100];
 /** Kills inside windowMs chain into a multi-kill. tiers = kill counts that start tier 1, 2, 3. */
 export const MULTIKILL = { windowMs: 1000, tiers: [3, 6, 10] };
 
-/** Periodic "BREAK CHANCE": a large group of grunts appears at once. */
-export const HORDE = { firstMs: 12000, intervalMs: 22000, count: 12 };
+export const BOSS = {
+  maxHp: 700,
+  maxBreak: 140,
+  walkSpeed: 55,
+  chargeSpeed: 520,
+  slamRadius: 170,
+  contactDamage: 12,
+  chargeDamage: 22,
+  slamDamage: 20,
+  missileDamage: 10,
+  missileSpeed: 340,
+  /** Boss HP at or below this fraction = enraged. */
+  enrageAt: 0.5,
+};
