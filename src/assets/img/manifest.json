@@ -88,172 +88,172 @@
   "h": 128
  },
  "icon_equip_dragon_claw": {
-  "w": 128,
-  "h": 128
+  "w": 256,
+  "h": 256
  },
  "icon_skill_slash": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_shield_bash": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_provoke": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_guardian": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_firebolt": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_ice_lance": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_thunder": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_heal": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_cleave": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_sword_guard": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_dragon_slash": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_holy_strike": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_blizzard": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_inferno": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_meteor": {
-  "w": 96,
-  "h": 96
- },
- "icon_skill_thunderstorm": {
-  "w": 96,
-  "h": 96
- },
- "icon_element_fire": {
-  "w": 48,
-  "h": 48
- },
- "icon_element_ice": {
-  "w": 48,
-  "h": 48
- },
- "icon_element_thunder": {
-  "w": 48,
-  "h": 48
- },
- "icon_element_none": {
-  "w": 48,
-  "h": 48
- },
- "icon_status_intent_attack": {
-  "w": 64,
-  "h": 64
- },
- "icon_status_intent_attack_all": {
-  "w": 64,
-  "h": 64
- },
- "icon_status_guard": {
-  "w": 64,
-  "h": 64
- },
- "icon_status_shield_gauge": {
-  "w": 64,
-  "h": 64
- },
- "icon_status_break": {
-  "w": 64,
-  "h": 64
- },
- "icon_status_gold": {
-  "w": 64,
-  "h": 64
- },
- "icon_status_heal": {
-  "w": 64,
-  "h": 64
- },
- "icon_status_potion": {
-  "w": 64,
-  "h": 64
- },
- "icon_node_battle": {
-  "w": 96,
-  "h": 96
- },
- "icon_node_chest": {
-  "w": 96,
-  "h": 96
- },
- "icon_node_rest": {
-  "w": 96,
-  "h": 96
- },
- "icon_node_shop": {
-  "w": 96,
-  "h": 96
- },
- "icon_node_boss": {
   "w": 192,
   "h": 192
  },
- "icon_node_visited": {
+ "icon_skill_shield_bash": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_provoke": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_guardian": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_firebolt": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_ice_lance": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_thunder": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_heal": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_cleave": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_sword_guard": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_dragon_slash": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_holy_strike": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_blizzard": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_inferno": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_meteor": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_thunderstorm": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_element_fire": {
   "w": 96,
   "h": 96
+ },
+ "icon_element_ice": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_element_thunder": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_element_none": {
+  "w": 96,
+  "h": 96
+ },
+ "icon_status_intent_attack": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_intent_attack_all": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_guard": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_shield_gauge": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_break": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_gold": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_heal": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_potion": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_node_battle": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_node_chest": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_node_rest": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_node_shop": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_node_boss": {
+  "w": 384,
+  "h": 384
+ },
+ "icon_node_visited": {
+  "w": 192,
+  "h": 192
  },
  "icon_node_current": {
-  "w": 96,
-  "h": 96
+  "w": 192,
+  "h": 192
  },
  "bg_battle_dungeon": {
-  "w": 1280,
-  "h": 720
+  "w": 1920,
+  "h": 1080
  },
  "bg_battle_boss": {
-  "w": 1280,
-  "h": 720
+  "w": 1920,
+  "h": 1080
  },
  "bg_battle_crypt": {
-  "w": 1280,
-  "h": 720
+  "w": 1920,
+  "h": 1080
  },
  "bg_map": {
-  "w": 1280,
-  "h": 720
+  "w": 1920,
+  "h": 1080
  },
  "bg_base": {
-  "w": 1280,
-  "h": 720
+  "w": 1920,
+  "h": 1080
  },
  "bg_title": {
-  "w": 1280,
-  "h": 720
+  "w": 1920,
+  "h": 1080
  },
  "prop_chest_closed": {
   "w": 156,
@@ -278,5 +278,233 @@
  "cutin_elementalist_bust": {
   "w": 656,
   "h": 736
+ },
+ "app_icon_192": {
+  "w": 192,
+  "h": 192
+ },
+ "app_icon_512": {
+  "w": 512,
+  "h": 512
+ },
+ "icon_equip_bulwark_blade": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_cloth_robe": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_copper_ring": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_crusher_bangle": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_dragon_heart": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_dragon_scale": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_drill_sword": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_flame_grimoire": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_frost_staff": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_guard_charm": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_holy_blade": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_iron_plate": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_iron_sword": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_knight_armor": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_knight_greatsword": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_leather_armor": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_mage_robe": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_novice_staff": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_oak_wand": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_power_pendant": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_sage_robe": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_star_staff": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_equip_storm_scepter": {
+  "w": 256,
+  "h": 256
+ },
+ "icon_status_mana_stone": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_resist": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_stun": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_taunt": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_weak": {
+  "w": 128,
+  "h": 128
+ },
+ "logo_title": {
+  "w": 1024,
+  "h": 384
+ },
+ "ui_button_disabled": {
+  "w": 256,
+  "h": 96
+ },
+ "ui_button_hover": {
+  "w": 256,
+  "h": 96
+ },
+ "ui_button_normal": {
+  "w": 256,
+  "h": 96
+ },
+ "ui_button_pressed": {
+  "w": 256,
+  "h": 96
+ },
+ "ui_card_common": {
+  "w": 360,
+  "h": 420
+ },
+ "ui_card_legendary": {
+  "w": 360,
+  "h": 420
+ },
+ "ui_card_rare": {
+  "w": 360,
+  "h": 420
+ },
+ "ui_hpbar_fill": {
+  "w": 420,
+  "h": 40
+ },
+ "ui_hpbar_frame": {
+  "w": 420,
+  "h": 40
+ },
+ "ui_icon_back": {
+  "w": 96,
+  "h": 96
+ },
+ "ui_icon_fullscreen": {
+  "w": 96,
+  "h": 96
+ },
+ "ui_icon_volume_off": {
+  "w": 96,
+  "h": 96
+ },
+ "ui_icon_volume_on": {
+  "w": 96,
+  "h": 96
+ },
+ "ui_panel": {
+  "w": 256,
+  "h": 256
+ },
+ "ui_shield_fill": {
+  "w": 420,
+  "h": 36
+ },
+ "ui_shield_fill_break": {
+  "w": 420,
+  "h": 36
+ },
+ "ui_shield_frame": {
+  "w": 420,
+  "h": 36
+ },
+ "ui_skillbtn_cooldown_blue": {
+  "w": 140,
+  "h": 196
+ },
+ "ui_skillbtn_cooldown_red": {
+  "w": 140,
+  "h": 196
+ },
+ "ui_skillbtn_done_blue": {
+  "w": 140,
+  "h": 196
+ },
+ "ui_skillbtn_done_red": {
+  "w": 140,
+  "h": 196
+ },
+ "ui_skillbtn_hover_blue": {
+  "w": 140,
+  "h": 196
+ },
+ "ui_skillbtn_hover_red": {
+  "w": 140,
+  "h": 196
+ },
+ "ui_skillbtn_ready_blue": {
+  "w": 140,
+  "h": 196
+ },
+ "ui_skillbtn_ready_red": {
+  "w": 140,
+  "h": 196
+ },
+ "ui_tooltip": {
+  "w": 256,
+  "h": 128
  }
 }
