@@ -3,15 +3,13 @@ export interface Intent {
   /** Stick-style movement: +y forward, +x right. */
   moveX: number;
   moveY: number;
-  jumpHeld: boolean;
-  jumpPressed: boolean;
-  slideHeld: boolean;
-  dashPressed: boolean;
-  attackPressed: boolean;
-  deflectPressed: boolean;
-  starPressed: boolean;
-  focusHeld: boolean;
-  respawnPressed: boolean;
+  light: boolean;
+  heavy: boolean;
+  dodge: boolean;
+  counter: boolean;
+  grab: boolean;
+  pickup: boolean;
+  rush: boolean;
   pausePressed: boolean;
   /** Camera turn this frame, in radians (already scaled). */
   lookYaw: number;
@@ -80,15 +78,13 @@ export class Input {
     const kp = (c: string) => this.pressed.has(c);
     let mx = (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0);
     let my = (k('KeyW') ? 1 : 0) - (k('KeyS') ? 1 : 0);
-    let jumpHeld = k('Space');
-    let jumpPressed = kp('Space');
-    let slideHeld = k('ControlLeft') || k('KeyC') || k('ControlRight');
-    let dashPressed = kp('ShiftLeft') || kp('ShiftRight');
-    let attackPressed = this.mousePressed.has(0) || kp('KeyJ');
-    let deflectPressed = this.mousePressed.has(2) || kp('KeyK');
-    let starPressed = kp('KeyE') || this.mousePressed.has(1);
-    let focusHeld = k('KeyQ') || k('KeyF');
-    const respawnPressed = kp('KeyR');
+    let light = this.mousePressed.has(0) || kp('KeyJ');
+    let counter = this.mousePressed.has(2) || kp('KeyK') || kp('ShiftLeft');
+    let heavy = kp('KeyE') || this.mousePressed.has(1);
+    let dodge = kp('Space');
+    let grab = kp('KeyF');
+    let pickup = kp('KeyQ');
+    let rush = kp('KeyR');
     let pausePressed = kp('Escape') || kp('KeyP');
     const mouseScale = 0.0022 * this.sens;
     let lookYaw = this.dx * mouseScale;
@@ -108,14 +104,13 @@ export class Input {
       if (lx || ly || rx || ry || p.buttons.some((x) => x.pressed)) this.padActive = true;
       mx += lx;
       my += -ly;
-      jumpHeld ||= b(0);
-      jumpPressed ||= edge(0);
-      slideHeld ||= b(1) || b(10);
-      attackPressed ||= edge(2) || edge(7);
-      dashPressed ||= edge(5);
-      deflectPressed ||= edge(6);
-      starPressed ||= edge(4);
-      focusHeld ||= b(3);
+      dodge ||= edge(0);
+      counter ||= edge(1);
+      light ||= edge(2);
+      heavy ||= edge(3);
+      pickup ||= edge(4);
+      grab ||= edge(5);
+      rush ||= edge(7) || edge(6);
       pausePressed ||= edge(9);
       lookYaw += rx * 2.9 * dt * this.sens;
       lookPitch += -ry * 2.2 * dt * this.sens;
@@ -128,7 +123,7 @@ export class Input {
       mx /= l;
       my /= l;
     }
-    const out: Intent = { moveX: mx, moveY: my, jumpHeld, jumpPressed, slideHeld, dashPressed, attackPressed, deflectPressed, starPressed, focusHeld, respawnPressed, pausePressed, lookYaw, lookPitch };
+    const out: Intent = { moveX: mx, moveY: my, light, heavy, dodge, counter, grab, pickup, rush, pausePressed, lookYaw, lookPitch };
     this.pressed.clear();
     this.mousePressed.clear();
     this.dx = this.dy = 0;

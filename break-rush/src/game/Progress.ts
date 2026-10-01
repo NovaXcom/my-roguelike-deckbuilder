@@ -1,34 +1,36 @@
 export type Rank = 'S' | 'A' | 'B' | 'C';
 
 export interface StageRecord {
+  bestScore: number;
   bestTime: number;
   bestRank: Rank;
   clears: number;
 }
 
 export interface SaveData {
-  version: 1;
+  version: 2;
   records: Record<string, StageRecord>;
   /** Highest stage number the player may start (1-based). */
   unlocked: number;
   assist: boolean;
   sens: number;
   volume: number;
+  endlessBest: number;
 }
 
-export const STAGES = 5;
+export const STAGE_COUNT = 4;
 const RANK_ORDER: Rank[] = ['C', 'B', 'A', 'S'];
 
 export function newSave(): SaveData {
-  return { version: 1, records: {}, unlocked: 1, assist: false, sens: 1, volume: 0.7 };
+  return { version: 2, records: {}, unlocked: 1, assist: false, sens: 1, volume: 0.7, endlessBest: 0 };
 }
 
-/** Each death costs 2 seconds on the ranking clock (the real clock keeps running too). */
-export function rankFor(time: number, deaths: number, par: number): Rank {
-  const eff = time + deaths * 2;
-  if (eff <= par) return 'S';
-  if (eff <= par * 1.25) return 'A';
-  if (eff <= par * 1.6) return 'B';
+/** Rank from the final score relative to the stage's par score. */
+export function rankFor(score: number, par: number): Rank {
+  const r = score / Math.max(1, par);
+  if (r >= 1) return 'S';
+  if (r >= 0.72) return 'A';
+  if (r >= 0.48) return 'B';
   return 'C';
 }
 
@@ -40,7 +42,7 @@ export function formatTime(sec: number): string {
   const s = Math.max(0, sec);
   const m = Math.floor(s / 60);
   const r = s - m * 60;
-  return `${m}:${r.toFixed(2).padStart(5, '0')}`;
+  return `${m}:${r.toFixed(1).padStart(4, '0')}`;
 }
 
 export interface ResultSummary {
@@ -49,21 +51,28 @@ export interface ResultSummary {
   previousBest: number | null;
 }
 
-/** Records a finished run. `stage` is 1-based; daily runs use stage 0 and do not unlock anything. */
-export function applyResult(save: SaveData, key: string, stage: number, time: number, deaths: number, par: number): ResultSummary {
-  const rank = rankFor(time, deaths, par);
+/** Final score = points earned minus a penalty for damage taken. */
+export function finalScore(points: number, damageTaken: number): number {
+  return Math.max(0, Math.round(points - damageTaken * 4));
+}
+
+export function applyResult(save: SaveData, key: string, stage: number, score: number, time: number, par: number): ResultSummary {
+  const rank = rankFor(score, par);
   const prev = save.records[key];
-  const newBest = !prev || time < prev.bestTime;
+  const newBest = !prev || score > prev.bestScore;
   save.records[key] = {
+    bestScore: prev ? Math.max(prev.bestScore, score) : score,
     bestTime: prev ? Math.min(prev.bestTime, time) : time,
     bestRank: prev ? betterRank(prev.bestRank, rank) : rank,
     clears: (prev?.clears ?? 0) + 1,
   };
-  if (stage > 0) save.unlocked = Math.min(STAGES, Math.max(save.unlocked, stage + 1));
-  return { rank, newBest, previousBest: prev ? prev.bestTime : null };
+  if (stage > 0) save.unlocked = Math.min(STAGE_COUNT, Math.max(save.unlocked, stage + 1));
+  return { rank, newBest, previousBest: prev ? prev.bestScore : null };
 }
 
-const KEY = 'breakrush3d.save.v2';
+const KEY = 'breakrush.brawl.save.v1';
+
+const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 export function loadSave(): SaveData {
   try {
@@ -72,12 +81,13 @@ export function loadSave(): SaveData {
     const d = JSON.parse(raw) as Partial<SaveData>;
     const base = newSave();
     return {
-      version: 1,
+      version: 2,
       records: typeof d.records === 'object' && d.records ? (d.records as Record<string, StageRecord>) : base.records,
-      unlocked: Math.min(STAGES, Math.max(1, Number(d.unlocked) || 1)),
+      unlocked: clamp(Number(d.unlocked) || 1, 1, STAGE_COUNT),
       assist: !!d.assist,
       sens: clamp(Number(d.sens) || 1, 0.3, 3),
       volume: clamp(d.volume === undefined ? 0.7 : Number(d.volume), 0, 1),
+      endlessBest: Math.max(0, Number(d.endlessBest) || 0),
     };
   } catch {
     return newSave();
@@ -90,13 +100,4 @@ export function storeSave(s: SaveData): void {
   } catch {
     /* storage blocked: progress just won't persist */
   }
-}
-
-function clamp(v: number, a: number, b: number): number {
-  return Math.min(b, Math.max(a, v));
-}
-
-/** Seed for the daily course: the same for everyone on a given (UTC) date. */
-export function dailySeed(d = new Date()): number {
-  return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
 }
