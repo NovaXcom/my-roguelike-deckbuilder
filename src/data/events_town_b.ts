@@ -1,0 +1,263 @@
+// 駅 / 診療所 / 海岸 / 神社
+import { choice, fact, flag, hm, ifc, opt, rel, sc } from '../engine/dsl';
+import type { GameEvent } from '../engine/types';
+import { SHARED } from './events_town_a';
+
+export const TOWN_B: GameEvent[] = [
+  // ───── 駅 ─────
+  { id: 'kur_talk', kind: 'talk', npc: 'kuroda', label: '黒田に話しかける', cost: 10, cond: { at: 'station' }, script: sc(
+    ['黒田', '「……切符なら、券売機だ。」'],
+    choice(
+      opt('「今日、駅って閉まるんですか？」', sc(['黒田', '「いや、いつも通りだよ。」'], '黒田は、目を合わせようとしない。', fact('kuroda_lie'))),
+      opt('「いい天気ですね」', sc(['黒田', '「……ああ。」'],
+        ifc({ has: ['station_3pm'] }, sc('黒田の手が、ポケットの鍵束を、そっと握りしめていた。')))),
+    ),
+    rel('kuroda', 1))},
+  { id: 'st_close', kind: 'look', npc: 'kuroda', label: '改札の様子を見る', cost: 10,
+    cond: { at: 'station', t: [hm(14, 50), hm(14, 59)] }, script: sc(
+    '改札の脇で、時計を見る。もうすぐ15:00。',
+    '黒田が、おもむろにシャッターを下ろし始めた。',
+    ['黒田', '「……本日は、これにて閉鎖いたします。」'],
+    '誰に向けたでもない声。黒田は一人で、駅の倉庫へ入っていった。',
+    fact('station_3pm'))},
+  { id: 'st_notice', kind: 'look', label: '改札の張り紙を読む', cost: 5, cond: { at: 'station', t: [hm(15), hm(24)] }, script: sc(
+    '降りたシャッターに、手書きの張り紙。',
+    '『本日15時をもちまして閉鎖いたします。 駅長』',
+    fact('station_3pm'))},
+  { id: 'st_overhear', kind: 'look', npc: 'kuroda', label: '改札の陰から様子をうかがう', cost: 10,
+    cond: { at: 'station', t: [hm(14, 45), hm(14, 59)], has: ['station_3pm'] }, script: sc(
+    '改札の陰に身を潜める。足音。——町長の椎名だ。',
+    ['椎名', '「……地下の件は、今日で最後にしてくれ。」'],
+    ['黒田', '「何度目の『最後』ですか。」'],
+    ['椎名', '「あの子たちに、気づかれる前に。」'],
+    '町長は去り、黒田は静かにシャッターを下ろして、倉庫へ入っていった。',
+    fact('kuroda_shiina_talk'))},
+  { id: 'st_warehouse', kind: 'look', label: '倉庫へ入る', cost: 20, cond: { at: 'station', t: [hm(15), hm(15, 30)], has: ['station_3pm'] }, script: sc(
+    'シャッターの隙間から、倉庫へ滑り込む。',
+    'がらんとした暗い空間。棚も、箱も、何もない。',
+    'さっき入ったはずの黒田の姿が、どこにもない。',
+    '——床に、四角い継ぎ目が走っていた。不自然なほど、まっすぐに。',
+    fact('warehouse_empty'))},
+  { id: 'st_confront', kind: 'talk', npc: 'kuroda', label: '黒田に倉庫のことを問い詰める', cost: 15, once: 'ever',
+    cond: { at: 'station', has: ['warehouse_empty'], any: [{ has: ['kuroda_shiina_talk'] }, { has: ['station_3pm'] }] }, script: sc(
+    ['ソウ', '「倉庫に、何かありますよね。町長も知ってる。」'],
+    ['黒田', '「……あんた、何を知ってる。」'],
+    ['黒田', '「床の継ぎ目は扉だ。鍵がなけりゃ開かない。——鍵は、俺が持ってる。渡す気は、ない。」'],
+    fact('hatch_known'), rel('kuroda', 1))},
+  { id: 'st_mina_clash', kind: 'talk', npc: 'mina', label: 'ミナと黒田のやりとりを見守る', cost: 15, once: 'ever',
+    cond: { at: 'station', t: [hm(14, 30), hm(14, 59)], flag: ['p:told:mina|station_3pm'] }, script: sc(
+    'ミナが、改札で黒田に詰め寄っていた。',
+    ['ミナ', '「黒田さん、駅って3時に閉まるって、本当ですか？」'],
+    ['黒田', '「……誰から聞いた。」'],
+    ['ミナ', '「うわさで。でも、ほんとなんでしょ。黒田さん、いつも何かを守ってる顔してるもん。」'],
+    ['黒田', '「…………」'],
+    '黒田の表情が、ほんの少し緩んだ。',
+    ['黒田', '「……娘も、同じことを言った。あんたを見てると、思い出す。」'],
+    ['ミナ', '「娘さん、いたんですか？」'],
+    ['黒田', '「昔の話だ。」'],
+    '黒田は、僕を手招きした。',
+    ['黒田', '「おい。倉庫の鍵だ。床の継ぎ目を持ち上げてみろ。……あの子を、巻き込むなよ。」'],
+    fact('kuroda_daughter', 'hatch_known', 'key_basement'), rel('kuroda', 2), rel('mina', 1))},
+  { id: 'st_tracks', kind: 'look', label: 'ホームの先を歩く', cost: 25, cond: { at: 'station', t: [hm(8), hm(14, 59)], has: ['warehouse_empty'] }, script: sc(
+    'ホームの端から、線路を歩いて行く。',
+    '百メートルほど先で、レールは唐突に途切れていた。その先は、草むら。',
+    '錆びたレールに、擦り傷ひとつない。——一度も、電車が走ったことがない線路だ。',
+    fact('tracks_end'))},
+  { id: 'st_figure', kind: 'look', label: 'ホームの端の人影を確かめる', cost: 10,
+    cond: { at: 'station', t: [hm(19, 55), hm(20, 25)], not: ['self_patient'] }, script: sc(
+    '20:00。ホームの端に、病衣の男が、海に向かって立っている。',
+    ifc({ has: ['patient_paradox'] },
+      sc('18:00に死んだはずの、患者。確かめなければ。', '足音を殺して近づく。男が、ゆっくりと振り向いた。',
+        '——それは、僕の顔だった。', '病衣の手首に、白いリストバンド。「000817」。',
+        'はっとして、自分の手首を見る。同じバンドが、そこにあった。', '袖に隠れていたのか。それとも、今初めて「そこにあった」のか。',
+        fact('self_patient', 'door_code')),
+      sc('声をかけようと一歩踏み出した瞬間、男は——いなかった。', '風が、病衣のような白い布をさらっていった気がした。',
+        fact('patient_station_2000'))))},
+
+  // ───── 診療所 ─────
+  { id: 'sae_hello', kind: 'talk', npc: 'saeki', label: '佐伯医師と話す', cost: 10, cond: { at: 'clinic' }, script: sc(
+    ['佐伯', '「やあ、ソウ君。顔色は悪くないね。」'],
+    ['佐伯', '「夏バテには、よく寝ることだ。……もっとも、君は寝すぎるくらい寝ているか。」'],
+    rel('saeki', 1))},
+  { id: 'sae_peek', kind: 'look', npc: 'saeki', label: '診察室をそっと覗く', cost: 10, cond: { at: 'clinic', t: [hm(19, 15), hm(19, 44)] }, script: sc(
+    '19:20。診察室のドアが、少し開いていた。',
+    ['佐伯', '「調子はどうだい。……そうか。今日も、そう言うんだね。」'],
+    '佐伯は、誰もいない丸椅子に向かって、聴診器を当てている。',
+    '椅子には、誰も座っていない。——それなのに、僕には、一瞬だけ、誰かの背中が見えた気がした。',
+    fact('saeki_empty_patient'))},
+  { id: 'sae_cert', kind: 'look', label: '診療所の控えを調べる', cost: 25, cond: { at: 'clinic', t: [hm(19, 50), hm(24)] }, script: sc(
+    '佐伯の姿はない。裏口の鍵は、いつものように開いていた。',
+    '書類棚の一番下に、控えが一枚。',
+    '『死亡診断書　死亡時刻　午後6時00分』',
+    '氏名欄は、墨で黒く塗りつぶされている。',
+    fact('cert_18'))},
+  { id: 'sae_chart', kind: 'look', label: 'カルテ棚を調べる', cost: 30, cond: { at: 'clinic', t: [hm(19, 50), hm(24)], has: ['saeki_empty_patient'] }, script: sc(
+    'カルテ棚の「ア行」を探す。——あった。',
+    '氏名欄は、空白。',
+    '診察日は毎日。毎日19:20。経過の欄には、同じ文字が延々と並んでいた。',
+    '『変化なし。本人は自覚なし。』',
+    '住所の欄には、見覚えのない番地。この町に、そんな住所はない。',
+    fact('chart_self'))},
+  { id: 'sae_theory', kind: 'talk', npc: 'saeki', label: '佐伯と時間について話す', cost: 20, once: 'ever',
+    cond: { at: 'clinic', has: ['loop_confirmed'], rel: { saeki: 2 } }, script: sc(
+    ['佐伯', '「君は最近、同じ夢を見ていないかい。」'],
+    ['ソウ', '「夢じゃありません。同じ一日を、繰り返しているんです。」'],
+    ['佐伯', '「……ふむ。私はね、時間が戻っているのではなく、記憶が戻っているのだと思う。」'],
+    ['ソウ', '「記憶が、戻っている？」'],
+    ['佐伯', '「世界は、同じ記憶を再生しているだけなのかもしれない、ということさ。」'],
+    fact('saeki_theory'), rel('saeki', 1))},
+  { id: 'sae_secret', kind: 'talk', npc: 'saeki', label: '佐伯にカルテのことを話す', cost: 25, once: 'ever',
+    cond: { at: 'clinic', has: ['chart_self', 'saeki_theory'], rel: { saeki: 3 } }, script: sc(
+    ['ソウ', '「僕のカルテを、見ました。」'],
+    ['佐伯', '「……そうか。」'],
+    ['佐伯', '「私はね、あの夜、助けられなかった子がいるんだ。小さな女の子だった。」'],
+    ['佐伯', '「毎日19:20、あの子が来る気がして、椅子を空けてしまう。……情けない医者だよ。」'],
+    ['ソウ', '「その子の名前は？」'],
+    ['佐伯', '「……凛。たしか、そう呼ばれていた。君は、その子の——」'],
+    '佐伯は、言葉を飲み込んだ。',
+    fact('saeki_secret'), rel('saeki', 1))},
+  { id: 'sae_rec', kind: 'talk', npc: 'saeki', label: '佐伯の記憶に触れる', cost: 25, once: 'ever',
+    cond: { at: 'clinic', has: ['saeki_secret'], rel: { saeki: 5 } }, script: sc(
+    ['佐伯', '「看取れなかった手の温度を、今でも覚えている。白衣のポケットには、聴診器だけが入っている。」'],
+    ['佐伯', '「ソウ君。もし、すべてを知ったら、君はきっと、苦しむ。それでも、知りたいのかい。」'],
+    ['ソウ', '「はい。……あなたの記憶も、持っていかせてください。」'],
+    ['佐伯', '「……ありがとう。それが、私の最後の診察だ。」'],
+    fact('rec_saeki'), rel('saeki', 1))},
+
+  // ───── 海岸 ─────
+  { id: 'min_beach', kind: 'talk', npc: 'mina', label: 'ミナに話しかける', cost: 10, cond: { at: 'beach' }, script: sc(
+    '17:30。ミナが、波打ち際に立っている。',
+    ['ソウ', '「何してるんだ？」'],
+    ['ミナ', '「ちょっと散歩してるだけ。」'],
+    ['ミナ', '「ソウも来たんだ。……ねえ、海ってさ、毎日見てても、飽きないよね。」'],
+    fact('mina_beach_1730'), rel('mina', 1))},
+  { id: 'min_follow', kind: 'look', label: '物陰からミナを見守る', cost: 20, once: 'ever',
+    cond: { at: 'beach', t: [hm(17, 30), hm(18)], has: ['mina_beach_1730'], loop: [2] }, script: sc(
+    '岩陰から、そっとミナを見守る。',
+    'ミナは、手に持った白い花を、海に向かって差し出した。',
+    ['ミナ', '「……ケイ。今日も来たよ。」'],
+    '返事はない。波の音だけ。ミナは、花を、そっと水に浮かべた。',
+    fact('mina_kei', 'mina_flower'))},
+  { id: 'min_kei', kind: 'talk', npc: 'mina', label: 'ミナに「ケイ」のことを尋ねる', cost: 20, once: 'ever',
+    cond: { at: 'beach', has: ['mina_kei'], rel: { mina: 3 } }, script: sc(
+    ['ソウ', '「ミナ。……ケイって、誰？」'],
+    ['ミナ', '「…………聞いてたんだ。」'],
+    ['ミナ', '「弟だよ。5年前に、いなくなったの。海で。」'],
+    ['ソウ', '「……ごめん。」'],
+    ['ミナ', '「ううん。ソウが謝ることじゃないよ。」'],
+    fact('kei_brother'), rel('mina', 1))},
+  { id: 'min_accident', kind: 'talk', npc: 'mina', label: 'ミナにあの日のことを尋ねる', cost: 25, once: 'ever',
+    cond: { at: 'beach', has: ['kei_brother'], rel: { mina: 5 } }, script: sc(
+    ['ミナ', '「あの日ね、ソウも一緒にいたでしょ。」'],
+    ['ソウ', '「……え？」'],
+    ['ミナ', '「覚えてないんだ。ケイが、ボートから落ちて。ソウは、手を伸ばして——」'],
+    '頭の奥が、ずきりと痛んだ。——波の音。誰かの笑い声。離れていく、小さな手。',
+    ['ミナ', '「ごめん。今日は、ここまでにしよ。」'],
+    fact('kei_accident'), rel('mina', 1))},
+  { id: 'min_truth', kind: 'talk', npc: 'mina', label: 'ミナに、すべてを話す', cost: 30, once: 'ever',
+    cond: { at: 'beach', has: ['kei_accident', 'town_is_memory'], rel: { mina: 6 } }, script: sc(
+    ['ソウ', '「ミナ。この町は、100年前に死んだ人たちの記憶でできてるんだ。……ケイの事故も。」'],
+    ['ミナ', '「うん。……知ってたよ。」'],
+    ['ソウ', '「え？」'],
+    ['ミナ', '「ずっと前から。何回目かも分からないくらい前から。ソウが悪くないことも、知ってる。」'],
+    ['ミナ', '「だって、毎回、ソウは海に来てくれるんだもん。何も覚えてないくせに。」'],
+    '潮風が、ミナの髪を揺らした。彼女は、泣きながら笑っていた。',
+    fact('mina_truth'), rel('mina', 2))},
+  { id: 'min_rec', kind: 'talk', npc: 'mina', label: 'ミナの記憶を受け取る', cost: 25, once: 'ever',
+    cond: { at: 'beach', has: ['mina_truth'] }, script: sc(
+    ['ミナ', '「ケイとね、この海で、約束したの。『明日も、ここで会おうね』って。」'],
+    ['ミナ', '「だから私、毎日ここに来るの。明日が来るのを、待ってるの。」'],
+    ['ソウ', '「……その記憶、僕に預けてくれないか。」'],
+    ['ミナ', '「うん。ソウになら、いいよ。」'],
+    '彼女の手のひらから、小さな光の粒が、僕の胸へ流れ込んだ。',
+    fact('rec_mina'), rel('mina', 1))},
+  // 「この町がなくなったら」— 段階ごとに意味が変わる
+  { id: 'min_if_a', kind: 'talk', npc: 'mina', label: 'ミナと海を見る', cost: 15, once: 'ever',
+    cond: { at: 'beach', loop: [2], not: ['town_replays', 'town_is_memory'] }, script: sc(
+    ['ミナ', '「ねえ。」'],
+    ['ミナ', '「もし、この町がなくなったら……私たちも、いなくなるのかな。」'],
+    ['ソウ', '「……分からない。」'],
+    ['ミナ', '「そっか。」', ],
+    '少し間を置いて、ミナは冗談めかして笑った。',
+    ['ミナ', '「じゃあ、まだ分からないままでいいよ。」'],
+    '——その時の僕は、ただの冗談だと思っていた。', rel('mina', 1))},
+  { id: 'min_if_b', kind: 'talk', npc: 'mina', label: 'ミナと海を見る（町のことを知って）', cost: 15, once: 'ever',
+    cond: { at: 'beach', any: [{ has: ['town_replays'] }, { has: ['town_is_memory'] }], not: ['self_is_copy'] }, script: sc(
+    ['ミナ', '「ねえ。」'],
+    ['ミナ', '「もし、この町がなくなったら……私たちも、いなくなるのかな。」'],
+    ['ソウ', '「……分からない。」'],
+    ['ミナ', '「そっか。」'],
+    '今度は、ミナの声が、少しだけ震えていた。',
+    ['ミナ', '「じゃあ、まだ分からないままでいいよ。……分かっちゃったら、きっと、怖いから。」'],
+    '彼女は、気づいているのかもしれない。僕が、何を探しているのかを。', rel('mina', 1))},
+  { id: 'min_if_c', kind: 'talk', npc: 'mina', label: 'ミナと海を見る（自分の正体を知って）', cost: 15, once: 'ever',
+    cond: { at: 'beach', has: ['self_is_copy'] }, script: sc(
+    ['ミナ', '「ねえ。」'],
+    ['ミナ', '「もし、この町がなくなったら……私たちも、いなくなるのかな。」'],
+    ['ソウ', '「……分からない。」'],
+    ['ミナ', '「そっか。」'],
+    ['ミナ', '「じゃあ、まだ分からないままでいいよ。」'],
+    ['ソウ', '「ミナ。それは——」'],
+    ['ミナ', '「ううん。ソウが決めたことなら、私は、それでいい。……だから、分からないままでいい、ってことだよ。」'],
+    '分からないままでいい。それは、僕に残された、最後の猶予の言葉だった。', rel('mina', 1))},
+  { id: 'min_night', kind: 'talk', npc: 'mina', label: 'ミナのそばにいる', cost: 10, cond: { at: 'beach', t: [hm(23), hm(23, 46)] }, script: sc(
+    '夜の海岸。ミナは、膝を抱えて水平線を見ている。',
+    ['ミナ', '「ソウ。そこにいてね。」'],
+    ['ソウ', '「いるよ。」'],
+    ['ミナ', '「うん。……それだけで、いいや。」'],
+    rel('mina', 1))},
+  { id: 'gen_hello', kind: 'talk', npc: 'gen', label: '源さんと話す', cost: 10, cond: { at: 'beach' }, script: sc(
+    ['源さん', '「おう、ソウ坊。今日は凪いでるなあ。」'],
+    ['源さん', '「ミナちゃんは、夕方になるとここへ来る。止めるもんじゃねえ。あの子の時間だ。」'],
+    rel('gen', 1))},
+  { id: 'gen_monument', kind: 'look', label: '海岸の石碑を調べる', cost: 15, cond: { at: 'beach' }, script: sc(
+    '砂浜の隅に、苔むした石碑が立っている。',
+    '『慰霊　八月十七日』',
+    '何の慰霊なのか、碑には書かれていない。',
+    fact('date_beach'))},
+  { id: 'gen_light', kind: 'talk', npc: 'gen', label: '源さんの昔話を聞く', cost: 20, once: 'ever',
+    cond: { at: 'beach', flag: ['p:told:gen|light_2350'] }, script: sc(
+    ['源さん', '「あの光か。……俺の爺さんが、昔、同じ光を見たって言ってたな。100年も前の話だ。」'],
+    ['源さん', '「『海の向こうが白くなって、空が割れて、みんな消えた』ってな。」'],
+    fact('gen_light'), rel('gen', 1))},
+  { id: 'gen_rec', kind: 'talk', npc: 'gen', label: '源さんの船の話を聞く', cost: 25, once: 'ever',
+    cond: { at: 'beach', has: ['gen_light'], rel: { gen: 3 } }, script: sc(
+    ['源さん', '「あの夜、息子の船が、帰ってこなかった。」'],
+    ['源さん', '「毎晩、水平線を見てる。帰ってくるのは船じゃなくて、朝だったらいいな、ってな。」'],
+    ['ソウ', '「その話、預かります。」'],
+    ['源さん', '「ああ。……頼んだぞ、ソウ坊。」'],
+    fact('rec_gen'), rel('gen', 1))},
+
+  // ───── 神社 ─────
+  { id: 'asa_hello', kind: 'talk', npc: 'asagiri', label: '朝霧神主と話す', cost: 10, cond: { at: 'shrine' }, script: sc(
+    ['朝霧', '「おお、ソウ君。お参りかな。」'],
+    ['朝霧', '「この町ではね、八月十七日に、死者を送る『送り火』をする習わしでね。」'],
+    ['朝霧', '「もっとも、この数十年、ちゃんと火が灯ったためしがないが。」'],
+    fact('okuribi'), rel('asagiri', 1))},
+  { id: 'asa_ema', kind: 'look', label: '絵馬を調べる', cost: 15, cond: { at: 'shrine', t: [hm(6), hm(22, 30)] }, script: sc(
+    '境内の絵馬掛け。古い絵馬が、風に鳴っている。',
+    '裏返す。一枚、また一枚。——どれにも、同じ日付が記されていた。',
+    '「八月十七日」。',
+    fact('date_shrine'))},
+  { id: 'asa_scroll', kind: 'talk', npc: 'asagiri', label: '朝霧に古い記録のことを話す', cost: 25, once: 'ever',
+    cond: { at: 'shrine', any: [{ has: ['every_year_817'] }, { has: ['town_replays'] }] }, script: SHARED.fire },
+  { id: 'asa_rec', kind: 'talk', npc: 'asagiri', label: '朝霧に送り火のことを尋ねる', cost: 25, once: 'ever',
+    cond: { at: 'shrine', has: ['fire_100'], rel: { asagiri: 3 } }, script: sc(
+    ['朝霧', '「あの夜、私は、火種を手に持ったまま、送り火を灯せなかった。」'],
+    ['朝霧', '「灯せば、皆、行ってしまうと思ったんだ。……愚かだね。」'],
+    ['朝霧', '「だが今は思う。灯してあげるのが、せめてもの、供養だったのかもしれない。」'],
+    fact('rec_asagiri'), rel('asagiri', 1))},
+  { id: 'shr_follow', kind: 'look', label: '石段の陰から町長を見張る', cost: 20, once: 'ever',
+    cond: { at: 'shrine', t: [hm(21, 50), hm(23, 30)] }, script: sc(
+    '石段の陰に身を潜める。22:00。',
+    '町長の椎名が、本殿の裏の石の扉の前に立った。懐から取り出した、古い鍵。',
+    '重い音を立てて、石の扉が開く。暗い階段が、地の底へ伸びている。',
+    ['椎名', '「……今夜も、よろしくお願いします。」'],
+    '誰に言っているのか。町長は階段を降りていった。扉は、夜の間だけ、開いたままになるようだ。',
+    fact('shrine_hatch'))},
+  { id: 'yu_night', kind: 'talk', npc: 'yu', label: 'ユウと石段で話す', cost: 10, cond: { at: 'shrine', t: [hm(22, 30), hm(23, 59)] }, script: sc(
+    '石段に、小さな影。ユウが膝を抱えて座っている。',
+    ['ユウ', '「あの子が来るまで、待ってるんだ。」'],
+    ['ユウ', '「ね、お兄ちゃんは、いつか、あの子のこと思い出すよ。」'],
+    flag('p:yu_night'), rel('yu', 1))},
+];
