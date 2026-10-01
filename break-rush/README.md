@@ -10,7 +10,14 @@ npm install
 npm run dev      # http://localhost:5173
 npm run build    # 型チェック + dist/ へビルド
 npm test         # Vitest（戦闘ロジックの単体テスト）
+npm run build:local   # dist-local/index.html に全てを埋め込んだ単一HTML（ダブルクリックで起動）
 ```
+
+## 配布
+
+- **itch.io 向け**: `npm run build` → `dist/` の中身を ZIP のルートに `index.html` が来るように固めてアップロード（HTML5 として公開）。
+- **単一HTML**: `npm run build:local` → `dist-local/index.html`（約1.5MB、上限20MB）。`file://` で直接開いて動作（localStorage・WebAudio 含む）。
+- 画像・音声ファイルは使っておらず（図形はCanvas生成、SEはWebAudio合成）、外部通信もありません。
 
 ## 操作
 

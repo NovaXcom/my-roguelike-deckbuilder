@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:local": "tsc --noEmit && vite build --config vite.config.local.ts"
   },
   "dependencies": {
     "phaser": "^3.80.1"
@@ -15,6 +16,7 @@
   "devDependencies": {
     "typescript": "^5.4.0",
     "vite": "^5.4.0",
+    "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^2.1.9"
   }
 }
