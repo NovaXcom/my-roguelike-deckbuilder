@@ -14,6 +14,12 @@ export const SKILLS: Record<string, SkillDef> = Object.fromEntries([
     text: '自分にガード10。敵の攻撃を自分に引きつける。' }),
   sk({ id: 'guardian', name: '守護の盾', kind: 'support', element: 'none', cooldown: 2, guardSelf: 6, guardAlly: 10,
     text: '自分にガード6、味方にガード10。' }),
+  sk({ id: 'defend', name: '防御', kind: 'support', element: 'none', cooldown: 0, guardSelf: 6,
+    text: '自分にガード6。' }),
+  sk({ id: 'wait', name: '待機', kind: 'support', element: 'none', cooldown: 0, waitEffect: true,
+    text: '疲労-1・ガード+5・次のダメージスキルが強化(×1.2・ゲージ-5)。' }),
+  sk({ id: 'focus_mana', name: '魔力集中', kind: 'support', element: 'none', cooldown: 1, chargeSelf: true,
+    text: '次のダメージスキルが+30%。' }),
   // --- エレメンタリスト ---
   sk({ id: 'firebolt', name: 'ファイアボルト', kind: 'magic', element: 'fire', cooldown: 0, damage: 7,
     conds: [{ when: { kind: 'burning' }, then: { damageBonus: 5 }, label: '火傷中の敵: ダメージ+5' }],
@@ -58,6 +64,7 @@ export const MEMBERS: Record<Role, MemberDef> = {
     maxHp: 90,
     description: 'ヘイトを集めシールドで後衛を守る。武器スキルで敵の体勢を崩し、ブレイクさせる。',
     skills: ['slash', 'shield_bash', 'provoke', 'guardian'],
+    deck: ['slash', 'slash', 'slash', 'shield_bash', 'shield_bash', 'provoke', 'guardian', 'guardian', 'defend', 'wait'],
   },
   elementalist: {
     id: 'elementalist',
@@ -68,6 +75,7 @@ export const MEMBERS: Record<Role, MemberDef> = {
     maxHp: 60,
     description: '火・氷・雷を操る。ブレイクした敵に魔法を撃ち込むとチェインが発生する。',
     skills: ['firebolt', 'ice_lance', 'thunder', 'heal'],
+    deck: ['firebolt', 'firebolt', 'firebolt', 'ice_lance', 'ice_lance', 'ice_lance', 'thunder', 'heal', 'focus_mana', 'wait'],
   },
 };
 

@@ -22,6 +22,10 @@ export interface SkillDef {
   inflict?: 'burn';
   /** 行動ポイント消費(既定1)。強力なスキルは2 */
   cost?: number;
+  /** 使うと次のダメージスキルが強化される(帯電と同じ)自己バフ */
+  chargeSelf?: boolean;
+  /** 待機カード: CD/疲労-1・ガード+5・次のダメージスキル強化 */
+  waitEffect?: boolean;
   /** 全体攻撃: 生存している敵全員に当たる。値はダメージ/ゲージ削りの倍率(例: 0.7) */
   aoe?: number;
   /** 条件を満たすと発動する追加効果（「今使う価値があるか」を考えさせる） */
@@ -61,6 +65,8 @@ export interface MemberDef {
   maxHp: number;
   description: string;
   skills: string[];
+  /** 初期デッキ(カードID。重複で枚数) */
+  deck: string[];
 }
 
 /** front=前衛狙い / back=後衛狙い（前衛がヘイトを取っていると前衛に逸れる） / all=全体攻撃 */
@@ -124,6 +130,8 @@ export interface MemberState {
   power: number;
   guardBonus: number;
   breakBonus: number;
+  /** 山札・手札・捨て札・疲労(デッキ戦闘)。旧方式では手札=全スキル固定 */
+  deck: DeckState;
   /** 戦闘開始ターンのみ得るガード */
   openingGuard: number;
   /** スキルごとのレベル(1〜3)。未設定は1 */
@@ -139,6 +147,22 @@ export interface MemberState {
 /** 装備の固有効果（「強い装備」ではなく「この装備を軸にビルドする」ための仕組み） */
 export type EquipEffectId =
   | 'bleed_on_break' | 'ignite' | 'guard_power' | 'low_hp_cd' | 'break_guard' | 'holy_break' | 'freeze_ice' | 'storm_chain';
+
+/** カードの実体(同名カードを複数持てる) */
+export interface CardInst {
+  uid: number;
+  defId: string;
+  /** 封印(残りターン)。>0 の間は使えない */
+  sealed: number;
+}
+export interface DeckState {
+  draw: CardInst[];
+  hand: CardInst[];
+  discard: CardInst[];
+  /** 疲労中のカード(残りターン後に山札へ戻る) */
+  fatigued: { card: CardInst; turns: number }[];
+  exhausted: CardInst[];
+}
 
 export type DotKind = 'burn' | 'bleed';
 export interface DotStatus {

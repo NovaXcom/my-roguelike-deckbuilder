@@ -6,7 +6,11 @@ import type { Element } from '../core/types';
  */
 
 /** スキルID → アイコン（スキルごとに1キー。元絵が足りないスキルは同系統の絵を流用している） */
-export const skillIconKey = (skillId: string): string => `icon_skill_${skillId}`;
+/** 専用アイコンが無いカードは近い既存アイコンを流用する */
+const SKILL_ICON_ALIAS: Record<string, string> = {
+  defend: 'icon_skill_guardian', wait: 'icon_ui_wait', focus_mana: 'icon_status_charge',
+};
+export const skillIconKey = (skillId: string): string => SKILL_ICON_ALIAS[skillId] ?? `icon_skill_${skillId}`;
 
 /** 装備 → アイコン（固有の絵がある装備だけ個別、他は 部位×レア度） */
 export function equipIconKey(item: { templateId: string; slot: string; rarity: string }): string {

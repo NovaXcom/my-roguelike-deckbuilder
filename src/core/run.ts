@@ -16,6 +16,8 @@ export interface RunMember {
   gear: Record<Slot, EquipItem | null>;
   /** スキルごとのLv(未設定=1) */
   levels: Record<string, number>;
+  /** 恒久デッキ(カードID。重複で枚数)。武器の固有カードは装備中のみ戦闘デッキに加わる */
+  deck: string[];
 }
 
 export interface ShopStock {
@@ -50,6 +52,9 @@ export interface RunState {
   curse: number;
   /** 今回の旅(特殊条件) */
   mods: RunMods | null;
+  seed: number;
+  /** これまでの戦闘数(山札シャッフルのシードに使う) */
+  battles: number;
 }
 
 export function newRun(meta: MetaState, seed: number, mods: RunMods | null = null): RunState {
@@ -63,7 +68,7 @@ export function newRun(meta: MetaState, seed: number, mods: RunMods | null = nul
     visited: [],
     party: PARTY_ORDER.map((role) => {
       const g = startingGear(role, meta.smith, nextUid);
-      return { role, hp: 1, gear: { weapon: g.weapon, armor: g.armor, accessory: null }, levels: {} };
+      return { role, hp: 1, gear: { weapon: g.weapon, armor: g.armor, accessory: null }, levels: {}, deck: [...MEMBERS[role].deck] };
     }),
     gold: 30,
     stones: 0,
@@ -77,6 +82,8 @@ export function newRun(meta: MetaState, seed: number, mods: RunMods | null = nul
     skillPoints: 0,
     curse: 0,
     mods,
+    seed: seed >>> 0,
+    battles: 0,
   };
   run.nextUid = uid;
   run.party.forEach((_, i) => { run.party[i].hp = memberMaxHp(run, i); });
@@ -121,10 +128,16 @@ export function upgradeSkill(run: RunState, i: number, skillId: string): boolean
   return true;
 }
 
-export function memberSkills(run: RunState, i: number): string[] {
+/** 戦闘で使うデッキ(恒久デッキ＋装備中の武器の固有カード) */
+export function memberDeck(run: RunState, i: number): string[] {
   const m = run.party[i];
   const extra = m.gear.weapon?.skill;
-  return extra ? [...MEMBERS[m.role].skills, extra] : [...MEMBERS[m.role].skills];
+  return extra ? [...m.deck, extra] : [...m.deck];
+}
+
+/** 使えるスキル(カード)の種類 */
+export function memberSkills(run: RunState, i: number): string[] {
+  return [...new Set(memberDeck(run, i))];
 }
 
 export function buildSetup(run: RunState): BattleSetup {
@@ -141,11 +154,13 @@ export function buildSetup(run: RunState): BattleSetup {
         breakBonus: g.breakBonus + run.passives.breakBonus,
         openingGuard: m.role === 'knight' ? run.passives.knightOpeningGuard : 0,
         skills: memberSkills(run, i),
+        deck: memberDeck(run, i),
         levels: { ...m.levels },
         effects: memberEffects(run, i),
       };
     }),
     mods: run.mods,
+    seed: (run.seed + run.battles * 7919) >>> 0,
   };
 }
 
@@ -203,6 +218,7 @@ export function enemyScale(node: MapNode, mods: RunMods | null = null, count = 1
 
 /** ノードの戦闘を開始（敵の抽選・装備補正・階層補正込み。プレイヤーターン1開始済み） */
 export function startBattle(run: RunState, node: MapNode): BattleState {
+  run.battles += 1;
   const ids = pickEncounter(run, node);
   const s = createBattle(ids, buildSetup(run), enemyScale(node, run.mods, ids.length));
   startPlayerTurn(s);

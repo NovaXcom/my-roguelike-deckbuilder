@@ -1,6 +1,6 @@
 import { ENEMIES, MEMBERS, PARTY_ORDER, SKILLS } from './data';
 import type {
-  Element, EnemyIntent, EnemyState, EquipEffectId, MemberState, Role, RunMods, SkillBonus, SkillCond, SkillDef,
+  CardInst, DeckState, Element, EnemyIntent, EnemyState, EquipEffectId, MemberState, Role, RunMods, SkillBonus, SkillCond, SkillDef,
 } from './types';
 
 export const CHAIN_MULT = 2;
@@ -11,6 +11,7 @@ export const RESIST_MULT = 0.5;
 export const MAX_SKILL_LEVEL = 3;
 const LEVEL_MULT = [1, 1, 1.2, 1.45];
 export const AP_MAX = 3;
+export const HAND_SIZE = 4;
 export const WAIT_COST = 1;
 export const skillCost = (sk: SkillDef): number => sk.cost ?? 1;
 export const WAIT_GUARD = 5;
@@ -65,6 +66,11 @@ export interface BattleState {
   /** 残り行動ポイント(1ターンに2人で使える行動の総数) */
   ap: number;
   apMax: number;
+  /** デッキ戦闘か(旧方式=全スキルが常に手札・CD制。テスト・互換用) */
+  deckMode: boolean;
+  /** 山札シャッフル用の乱数状態(決定論的) */
+  rngState: number;
+  nextUid: number;
   phase: BattlePhase;
   chainMult: number;
   mods: RunMods | null;
@@ -80,6 +86,8 @@ export interface MemberSetup {
   breakBonus: number;
   openingGuard: number;
   skills: string[];
+  /** デッキ(カードID。重複で枚数)。指定するとデッキ戦闘になる */
+  deck?: string[];
   levels?: Record<string, number>;
   effects?: EquipEffectId[];
 }
@@ -87,6 +95,8 @@ export interface BattleSetup {
   members: MemberSetup[];
   chainMult: number;
   mods?: RunMods | null;
+  /** 山札シャッフルのシード */
+  seed?: number;
 }
 
 export function defaultSetup(): BattleSetup {
@@ -141,21 +151,50 @@ export function makeEnemy(enemyId: string, scale: EnemyScale = { hp: 1, atk: 1 }
 }
 
 /** enemyId は単体のID、または編成(IDの配列)。scale は全員共通、または敵ごと */
+/** 決定論的乱数(状態は BattleState に持つ。複製しても壊れない) */
+export function nextRand(s: { rngState: number }): number {
+  s.rngState = (s.rngState + 0x6d2b79f5) >>> 0;
+  let t = s.rngState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+function shuffleInPlace<T>(s: { rngState: number }, a: T[]): T[] {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(nextRand(s) * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const emptyDeck = (): DeckState => ({ draw: [], hand: [], discard: [], fatigued: [], exhausted: [] });
+
 export function createBattle(
   enemyId: string | string[] = 'slime',
   setup: BattleSetup = defaultSetup(),
   scale: EnemyScale | EnemyScale[] = { hp: 1, atk: 1 },
 ): BattleState {
   const ids = Array.isArray(enemyId) ? enemyId : [enemyId];
+  const deckMode = setup.members.some((m) => !!m.deck);
+  let uid = 1;
+  const rs = { rngState: (setup.seed ?? 12345) >>> 0 };
   const enemies = ids.map((id, i) => makeEnemy(id, Array.isArray(scale) ? scale[i] ?? scale[0] : scale));
   return {
     party: setup.members.map((m) => {
       const d = MEMBERS[m.role];
       return {
         def: d, hp: m.hp, maxHp: m.maxHp, guard: 0, taunt: false, acted: false, used: [],
-        cooldowns: Object.fromEntries(m.skills.map((s) => [s, 0])),
-        skills: [...m.skills], power: m.power, guardBonus: m.guardBonus, breakBonus: m.breakBonus, openingGuard: m.openingGuard,
+        cooldowns: Object.fromEntries((m.deck ? [...new Set(m.deck)] : m.skills).map((s) => [s, 0])),
+        skills: m.deck ? [...new Set(m.deck)] : [...m.skills], power: m.power, guardBonus: m.guardBonus, breakBonus: m.breakBonus, openingGuard: m.openingGuard,
         levels: { ...(m.levels ?? {}) }, effects: [...(m.effects ?? [])], focus: false, charged: false,
+        deck: ((): DeckState => {
+          const dk = emptyDeck();
+          const card = (defId: string): CardInst => ({ uid: uid++, defId, sealed: 0 });
+          if (m.deck) dk.draw = shuffleInPlace(rs, m.deck.map(card));
+          else dk.hand = m.skills.map(card); // 旧方式: 全スキルが常に手札
+          return dk;
+        })(),
       };
     }),
     enemies,
@@ -163,6 +202,9 @@ export function createBattle(
     turn: 0,
     ap: AP_MAX,
     apMax: AP_MAX,
+    deckMode,
+    rngState: rs.rngState,
+    nextUid: uid,
     phase: 'player',
     chainMult: setup.chainMult,
     mods: setup.mods ?? null,
@@ -226,21 +268,96 @@ export function startPlayerTurn(s: BattleState): void {
   s.phase = 'player';
   s.ap = s.apMax;
   for (const m of s.party) {
-    for (const id of Object.keys(m.cooldowns)) if (s.turn > 1) m.cooldowns[id] = Math.max(0, m.cooldowns[id] - 1);
-    if (s.turn > 1 && alive(m) && m.effects.includes('low_hp_cd') && m.hp <= m.maxHp * 0.5) {
-      for (const id of Object.keys(m.cooldowns)) m.cooldowns[id] = Math.max(0, m.cooldowns[id] - 1);
+    const lowHp = s.turn > 1 && alive(m) && m.effects.includes('low_hp_cd') && m.hp <= m.maxHp * 0.5;
+    if (s.deckMode) {
+      if (s.turn > 1) {
+        tickFatigue(m, lowHp ? 2 : 1);
+        for (const c of m.deck.hand) if (c.sealed > 0) c.sealed -= 1;
+      }
+    } else {
+      for (const id of Object.keys(m.cooldowns)) if (s.turn > 1) m.cooldowns[id] = Math.max(0, m.cooldowns[id] - 1);
+      if (lowHp) for (const id of Object.keys(m.cooldowns)) m.cooldowns[id] = Math.max(0, m.cooldowns[id] - 1);
     }
     m.guard = s.turn === 1 && alive(m) ? m.openingGuard : 0;
     m.taunt = false;
     m.acted = false;
     m.used = [];
   }
+  if (s.deckMode) {
+    s.party.forEach((m, i) => { if (alive(m)) drawUp(s, i); });
+    if (s.turn === 1) ensureOpeningHand(s);
+  }
+}
+
+/** 疲労ゾーンの残りターンを減らし、0になったカードを山札のランダムな位置へ戻す */
+function tickFatigue(m: MemberState, n: number): void {
+  const d = m.deck;
+  const stay: DeckState['fatigued'] = [];
+  for (const f of d.fatigued) {
+    f.turns -= n;
+    if (f.turns > 0) stay.push(f);
+    else d.draw.push(f.card); // 山札の一番上へ(次に引く)
+  }
+  d.fatigued = stay;
+}
+
+/** 手札上限まで引く。山札が尽きたら捨て札をシャッフルして山札にする。引いた枚数を返す */
+export function drawUp(s: BattleState, member: number): number {
+  const d = s.party[member].deck;
+  let n = 0;
+  while (d.hand.length < HAND_SIZE) {
+    if (!d.draw.length) {
+      if (!d.discard.length) break;
+      d.draw = shuffleInPlace(s, d.discard);
+      d.discard = [];
+    }
+    d.hand.push(d.draw.pop()!);
+    n += 1;
+  }
+  return n;
+}
+
+const isAttackCard = (id: string): boolean => !!SKILLS[id]?.damage;
+const isBreakCard = (id: string): boolean => (SKILLS[id]?.breakPower ?? 0) >= 10;
+
+/** 1ターン目の手札の保証: 各キャラに攻撃カード1枚以上、2人合計でブレイク源1枚以上 */
+function ensureOpeningHand(s: BattleState): void {
+  const swapIn = (m: MemberState, pred: (id: string) => boolean, keep: (id: string) => boolean): boolean => {
+    const d = m.deck;
+    const di = d.draw.findIndex((c) => pred(c.defId));
+    if (di < 0) return false;
+    // 手札から「保証対象でない」カードを1枚外して山札へ戻す
+    const hi = d.hand.findIndex((c) => !keep(c.defId));
+    if (hi < 0) return false;
+    const [out] = d.hand.splice(hi, 1);
+    const [inn] = d.draw.splice(di, 1);
+    d.hand.push(inn);
+    d.draw.splice(Math.floor(nextRand(s) * (d.draw.length + 1)), 0, out);
+    return true;
+  };
+  for (const m of s.party) {
+    if (m.skills.some(isAttackCard) && !m.deck.hand.some((c) => isAttackCard(c.defId))) swapIn(m, isAttackCard, isAttackCard);
+  }
+  const hasBreak = s.party.some((m) => m.deck.hand.some((c) => isBreakCard(c.defId)));
+  if (!hasBreak) {
+    for (const m of s.party) {
+      if (swapIn(m, isBreakCard, (id) => isAttackCard(id) && !isBreakCard(id) ? false : isBreakCard(id) || isAttackCard(id))) break;
+    }
+  }
+}
+
+/** 次に引くカード(山札の一番上)。無ければ null */
+export function nextDraw(s: BattleState, member: number): string | null {
+  const d = s.party[member].deck;
+  return d.draw.length ? d.draw[d.draw.length - 1].defId : null;
 }
 
 export function canUse(s: BattleState, member: number, skillId: string): boolean {
   const m = s.party[member];
   const sk = SKILLS[skillId];
-  return s.phase === 'player' && !!m && !!sk && alive(m) && !m.used.includes(skillId) && m.cooldowns[skillId] === 0 && s.ap >= skillCost(sk);
+  if (!(s.phase === 'player' && !!m && !!sk && alive(m) && s.ap >= skillCost(sk))) return false;
+  if (s.deckMode) return m.deck.hand.some((c) => c.defId === skillId && c.sealed <= 0);
+  return !m.used.includes(skillId) && m.cooldowns[skillId] === 0;
 }
 
 export interface DamagePreview {
@@ -371,8 +488,26 @@ export function useSkill(s: BattleState, member: number, skillId: string, target
   m.acted = true;
   m.used.push(skillId);
   s.ap -= skillCost(base);
-  m.cooldowns[skillId] = skillCooldown(s, m, base);
+  if (s.deckMode) {
+    // 使ったカードは手札から離れる。疲労(旧CD)があれば疲労ゾーンへ、無ければ捨て札へ
+    const d = m.deck;
+    const hi = d.hand.findIndex((c) => c.defId === skillId && c.sealed <= 0);
+    const [card] = d.hand.splice(hi, 1);
+    const fat = skillCooldown(s, m, base);
+    if (fat > 0) d.fatigued.push({ card, turns: fat });
+    else d.discard.push(card);
+  } else {
+    m.cooldowns[skillId] = skillCooldown(s, m, base);
+  }
   const ev: BattleEvent[] = [{ type: 'skill', member, skillId }];
+  if (skill.waitEffect) {
+    waitEffects(s, m, member, ev);
+    return ev;
+  }
+  if (skill.chargeSelf) {
+    m.charged = true;
+    ev.push({ type: 'status', kind: 'charge' });
+  }
 
   if (skill.damage || skill.breakPower) {
     // 全体攻撃は生存している敵全員(編成順)。単体は指定した敵だけ
@@ -482,24 +617,30 @@ function onBreak(s: BattleState, e: EnemyState, ei: number, m: MemberState, ev: 
 
 export const canWait = (s: BattleState, member: number): boolean => {
   const m = s.party[member];
+  if (s.deckMode) return canUse(s, member, 'wait');
   return s.phase === 'player' && !!m && alive(m) && !m.used.includes('wait') && s.ap >= WAIT_COST;
 };
 
-/** 待機: 行動を溜める。自分の全スキルCD-1・ガード+5・次のダメージスキルが強化(×1.2・ブレイク+5) */
+/** 待機の効果: 疲労/CD-1・ガード+5・次のダメージスキルが強化(×1.2・ブレイク+5) */
+function waitEffects(s: BattleState, m: MemberState, member: number, ev: BattleEvent[]): void {
+  if (s.deckMode) tickFatigue(m, 1);
+  else for (const id of Object.keys(m.cooldowns)) m.cooldowns[id] = Math.max(0, m.cooldowns[id] - 1);
+  m.guard += WAIT_GUARD;
+  m.focus = true;
+  ev.push({ type: 'wait', member }, { type: 'guard', member, amount: WAIT_GUARD }, { type: 'status', kind: 'focus' });
+}
+
+/** 待機: 旧方式は常に使える行動、デッキ戦闘では「待機」カードを使う */
 export function wait(s: BattleState, member: number): BattleEvent[] | null {
   if (!canWait(s, member)) return null;
+  if (s.deckMode) return useSkill(s, member, 'wait');
   const m = s.party[member];
   m.acted = true;
   m.used.push('wait');
   s.ap -= WAIT_COST;
-  for (const id of Object.keys(m.cooldowns)) m.cooldowns[id] = Math.max(0, m.cooldowns[id] - 1);
-  m.guard += WAIT_GUARD;
-  m.focus = true;
-  return [
-    { type: 'wait', member },
-    { type: 'guard', member, amount: WAIT_GUARD },
-    { type: 'status', kind: 'focus' },
-  ];
+  const ev: BattleEvent[] = [];
+  waitEffects(s, m, member, ev);
+  return ev;
 }
 
 function healAll(s: BattleState, amountEach: number, ev: BattleEvent[]): void {
@@ -527,6 +668,9 @@ export function usePotion(s: BattleState, ratio = 0.35): BattleEvent[] | null {
 /** これ以上できる行動が無いか（行動ポイント切れ、または使える行動が残っていない） */
 export const allActed = (s: BattleState): boolean =>
   s.ap <= 0 || !s.party.some((m, i) => m.skills.some((id) => canUse(s, i, id)) || canWait(s, i));
+
+/** 手札(カード実体)を使えるスキルIDごとに数える */
+export const handIds = (s: BattleState, member: number): string[] => s.party[member].deck.hand.map((c) => c.defId);
 
 function hit(s: BattleState, idx: number, value: number, ev: BattleEvent[]): number {
   const t = s.party[idx];
@@ -598,11 +742,19 @@ function enemyAct(s: BattleState, e: EnemyState, ei: number, ev: BattleEvent[]):
     const idx = Math.max(0, resolveTarget(s, intent));
     const t = s.party[idx];
     // 使える(CD0)スキルのうち、最も強力(CDが長い)ものを2ターン封印する。使えるものが無ければ何もしない
-    const ready = t.skills.filter((id) => t.cooldowns[id] === 0).sort((a, b) => SKILLS[b].cooldown - SKILLS[a].cooldown);
     ev.push({ type: 'enemyAttack', enemy: ei, intent, target: idx });
-    if (ready.length && alive(t)) {
-      t.cooldowns[ready[0]] = Math.max(t.cooldowns[ready[0]], 2);
-      ev.push({ type: 'disrupt', enemy: ei, member: idx, skillId: ready[0] });
+    if (s.deckMode) {
+      const cards = t.deck.hand.filter((c) => c.sealed <= 0 && c.defId !== 'wait').sort((a, b) => SKILLS[b.defId].cooldown - SKILLS[a.defId].cooldown);
+      if (cards.length && alive(t)) {
+        cards[0].sealed = 2;
+        ev.push({ type: 'disrupt', enemy: ei, member: idx, skillId: cards[0].defId });
+      }
+    } else {
+      const ready = t.skills.filter((id) => t.cooldowns[id] === 0).sort((a, b) => SKILLS[b].cooldown - SKILLS[a].cooldown);
+      if (ready.length && alive(t)) {
+        t.cooldowns[ready[0]] = Math.max(t.cooldowns[ready[0]], 2);
+        ev.push({ type: 'disrupt', enemy: ei, member: idx, skillId: ready[0] });
+      }
     }
     e.patternIndex += 1;
   } else if (intent.kind === 'guard') {

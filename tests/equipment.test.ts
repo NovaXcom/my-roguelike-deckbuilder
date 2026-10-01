@@ -1,3 +1,4 @@
+import { fullHand } from './helpers/hand';
 import { describe, expect, it } from 'vitest';
 import { createBattle, previewSkill, startPlayerTurn, useSkill } from '../src/core/battle';
 import { SKILLS } from '../src/core/data';
@@ -85,11 +86,12 @@ describe('装備の効果', () => {
   });
   it('武器の固有スキルが使用可能になり、外すと消える', () => {
     const run = setup();
-    expect(memberSkills(run, 0)).toHaveLength(4);
+    expect(memberSkills(run, 0)).toHaveLength(6); // 基本4＋防御＋待機
     equip(run, 0, makeItem(tpl('dragon_claw'), 100, null));
     expect(memberSkills(run, 0)).toContain('dragon_slash');
-    const s = createBattle('slime', buildSetup(run));
+    const s = fullHand(createBattle('slime', buildSetup(run)));
     startPlayerTurn(s);
+    fullHand(s);
     expect(useSkill(s, 0, 'dragon_slash')).not.toBeNull();
     equip(run, 0, makeItem(tpl('iron_sword'), 101, null));
     expect(memberSkills(run, 0)).not.toContain('dragon_slash');
@@ -102,6 +104,7 @@ describe('装備の効果', () => {
     expect(g.guard).toBe(1);
     const s = createBattle('slime', buildSetup(run));
     startPlayerTurn(s);
+    fullHand(s);
     const bare = createBattle('slime');
     startPlayerTurn(bare);
     // 鉄の剣(攻撃+2): 斬撃 8→10。シールド軽減: floor(10*0.5625)=5 (素は floor(8*0.5625)=4)

@@ -9,6 +9,7 @@ import { newMeta } from '../src/core/meta';
 import { RUN_MODS, rollModChoices } from '../src/core/mods';
 import { Rng } from '../src/core/rng';
 import type { MapNode } from '../src/core/map';
+import { fullHand } from './helpers/hand';
 
 const K = 0;
 const E = 1;
@@ -314,13 +315,13 @@ describe('今回の旅(ランの特殊条件)', () => {
   it('炎の旅: 火+30%・氷スキルのCD+1', () => {
     const mods = RUN_MODS.find((m) => m.id === 'fire')!;
     const run = newRun(newMeta(), 5, mods);
-    const s = startBattle(run, node('battle', 0));
+    const s = fullHand(startBattle(run, node('battle', 0)));
     const plain = fresh('slime');
     // 同条件(スライムのシールド)での比較。火力は+30%
     expect(previewSkill(s, SKILLS.firebolt, E).hp).toBeGreaterThan(previewSkill(plain, SKILLS.firebolt, E).hp);
     s.enemy.def.id; // 参照のみ
     useSkill(s, E, 'ice_lance');
-    expect(s.party[E].cooldowns.ice_lance).toBe(2);
+    expect(s.party[E].deck.fatigued.find((f) => f.card.defId === 'ice_lance')?.turns).toBe(2); // 氷は疲労+1
   });
   it('砕きの旅: ブレイク+50%で敵HP+20%', () => {
     const mods = RUN_MODS.find((m) => m.id === 'crush')!;
@@ -331,7 +332,7 @@ describe('今回の旅(ランの特殊条件)', () => {
   });
   it('鉄の旅: ガード量+50%', () => {
     const run = newRun(newMeta(), 5, RUN_MODS.find((m) => m.id === 'iron')!);
-    const s = fresh('slime', buildSetup(run));
+    const s = fullHand(fresh('slime', buildSetup(run)));
     useSkill(s, K, 'provoke');
     const plain = fresh('slime');
     useSkill(plain, K, 'provoke');
