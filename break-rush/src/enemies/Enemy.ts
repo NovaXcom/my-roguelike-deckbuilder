@@ -24,7 +24,12 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite implements Heal
   abstract readonly contactDamage: number;
   abstract readonly contactCooldown: number;
   abstract readonly speed: number;
+  /** Score for a kill. */
+  points = 100;
   nextContactAt = 0;
+  /** Set while winding up an attack: shows the red warning pulse. */
+  protected telegraphing = false;
+  private wasTelegraphing = false;
   private stunUntil = 0;
   protected flashUntil = 0;
 
@@ -46,6 +51,16 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite implements Heal
     return isBroken(this.breakState, this.scene.time.now);
   }
 
+  /** Direction the sprite faces (art is drawn facing right). */
+  get facing(): 1 | -1 {
+    return this.flipX ? -1 : 1;
+  }
+
+  /** Override to shield against light hits. Called before damage is applied. */
+  blocksLightHit(_attackerX: number, _step: number, _counter: boolean, _rush: boolean): boolean {
+    return false;
+  }
+
   /** Stunned or broken: cannot move or deal contact damage. */
   get disabled(): boolean {
     return this.broken || this.scene.time.now < this.stunUntil;
@@ -58,7 +73,13 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite implements Heal
     this.stunUntil = Math.max(this.stunUntil, now + (info.stunMs ?? 250));
     if (justBroken) this.stunUntil = Math.max(this.stunUntil, this.breakState.brokenUntil);
     this.flashUntil = now + 80;
-    this.setVelocity(info.knockbackX, info.knockbackY ?? -160);
+    const ky = info.knockbackY ?? -160;
+    this.setVelocity(info.knockbackX, ky);
+    // Heavy launches spin the enemy through the air
+    if (ky <= -250) {
+      this.scene.tweens.killTweensOf(this);
+      this.scene.tweens.add({ targets: this, angle: (Math.sign(info.knockbackX) || 1) * 360, duration: 420, onComplete: () => this.active && this.setAngle(0) });
+    }
     return { dealt, justBroken };
   }
 
@@ -70,9 +91,20 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite implements Heal
     this.setDragX(disabled ? 900 : 0);
     if (now < this.flashUntil) this.setTintFill(0xffffff);
     else if (this.broken) this.setTint(0xffdd44);
-    else this.clearTint();
+    else if (this.telegraphing) {
+      this.setTint(Math.floor(now / 70) % 2 ? 0xff3333 : 0xffb0b0);
+      this.setAngle(-this.facing * 12); // lean back = winding up
+    } else this.clearTint();
+    if (this.wasTelegraphing && !this.telegraphing) this.setAngle(0);
+    this.wasTelegraphing = this.telegraphing;
     if (!disabled) this.ai(target);
+  }
+
+  override destroy(fromScene?: boolean): void {
+    this.scene?.tweens.killTweensOf(this);
+    super.destroy(fromScene);
   }
 
   protected abstract ai(target: Phaser.GameObjects.Components.Transform): void;
 }
+

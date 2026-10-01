@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ATTACK_STEPS, BOSS, DODGE, GAME_HEIGHT, GAME_WIDTH, GROUND_Y, RUSH, WORLD_WIDTH } from '../config';
+import { ATTACK_STEPS, BOSS, DODGE, ENEMY_STATS, GAME_HEIGHT, GAME_WIDTH, GROUND_Y, RUSH, WORLD_WIDTH } from '../config';
 import { Player } from '../player/Player';
 import { HUD } from '../ui/HUD';
 import { ComboDisplay } from '../ui/ComboDisplay';
@@ -9,6 +9,7 @@ import { BossBar } from '../ui/BossBar';
 import { EnemySpawner } from '../systems/EnemySpawner';
 import { Enemy } from '../enemies/Enemy';
 import { IronBeast } from '../enemies/IronBeast';
+import { MeleeEnemy } from '../enemies/MeleeEnemy';
 import { calcDamage, rectsOverlap } from '../combat/DamageSystem';
 import { ComboSystem, milestoneCrossed } from '../combat/ComboSystem';
 import { MassKillTracker } from '../combat/MassKill';
@@ -24,7 +25,7 @@ import { ROUTES, RouteDef, StageRunner, bossHpScale, buildStage } from '../syste
 import { BASE_UPGRADE_IDS, UPGRADES, UpgradeId, completesSynergy, rollChoices, statsFrom, PlayerStats } from '../systems/UpgradeSystem';
 import { audio, SfxName } from '../audio/AudioSystem';
 import { spawnDamageNumber } from '../effects/DamageNumber';
-import { burst, deathEffect, punchZoom, ring, slashFx } from '../effects/HitEffect';
+import { burst, deathEffect, directionalBurst, punchZoom, ring, slashArc, slashFx } from '../effects/HitEffect';
 
 interface HitOptions {
   baseDamage: number;
@@ -34,6 +35,10 @@ interface HitOptions {
   shake: number;
   counter?: boolean;
   rush?: boolean;
+  /** Chain step (0-2) for light/heavy distinction; undefined for RUSH etc. */
+  step?: number;
+  /** Heavy launch: spins the enemy into the air with a screen flash. */
+  launch?: boolean;
   color: number;
   sfx: SfxName;
 }
@@ -62,6 +67,9 @@ export class GameScene extends Phaser.Scene {
   private enemyBars!: EnemyBars;
   private rushMarker!: RushMarker;
   private bossBar!: BossBar;
+  private shadows!: Phaser.GameObjects.Graphics;
+  private bgFar!: Phaser.GameObjects.TileSprite;
+  private bgNear!: Phaser.GameObjects.TileSprite;
   private scoreText!: Phaser.GameObjects.Text;
   private spawner!: EnemySpawner;
   private runner!: StageRunner;
@@ -118,15 +126,37 @@ export class GameScene extends Phaser.Scene {
 
     this.physics.world.setBounds(0, 0, WORLD_WIDTH, GAME_HEIGHT);
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, GAME_HEIGHT);
-    this.cameras.main.setBackgroundColor(0x12121f);
+    this.cameras.main.setBackgroundColor(0x0b0820);
 
-    this.add.tileSprite(WORLD_WIDTH / 2, GROUND_Y + (GAME_HEIGHT - GROUND_Y) / 2, WORLD_WIDTH, GAME_HEIGHT - GROUND_Y, 'ground');
+    // Backdrop: sky + two parallax skylines, drifting embers, glowing floor
+    this.add.image(0, 0, 'bg_sky').setOrigin(0, 0).setScrollFactor(0).setDepth(-30);
+    this.bgFar = this.add.tileSprite(0, GROUND_Y, GAME_WIDTH, 300, 'bg_far').setOrigin(0, 1).setScrollFactor(0).setDepth(-20);
+    this.bgNear = this.add.tileSprite(0, GROUND_Y, GAME_WIDTH, 340, 'bg_near').setOrigin(0, 1).setScrollFactor(0).setDepth(-10);
+    this.add
+      .particles(0, 0, 'spark', {
+        x: { min: 0, max: GAME_WIDTH },
+        y: { min: 120, max: GROUND_Y },
+        lifespan: 4500,
+        speedY: { min: -14, max: -4 },
+        speedX: { min: -8, max: 8 },
+        scale: { start: 0.7, end: 0 },
+        alpha: { start: 0.6, end: 0 },
+        tint: [0xff7acb, 0x7af0ff, 0xffd27a],
+        frequency: 180,
+        blendMode: 'ADD',
+      })
+      .setScrollFactor(0)
+      .setDepth(-5);
+    this.add.tileSprite(WORLD_WIDTH / 2, GROUND_Y + (GAME_HEIGHT - GROUND_Y) / 2, WORLD_WIDTH, GAME_HEIGHT - GROUND_Y, 'ground').setDepth(-4);
+    this.shadows = this.add.graphics().setDepth(-1);
     const ground = this.add.rectangle(WORLD_WIDTH / 2, GROUND_Y + 30, WORLD_WIDTH, 60, 0x000000, 0);
     this.physics.add.existing(ground, true);
 
     this.player = new Player(this, 300, GROUND_Y - 60);
     this.player.stats = this.stats;
     this.spawner = new EnemySpawner(this, this.player, this.diff.enemyHpMult);
+    this.spawner.onSpawn = (e) => this.wireEnemy(e);
+    this.player.targets = () => this.spawner.enemies.filter((e) => e.active && !e.dead);
     this.hud = new HUD(this, this.player);
     this.comboDisplay = new ComboDisplay(this);
     this.enemyBars = new EnemyBars(this);
@@ -157,11 +187,15 @@ export class GameScene extends Phaser.Scene {
       writeSave(this.save);
       spawnDamageNumber(this, this.player.x, this.player.y - 70, audio.muted ? 'SOUND OFF' : 'SOUND ON', '#aab', 16);
     });
-    this.player.on('attack', (step: number, counter: boolean) => audio.play('swing', counter ? 0.8 : 1 + step * 0.1));
+    this.player.on('attack', (step: number, counter: boolean) => {
+      audio.play('swing', counter ? 0.8 : 1 + step * 0.1);
+      const f = this.player.facing;
+      slashArc(this, this.player.x + f * 6, this.player.y - 2, f, ATTACK_STEPS[step].range * 0.78, step, counter ? 0xff8844 : step === ATTACK_STEPS.length - 1 ? 0xffffff : 0xffee88);
+    });
 
     this.add
-      .text(GAME_WIDTH / 2, 20, 'A/D: Move  Space: Jump  J: Attack (x3 combo)  Shift: Dodge / RUSH', { fontFamily: 'monospace', fontSize: '14px', color: '#aab' })
-      .setOrigin(0.5, 0)
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 8, 'A/D Move   Space Jump   J Attack x3   Shift Dodge / RUSH   M Sound', { fontFamily: 'monospace', fontSize: '13px', color: '#9a96c0' })
+      .setOrigin(0.5, 1)
       .setScrollFactor(0)
       .setDepth(100);
 
@@ -172,7 +206,7 @@ export class GameScene extends Phaser.Scene {
     this.runner = new StageRunner(steps, startIndex);
     this.phase = 'between';
     this.advanceOnNext = false;
-    this.pendingDelay = 1500;
+    this.pendingDelay = 700;
     this.banner(this.run.route === 'standard' ? `STAGE ${this.run.stage}` : `STAGE ${this.run.stage}  ${this.route.name}`, '#44ffee');
   }
 
@@ -215,7 +249,17 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
-      if (this.phase !== 'ended' && !e.disabled && now >= e.nextContactAt && this.physics.overlap(this.player, e)) {
+      // Telegraphed melee strikes: one chance to hurt the player per attack
+      if (e instanceof MeleeEnemy && this.phase !== 'ended') {
+        const box = e.attackBox;
+        const pb = this.player.body as Phaser.Physics.Arcade.Body;
+        if (box && rectsOverlap(box, { x: pb.x, y: pb.y, w: pb.width, h: pb.height })) {
+          e.hitConnected = true;
+          this.damagePlayer(e.attackDamage, e.x);
+        }
+      }
+      // The boss still hurts on contact
+      if (e.contactDamage > 0 && this.phase !== 'ended' && !e.disabled && now >= e.nextContactAt && this.physics.overlap(this.player, e)) {
         if (this.damagePlayer(e.contactDamage, e.x)) e.nextContactAt = now + e.contactCooldown;
       }
     }
@@ -239,7 +283,7 @@ export class GameScene extends Phaser.Scene {
     } else if (this.phase === 'fighting') {
       if (this.runner.current.type === 'wave' && this.spawner.aliveCount() === 0) {
         this.phase = 'between';
-        this.pendingDelay = 1200;
+        this.pendingDelay = 600;
       }
     }
   }
@@ -250,7 +294,7 @@ export class GameScene extends Phaser.Scene {
       const { n, total } = this.runner.waveProgress();
       this.banner(step.label ?? `WAVE ${n}/${total}`, step.horde ? '#ff5566' : '#ffffff');
       if (step.horde) audio.play('horde');
-      this.spawner.spawn(Math.max(1, Math.round(step.count * this.diff.countMult)));
+      this.spawner.spawnWave(step.spawns.map((g) => ({ kind: g.kind, count: Math.max(1, Math.round(g.count * this.diff.countMult)) })));
       this.phase = 'fighting';
     } else if (step.type === 'upgrade') {
       this.phase = 'upgrade';
@@ -279,7 +323,7 @@ export class GameScene extends Phaser.Scene {
     this.combo.windowBonusMs = this.stats.comboBonusMs + this.diff.comboWindowDelta;
     this.player.hp = Math.min(this.player.maxHp, this.player.hp + HEAL_ON_UPGRADE);
     this.phase = 'between';
-    this.pendingDelay = 800;
+    this.pendingDelay = 500;
     this.scene.resume();
     spawnDamageNumber(this, this.player.x, this.player.y - 50, `${UPGRADES[id].name} UP!`, '#ffdd44', 26);
   }
@@ -344,7 +388,7 @@ export class GameScene extends Phaser.Scene {
     this.banner('ENRAGED!', '#ff3344');
     audio.play('horde');
     this.cameras.main.shake(300, 0.01);
-    this.spawner.spawn(4);
+    this.spawner.spawnWave([{ kind: 'grunt', count: 4 }]);
   }
 
   private onBossDefeated(boss: IronBeast): void {
@@ -451,6 +495,8 @@ export class GameScene extends Phaser.Scene {
       shake: counter ? 0.007 : step.shake,
       counter,
       color: counter ? 0xff8844 : 0xffee88,
+      step: this.player.attack.step,
+      launch: counter || this.player.attack.step === ATTACK_STEPS.length - 1,
       sfx: counter ? 'counter' : step.hitStopMs >= 80 ? 'hitHeavy' : 'hit',
     });
   }
@@ -473,20 +519,28 @@ export class GameScene extends Phaser.Scene {
   /** Shared hit pipeline: damage calc, upgrades, combo, score, feedback, break and kill handling. */
   private hitEnemy(e: Enemy, o: HitOptions): void {
     const now = this.time.now;
+    if (e.blocksLightHit(this.player.x, o.step ?? 99, !!o.counter, !!o.rush)) {
+      this.onBlocked(e);
+      return;
+    }
     const st = this.stats;
     const crit = Math.random() < st.critChance;
     const base = o.baseDamage * st.damageMult * (o.rush ? st.rushMult : 1);
     let dmg = calcDamage(base, { comboHits: this.combo.current(now), broken: e.broken, counter: !!o.counter });
     if (crit) dmg *= 2;
     if (e.broken) dmg = Math.round(dmg * st.brokenDamageMult);
-    const res = e.takeHit({ damage: dmg, breakDamage: o.breakDamage * st.breakMult, knockbackX: this.player.facing * o.knockback });
+    const res = e.takeHit({ damage: dmg, breakDamage: o.breakDamage * st.breakMult, knockbackX: this.player.facing * o.knockback, knockbackY: o.launch ? -300 : undefined });
     const prevCombo = this.combo.current(now);
     const nextCombo = this.combo.add(now);
     this.score.add(POINTS.hit, nextCombo);
 
-    spawnDamageNumber(this, e.x, e.y - 30, res.dealt, crit ? '#ff4455' : e.broken || res.justBroken ? '#ff9933' : '#ffee88', crit ? 30 : 22);
+    spawnDamageNumber(this, e.x, e.y - 30, res.dealt, crit ? '#ff4455' : e.broken || res.justBroken ? '#ff9933' : '#ffee88', Math.min(44, (crit ? 26 : 18) + res.dealt * 0.4));
     if (crit) spawnDamageNumber(this, e.x, e.y - 60, 'CRITICAL!!', '#ff4455', 22);
-    burst(this, e.x, e.y, o.color, 6 + Math.round(o.hitStopMs / 10), 60 + o.hitStopMs);
+    directionalBurst(this, e.x, e.y, o.color, 8 + Math.round(o.hitStopMs / 5), 110 + o.hitStopMs, this.player.facing);
+    if (o.launch) {
+      this.cameras.main.flash(70, 255, 255, 255);
+      punchZoom(this, 0.025, 180);
+    }
     this.hitStop.trigger(now, o.hitStopMs);
     this.cameras.main.shake(80, o.shake);
     audio.play(o.sfx, 1 + Math.min(nextCombo, 50) * 0.01);
@@ -513,6 +567,34 @@ export class GameScene extends Phaser.Scene {
     if (e.dead) this.killEnemy(e, now);
   }
 
+  /** Light hit bounced off a guard's shield: no damage, no combo, but a satisfying clang. */
+  private onBlocked(e: Enemy): void {
+    const f = this.player.facing;
+    const sx = e.x + e.facing * 16;
+    directionalBurst(this, sx, e.y, 0x9fd0ff, 10, 150, (e.facing * -1) as 1 | -1);
+    ring(this, sx, e.y, 0x9fd0ff, 36);
+    spawnDamageNumber(this, e.x, e.y - 40, 'BLOCKED', '#9fd0ff', 16);
+    audio.play('hit', 0.55);
+    this.hitStop.trigger(this.time.now, 40);
+    this.cameras.main.shake(70, 0.003);
+    e.setVelocityX(f * 110);
+    this.player.recoil(-f * 220);
+  }
+
+  /** Warning effects for an enemy's wind-up so attacks can be read and dodged. */
+  private wireEnemy(e: Enemy): void {
+    e.on('windup', (kind: string, ms: number, dir: number) => {
+      spawnDamageNumber(this, e.x, e.y - 46, '!', '#ff3344', 32);
+      audio.play('warn');
+      if (kind !== 'rusher') return;
+      const st = ENEMY_STATS.rusher;
+      const len = (st.lungeSpeed * st.activeMs) / 1000;
+      const lane = this.add.rectangle(e.x + (dir * len) / 2, GROUND_Y - 22, len, 44, 0xff2233, 0.2).setDepth(4);
+      this.tweens.add({ targets: lane, alpha: 0.5, duration: 110, yoyo: true, repeat: Math.floor(ms / 220) });
+      this.time.delayedCall(ms, () => lane.destroy());
+    });
+  }
+
   private killEnemy(e: Enemy, now: number): void {
     if (e instanceof IronBeast) {
       this.onBossDefeated(e);
@@ -521,7 +603,7 @@ export class GameScene extends Phaser.Scene {
     deathEffect(this, e.x, e.y);
     audio.play('kill');
     this.hitStop.trigger(now, 60);
-    const gained = this.score.add(POINTS.grunt, this.combo.current(now));
+    const gained = this.score.add(e.points, this.combo.current(now));
     spawnDamageNumber(this, e.x, e.y - 50, `+${gained}`, '#88ff88', 18);
     const mk = this.kills.record(now);
     if (mk.tierUp) this.onMultiKill(mk.count, mk.tier);
@@ -581,6 +663,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateUI(now: number): void {
+    const cam = this.cameras.main;
+    this.bgFar.tilePositionX = cam.scrollX * 0.12;
+    this.bgNear.tilePositionX = cam.scrollX * 0.3;
+    this.shadows.clear();
+    for (const a of [this.player, ...this.spawner.enemies]) {
+      if (!a.active) continue;
+      const feetY = a.y + a.displayHeight / 2;
+      const lift = Phaser.Math.Clamp((GROUND_Y - feetY) / 220, 0, 1);
+      this.shadows.fillStyle(0x000000, 0.4 * (1 - lift * 0.6)).fillEllipse(a.x, GROUND_Y + 4, a.displayWidth * (1.1 - lift * 0.5), 9);
+    }
     this.hud.update();
     this.scoreText.setText(`SCORE ${this.score.total.toLocaleString()}`);
     this.comboDisplay.update(this.combo.current(now), this.combo.remainingRatio(now));

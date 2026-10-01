@@ -4,7 +4,7 @@ import { Health, Rect, applyDamage, isDead } from '../combat/DamageSystem';
 import { AttackState, attackHitbox, canAttack, isAttackActive, newAttackState, startAttack } from './PlayerAttack';
 import { DodgeState, canDodge, consumeCounter, counterReady, isDodging, newDodgeState, startDodge } from './Dodge';
 import { BASE_STATS, PlayerStats } from '../systems/UpgradeSystem';
-import { afterImage } from '../effects/HitEffect';
+import { afterImage, dust } from '../effects/HitEffect';
 
 export interface RushTarget {
   x: number;
@@ -19,6 +19,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
   readonly attack: AttackState = newAttackState();
   readonly dodge: DodgeState = newDodgeState();
   stats: PlayerStats = BASE_STATS;
+  /** Where auto-aim should look: enemy positions. Set by the scene. */
+  targets: () => Array<{ x: number; y: number }> = () => [];
+  private wasGrounded = true;
+  private nextDustAt = 0;
   private invulnUntil = 0;
   private moveLockUntil = 0;
   private dodgeActive = false;
@@ -55,7 +59,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
       attack: kb.addKey(K.J),
       dash: kb.addKey(K.SHIFT),
     };
-    this.slash = scene.add.rectangle(0, 0, 70, 50, 0xffee88, 0.6).setVisible(false).setDepth(30);
+    this.slash = scene.add.rectangle(0, 0, 70, 50, 0xffee88, 0).setVisible(false).setDepth(30);
   }
 
   get dead(): boolean {
@@ -102,6 +106,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
     this.dodgeActive = true;
     (this.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
     this.setVelocity(this.facing * DODGE.speed, 0);
+    dust(this.scene, this.x, this.y + 24, 8);
     return true;
   }
 
@@ -155,21 +160,61 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
         this.endDodge();
       }
       startAttack(this.attack, now, counter);
-      const lunge = ATTACK_STEPS[this.attack.step].lunge * (counter ? 1.5 : 1);
-      this.setVelocityX(this.facing * lunge);
+      this.lungeAtTarget(now, ATTACK_STEPS[this.attack.step].lunge * (counter ? 1.5 : 1));
       this.emit('attack', this.attack.step, counter);
-      this.moveLockUntil = now + 110;
     }
 
     const hb = this.hitbox;
-    this.slash
-      .setVisible(this.attacking)
-      .setPosition(hb.x + hb.w / 2, hb.y + hb.h / 2)
-      .setDisplaySize(hb.w, hb.h)
-      .setFillStyle(this.attack.counter ? 0xff8844 : this.attack.step === ATTACK_STEPS.length - 1 ? 0xffffff : 0xffee88, 0.6);
+    this.slash.setPosition(hb.x + hb.w / 2, hb.y + hb.h / 2).setDisplaySize(hb.w, hb.h);
+    this.animate(now, dodging, body);
 
     if (dodging) this.setAlpha(0.5);
     else this.setAlpha(now < this.invulnUntil ? (Math.floor(now / 80) % 2 ? 0.4 : 1) : 1);
+  }
+
+  /** Auto-aim: step toward the nearest enemy in front so swings connect instead of whiffing. */
+  private lungeAtTarget(now: number, baseLunge: number): void {
+    let best: { x: number; y: number } | null = null;
+    let bestD = 260;
+    for (const t of this.targets()) {
+      const d = Math.abs(t.x - this.x);
+      if (d < bestD && Math.abs(t.y - this.y) < 110) {
+        best = t;
+        bestD = d;
+      }
+    }
+    let speed = baseLunge;
+    if (best) {
+      this.facing = best.x >= this.x ? 1 : -1;
+      // close the gap to ~50px over the 110ms lock
+      speed = bestD > 55 ? Math.min(680, Math.max(baseLunge, (bestD - 50) * 9)) : baseLunge * 0.35;
+    }
+    this.setVelocityX(this.facing * speed);
+    this.moveLockUntil = now + 110;
+  }
+
+  /** Lean / dust feedback. Rotation only: scaling would resize the physics body. */
+  private animate(now: number, dodging: boolean, body: Phaser.Physics.Arcade.Body): void {
+    const grounded = body.blocked.down;
+    if (grounded && !this.wasGrounded) dust(this.scene, this.x, this.y + 24, 7);
+    this.wasGrounded = grounded;
+
+    const moving = Math.abs(body.velocity.x) > 40;
+    if (grounded && moving && !dodging && now >= this.nextDustAt) {
+      this.nextDustAt = now + 140;
+      dust(this.scene, this.x - this.facing * 8, this.y + 24, 2);
+    }
+    let lean = moving ? 6 : 0;
+    if (this.attacking) lean = this.attack.step === ATTACK_STEPS.length - 1 ? 20 : 12;
+    if (dodging) lean = 24;
+    if (!grounded) lean += body.velocity.y < 0 ? -4 : 4;
+    this.setAngle(Phaser.Math.Linear(this.angle, this.facing * lean, 0.35));
+  }
+
+  /** Knocked back by a blocked hit. */
+  recoil(vx: number): void {
+    this.setVelocityX(vx);
+    this.moveLockUntil = this.scene.time.now + 90;
   }
 
   private updateRush(now: number): void {

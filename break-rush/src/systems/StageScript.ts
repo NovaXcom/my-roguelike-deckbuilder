@@ -1,5 +1,12 @@
+import { EnemyKind } from '../config';
+
+export interface SpawnGroup {
+  kind: EnemyKind;
+  count: number;
+}
+
 export type StageStep =
-  | { type: 'wave'; count: number; label?: string; horde?: boolean }
+  | { type: 'wave'; spawns: SpawnGroup[]; label?: string; horde?: boolean }
   | { type: 'upgrade' }
   | { type: 'boss' };
 
@@ -20,21 +27,28 @@ export const ROUTES: Record<Route, RouteDef> = {
   fortress: { name: 'FORTRESS ROAD', desc: '-20% enemies, extra upgrade, boss HP +30%', countMult: 0.8, bossHpMult: 1.3, scoreMult: 1.1, extraUpgrade: true },
 };
 
-/** Stage layout: waves -> upgrade -> waves -> BREAK CHANCE horde -> boss. Later stages scale enemy counts. */
+export function waveTotal(step: StageStep): number {
+  return step.type === 'wave' ? step.spawns.reduce((a, g) => a + g.count, 0) : 0;
+}
+
+/** Stage layout: waves (new enemy types phase in) -> upgrade -> tougher waves -> BREAK CHANCE horde -> upgrade -> boss. */
 export function buildStage(stage: number, route: Route = 'standard'): StageStep[] {
   const r = ROUTES[route];
   const k = (1 + 0.25 * (stage - 1)) * r.countMult;
-  const c = (n: number) => Math.max(1, Math.round(n * k));
+  const g = (kind: EnemyKind, n: number): SpawnGroup => ({ kind, count: Math.max(1, Math.round(n * k)) });
   const steps: StageStep[] = [
-    { type: 'wave', count: c(3) },
-    { type: 'wave', count: c(5) },
-    { type: 'wave', count: c(8) },
+    { type: 'wave', spawns: [g('grunt', 4)] },
+    { type: 'wave', spawns: [g('grunt', 5), g('rusher', 1)] },
+    { type: 'wave', spawns: [g('grunt', 4), g('guard', 2)] },
+    { type: 'wave', spawns: [g('grunt', 5), g('rusher', 2)] },
     { type: 'upgrade' },
-    { type: 'wave', count: c(6) },
-    { type: 'wave', count: c(15), label: 'BREAK CHANCE!', horde: true },
+    { type: 'wave', spawns: [g('grunt', 5), g('guard', 2), g('rusher', 2)] },
+    { type: 'wave', spawns: [g('grunt', 8), g('rusher', 3), g('guard', 2)] },
+    { type: 'wave', spawns: [g('grunt', 20), g('rusher', 3)], label: 'BREAK CHANCE!', horde: true },
+    { type: 'upgrade' },
     { type: 'boss' },
   ];
-  if (r.extraUpgrade) steps.splice(steps.length - 1, 0, { type: 'upgrade' });
+  if (r.extraUpgrade) steps.splice(2, 0, { type: 'upgrade' });
   return steps;
 }
 

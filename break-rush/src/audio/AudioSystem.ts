@@ -1,6 +1,6 @@
 export type SfxName =
   | 'swing' | 'hit' | 'hitHeavy' | 'break' | 'kill' | 'rush' | 'rushHit'
-  | 'dodge' | 'counter' | 'hurt' | 'milestone' | 'multikill' | 'horde';
+  | 'dodge' | 'counter' | 'hurt' | 'milestone' | 'multikill' | 'horde' | 'warn';
 
 /**
  * Synthesised sound effects (no audio files needed).
@@ -86,6 +86,10 @@ class AudioSystem {
         this.tone('sine', 110, 28, 0.7, 0.9);
         this.noise(0.55, 0.6, 700, 120, 'lowpass');
         [392, 523, 659, 784, 1047].forEach((f, i) => this.tone('square', f, f, 0.1, 0.22, 0.15 + i * 0.06));
+        break;
+      case 'warn':
+        this.tone('square', 1100, 1100, 0.05, 0.14);
+        this.tone('square', 1400, 1400, 0.06, 0.14, 0.07);
         break;
       case 'horde':
         this.tone('sawtooth', 440, 440, 0.15, 0.3);

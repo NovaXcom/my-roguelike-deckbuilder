@@ -8,7 +8,7 @@ import { HitStop } from '../src/combat/HitStop';
 import { RushSystem, pickNearest } from '../src/combat/RushSystem';
 import { COMBO, BREAK, RUSH, ATTACK_STEPS, CHAIN_WINDOW_MS, DODGE } from '../src/config';
 import { BossAI, isEnraged } from '../src/enemies/BossAI';
-import { StageRunner, buildStage, bossHpScale } from '../src/systems/StageScript';
+import { StageRunner, buildStage, bossHpScale, waveTotal } from '../src/systems/StageScript';
 import { MAX_COMBO_BONUS_MS, BASE_UPGRADE_IDS, UPGRADE_IDS, activeSynergies, completesSynergy, rollChoices, statsFrom } from '../src/systems/UpgradeSystem';
 import { DIFFICULTIES, DIFFICULTY_ORDER } from '../src/systems/Difficulty';
 import { SAVE_KEY, emptySave, loadSave, recordRun, sanitizeSave, writeSave } from '../src/systems/SaveSystem';
@@ -16,6 +16,10 @@ import { UNLOCK_RULES, evaluateUnlocks, isDifficultyUnlocked, unlockedUpgrades, 
 import { ROUTES } from '../src/systems/StageScript';
 import { newRun, nextStage } from '../src/systems/RunState';
 import { ScoreSystem, calcRank, scoreMultiplier } from '../src/systems/ScoreSystem';
+import { MeleeBrain } from '../src/combat/MeleeBrain';
+import { AttackTokens } from '../src/combat/AttackTokens';
+import { isBlocked } from '../src/combat/Blocking';
+import { ENEMY_STATS, MAX_ATTACKERS } from '../src/config';
 import { canAttack, startAttack, newAttackState, isAttackActive } from '../src/player/PlayerAttack';
 import { canDodge, consumeCounter, counterReady, isDodging, newDodgeState, startDodge } from '../src/player/Dodge';
 
@@ -259,18 +263,16 @@ describe('StageScript', () => {
     expect(steps.findIndex((s) => s.type === 'upgrade')).toBeGreaterThan(0);
   });
   it('scales enemy counts and boss hp with the stage', () => {
-    const count = (n: number) => buildStage(n).reduce((a, s) => a + (s.type === 'wave' ? s.count : 0), 0);
+    const count = (n: number) => buildStage(n).reduce((a, s) => a + waveTotal(s), 0);
     expect(count(2)).toBeGreaterThan(count(1));
     expect(bossHpScale(3)).toBeGreaterThan(bossHpScale(1));
   });
   it('walks steps and reports wave progress', () => {
     const r = new StageRunner(buildStage(1));
-    expect(r.waveProgress()).toEqual({ n: 1, total: 5 });
-    r.advance();
-    r.advance();
-    r.advance();
+    expect(r.waveProgress()).toEqual({ n: 1, total: 7 });
+    for (let i = 0; i < 4; i++) r.advance();
     expect(r.current.type).toBe('upgrade');
-    expect(r.waveProgress().n).toBe(3);
+    expect(r.waveProgress().n).toBe(4);
     const boss = new StageRunner(buildStage(1), 99);
     expect(boss.current.type).toBe('boss');
   });
@@ -476,7 +478,7 @@ describe('Unlocks', () => {
 
 describe('Routes and run state', () => {
   it('swarm adds enemies, fortress removes some but adds an upgrade and a tougher boss', () => {
-    const waves = (r: 'standard' | 'swarm' | 'fortress') => buildStage(2, r).reduce((a, s) => a + (s.type === 'wave' ? s.count : 0), 0);
+    const waves = (r: 'standard' | 'swarm' | 'fortress') => buildStage(2, r).reduce((a, s) => a + waveTotal(s), 0);
     expect(waves('swarm')).toBeGreaterThan(waves('standard'));
     expect(waves('fortress')).toBeLessThan(waves('standard'));
     const up = (r: 'standard' | 'fortress') => buildStage(2, r).filter((s) => s.type === 'upgrade').length;
@@ -495,5 +497,89 @@ describe('Routes and run state', () => {
     expect(next.route).toBe('swarm');
     next.owned.push('speed');
     expect(run.owned).toEqual(['power']);
+  });
+});
+
+describe('MeleeBrain', () => {
+  const t = { windupMs: 400, activeMs: 200, recoverMs: 500, cooldownMs: [300, 300] as [number, number] };
+  it('runs approach -> windup -> active -> recover -> approach with a cooldown', () => {
+    const b = new MeleeBrain(t, () => 0, 0);
+    expect(b.ready(0)).toBe(true);
+    expect(b.start(0)).toBe(true);
+    expect(b.start(1)).toBe(false);
+    expect(b.update(399)).toBeNull();
+    expect(b.update(400)).toBe('active');
+    expect(b.update(600)).toBe('recover');
+    expect(b.update(1100)).toBe('approach');
+    expect(b.ready(1100)).toBe(false);
+    expect(b.ready(1400)).toBe(true);
+  });
+  it('a hit cancels the attack in any phase and delays the next one', () => {
+    const b = new MeleeBrain(t, () => 0, 0);
+    b.start(0);
+    expect(b.interrupt(100, 600)).toBe(true);
+    expect(b.phase).toBe('approach');
+    expect(b.ready(699)).toBe(false);
+    expect(b.ready(700)).toBe(true);
+    b.start(700);
+    b.update(1100);
+    expect(b.phase).toBe('active');
+    expect(b.interrupt(1150, 300)).toBe(true);
+    expect(b.phase).toBe('approach');
+    expect(b.interrupt(1160)).toBe(false);
+    expect(b.ready(1449)).toBe(false);
+    expect(b.ready(1450)).toBe(true);
+  });
+  it('honours the initial delay', () => {
+    const b = new MeleeBrain(t, () => 0, 1000, 500);
+    expect(b.ready(1499)).toBe(false);
+    expect(b.ready(1500)).toBe(true);
+  });
+  it('every enemy kind telegraphs for at least 350ms (fair to react to)', () => {
+    for (const s of Object.values(ENEMY_STATS)) expect(s.windupMs).toBeGreaterThanOrEqual(350);
+  });
+});
+
+describe('AttackTokens', () => {
+  it('caps simultaneous attackers and frees slots on release', () => {
+    const tk = new AttackTokens(MAX_ATTACKERS);
+    const hs = Array.from({ length: MAX_ATTACKERS + 2 }, (_, i) => ({ i }));
+    const got = hs.map((h) => tk.acquire(h));
+    expect(got.filter(Boolean).length).toBe(MAX_ATTACKERS);
+    expect(tk.acquire(hs[0])).toBe(true);
+    expect(tk.acquire(hs[MAX_ATTACKERS])).toBe(false);
+    tk.release(hs[0]);
+    expect(tk.acquire(hs[MAX_ATTACKERS])).toBe(true);
+    expect(tk.count).toBe(MAX_ATTACKERS);
+  });
+});
+
+describe('Blocking', () => {
+  const base = { guardFacing: 1 as const, guardX: 100, attackerX: 200, step: 0, counter: false, rush: false, broken: false };
+  it('blocks light hits from the front only', () => {
+    expect(isBlocked(base)).toBe(true);
+    expect(isBlocked({ ...base, step: 1 })).toBe(true);
+    expect(isBlocked({ ...base, attackerX: 0 })).toBe(false);
+  });
+  it('does not block the finisher, counters, RUSH or a broken guard', () => {
+    expect(isBlocked({ ...base, step: 2 })).toBe(false);
+    expect(isBlocked({ ...base, counter: true })).toBe(false);
+    expect(isBlocked({ ...base, rush: true })).toBe(false);
+    expect(isBlocked({ ...base, broken: true })).toBe(false);
+  });
+  it('works when facing left', () => {
+    expect(isBlocked({ ...base, guardFacing: -1, attackerX: 0 })).toBe(true);
+    expect(isBlocked({ ...base, guardFacing: -1, attackerX: 200 })).toBe(false);
+  });
+});
+
+describe('Stage enemy mix', () => {
+  it('introduces rushers and guards in the first stage and a big final horde', () => {
+    const waves = buildStage(1).filter((s) => s.type === 'wave') as Array<Extract<ReturnType<typeof buildStage>[number], { type: 'wave' }>>;
+    const kinds = new Set(waves.flatMap((w) => w.spawns.map((g) => g.kind)));
+    expect(kinds.has('rusher')).toBe(true);
+    expect(kinds.has('guard')).toBe(true);
+    expect(waves[0].spawns.every((g) => g.kind === 'grunt')).toBe(true);
+    expect(Math.max(...waves.map(waveTotal))).toBeGreaterThanOrEqual(12);
   });
 });
