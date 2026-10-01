@@ -86,3 +86,12 @@ button.big:hover:not(:disabled) { background: #e8452f; }
 .stats { display: grid; grid-template-columns: repeat(4, auto); gap: 10px 32px; font-size: 12px; letter-spacing: .2em; color: #a4aab8; margin: 6px 0 10px; }
 .stats b { display: block; font-size: 24px; color: #fff; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
 @media (max-width: 700px) { .stats { grid-template-columns: repeat(2, auto); } #score { font-size: 26px; } .combo .n { font-size: 56px; } }
+
+#perks { position: absolute; left: 50%; top: 52%; transform: translateX(-50%); text-align: center; pointer-events: auto; }
+#perks .ph { letter-spacing: .4em; font-size: 14px; color: #ffd24a; margin-bottom: 8px; text-shadow: 0 2px 6px #000; }
+.pcards { display: flex; gap: 12px; }
+.pcard { width: 190px; padding: 12px 12px 14px; text-align: left; background: rgba(10,12,18,.88); border: 1px solid rgba(255,255,255,.4); position: relative; }
+.pcard b { position: absolute; right: 10px; top: 8px; font-size: 26px; color: rgba(255,255,255,.25); }
+.pcard .pn { display: block; font-weight: 800; letter-spacing: .14em; color: #ffd24a; font-size: 14px; }
+.pcard .pd { display: block; font-size: 12px; margin-top: 6px; text-transform: none; letter-spacing: .02em; line-height: 1.5; color: #d4d8e2; }
+@media (max-width: 700px) { .pcards { flex-direction: column; } }

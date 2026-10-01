@@ -48,7 +48,7 @@ export function botCommand(w: World, mode: 'smart' | 'masher' | 'idle' = 'smart'
     if (!st) { st = { x: p.x, z: p.z, n: 0, side: 1 }; stuck.set(w, st); }
     if (Math.hypot(p.x - st.x, p.z - st.z) < 0.02) st.n++; else st.n = 0;
     st.x = p.x; st.z = p.z;
-    if (st.n > 20) { if (st.n === 21) st.side = Math.random() < 0.5 ? 1 : -1; return { ...cmd, moveX: dx / l * 0.3, moveZ: st.side }; }
+    if (st.n > 20) { if (st.n === 21) st.side = Math.floor(w.time) % 2 ? 1 : -1; return { ...cmd, moveX: dx / l * 0.3, moveZ: st.side }; }
     return { ...cmd, moveX: dx / l, moveZ: dz / l };
   }
   return cmd;

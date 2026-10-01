@@ -1,3 +1,4 @@
+import { PERKS } from '../brawl/perks';
 import { STAGES } from '../brawl/stages';
 import { Game } from './Game';
 import { formatTime, Rank, STAGE_COUNT } from './Progress';
@@ -43,6 +44,7 @@ export class Hud {
   private comboBar!: HTMLElement;
   private toastEl!: HTMLElement;
   private hintEl!: HTMLElement;
+  private perksEl!: HTMLElement;
   private flashEl!: HTMLElement;
   private markers!: HTMLElement;
   private floaters: Floater[] = [];
@@ -64,6 +66,7 @@ export class Hud {
         <div class="combo" id="combo"><span class="n"></span><span class="t"></span><div class="cb"><i id="combobar"></i></div></div>
         <div id="toast"></div>
         <div id="hint"></div>
+        <div id="perks" class="hidden"></div>
         <div class="cross"></div>
       </div>
       <div id="title" class="layer panel hidden"></div>
@@ -88,6 +91,7 @@ export class Hud {
     this.comboBar = q('#combobar');
     this.toastEl = q('#toast');
     this.hintEl = q('#hint');
+    this.perksEl = q('#perks');
     this.flashEl = q('#flash');
     this.markers = q('#markers');
   }
@@ -123,7 +127,7 @@ export class Hud {
       <div class="keys">
         <b>WASD</b> 移動 · <b>MOUSE</b> カメラ · <b>左クリック</b> 攻撃（4連コンボ・自動で敵へ踏み込む） · <b>E</b> 強攻撃<br>
         <b>右クリック / Shift</b> カウンター — 敵の<i class="bl">青いリング</i>が閉じる瞬間に · <b>Space</b> 回避 — <i class="rd">赤い攻撃</i>はこれだけ<br>
-        <b>F</b> 掴んで投げる · <b>Q</b> 武器を拾う · <b>R</b> RUSH（ゲージ満タン） · ゲームパッド対応
+        <b>F</b> 掴んで投げる · <b>Q</b> 武器を拾う · <b>G</b> 銃を撃つ／武器を投げる · <b>R</b> RUSH（ゲージ満タン）<br>強攻撃で<b>打ち上げ</b>→追撃でお手玉→もう一度強攻撃で叩きつけ · 倒れた弱い敵に強攻撃で<b>フィニッシュ</b> · 赤い樽は爆発 · ゲームパッド対応
       </div>`;
     this.title.classList.remove('hidden');
     const g = this.game;
@@ -191,6 +195,20 @@ export class Hud {
     (this.results.querySelector('#r-menu') as HTMLElement).onclick = () => g.toMenu();
   }
 
+  showPerks(ids: string[]): void {
+    const g = this.game;
+    this.perksEl.innerHTML = '<div class="ph">CHOOSE A PERK</div><div class="pcards">' + ids.map((id, i) => {
+      const pk = PERKS.find((q) => q.id === id)!;
+      return `<button class="pcard" data-id="${id}"><b>${i + 1}</b><span class="pn">${pk.name}</span><span class="pd">${pk.desc}</span></button>`;
+    }).join('') + '</div>';
+    this.perksEl.classList.remove('hidden');
+    this.perksEl.querySelectorAll<HTMLButtonElement>('.pcard').forEach((b) => { b.onclick = () => g.choosePerk(b.dataset.id); });
+  }
+
+  hidePerks(): void {
+    this.perksEl.classList.add('hidden');
+  }
+
   toast(text: string, seconds = 1, kind: 'white' | 'blue' | 'red' | 'yellow' = 'white'): void {
     if (!text) return;
     this.toastEl.textContent = text;
@@ -246,7 +264,8 @@ export class Hud {
     this.set(this.hpText, 'hp', String(Math.ceil(p.hp)));
     this.meterFill.style.width = `${Math.min(100, p.meter)}%`;
     this.meterBox.classList.toggle('full', p.meter >= 100);
-    this.set(this.weaponEl, 'weapon', p.weapon ? `${p.weapon === 'bat' ? 'BAT' : 'PIPE'} ×${p.uses}` : '');
+    this.set(this.weaponEl, 'weapon', p.weapon ? (p.weapon === 'gun' ? `PISTOL ${'●'.repeat(Math.max(0, p.uses))}  [G] SHOOT` : `${p.weapon === 'bat' ? 'BAT' : 'PIPE'} ×${p.uses}  [G] THROW`) : '');
+    if (w.status !== 'perk') this.perksEl.classList.add('hidden');
     this.set(this.scoreEl, 'score', w.score.toLocaleString());
     const left = w.aliveCount;
     this.set(this.waveEl, 'wave', `${g.run.endless ? `WAVE ${w.wave + 1}` : `WAVE ${Math.max(1, w.wave + 1)}/${w.totalWaves}`} · ${left} LEFT`);

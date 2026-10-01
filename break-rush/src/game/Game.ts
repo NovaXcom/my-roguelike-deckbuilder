@@ -4,6 +4,7 @@ import { HitStop } from '../combat/HitStop';
 import { SlowMo } from '../combat/SlowMo';
 import { endlessStage, STAGES, StageDef } from '../brawl/stages';
 import { botCommand } from '../brawl/bot';
+import { PERKS } from '../brawl/perks';
 import { emptyCmd, PlayerCmd, World, WorldEvent } from '../brawl/World';
 import { CityView } from './CityView';
 import { Hud } from './Hud';
@@ -264,7 +265,7 @@ export class Game {
       moveX: f.x * intent.moveY + r.x * intent.moveX,
       moveZ: f.z * intent.moveY + r.z * intent.moveX,
       aimX: f.x, aimZ: f.z,
-      light: intent.light, heavy: intent.heavy, dodge: intent.dodge, counter: intent.counter, grab: intent.grab, pickup: intent.pickup, rush: intent.rush,
+      light: intent.light, heavy: intent.heavy, dodge: intent.dodge, counter: intent.counter, grab: intent.grab, pickup: intent.pickup, rush: intent.rush, throw: intent.throw,
     };
   }
 
@@ -276,7 +277,7 @@ export class Game {
 
     // latch presses until a physics step consumes them
     const cmd = this.toCmd(intent);
-    for (const k of ['light', 'heavy', 'dodge', 'counter', 'grab', 'pickup', 'rush'] as const) if (cmd[k]) this.pending[k] = true;
+    for (const k of ['light', 'heavy', 'dodge', 'counter', 'grab', 'pickup', 'rush', 'throw'] as const) if (cmd[k]) this.pending[k] = true;
 
     const scale = this.slow.scale(nowMs);
     const frozen = this.hitStop.active(nowMs);
@@ -293,6 +294,8 @@ export class Game {
       this.processEvents(w.drain());
     }
     this.watchPlayerState();
+    if (intent.digit && w.status === 'perk') this.choosePerk(w.perkChoices[intent.digit - 1]);
+    this.footDust(realDt);
 
     if (w.ko && this.mode === 'play') {
       this.koTimer += realDt;
@@ -335,11 +338,32 @@ export class Game {
     const id = p.atk?.id ?? null;
     if (p.state === 'attack' && (this.prevState !== 'attack' || id !== this.prevAtk)) {
       audio.play('swing', p.atk?.id === 'heavy' ? 0.7 : 1 + Math.random() * 0.25);
+      const kick = p.atk?.anim === 'kick';
+      if (id !== 'shoot' && id !== 'throwW') {
+        const heavy = id === 'heavy' || id === 'finish';
+        this.view.fx.slash(p.x + Math.cos(p.facing) * 0.9, kick ? 0.7 : 1.25, p.z + Math.sin(p.facing) * 0.9, p.facing, heavy ? 2.4 : 1.7, p.weapon && p.weapon !== 'gun' ? 0xffe9a0 : 0xffffff, kick ? 1.3 : (this.world.player.step % 2 ? 0.25 : -0.4), 0.2);
+      }
       if (p.atk?.id === 'heavy') this.view.fovKick = Math.max(this.view.fovKick, 3);
     }
     if (p.state === 'guard' && this.prevState !== 'guard') audio.play('swing', 1.6);
     this.prevState = p.state;
     this.prevAtk = id;
+  }
+
+  choosePerk(id: string | undefined): void {
+    if (!id || this.world.status !== 'perk') return;
+    this.world.choosePerk(id);
+    this.hud.hidePerks();
+  }
+
+  private dustT = 0;
+  private footDust(dt: number): void {
+    const p = this.world.player;
+    this.dustT -= dt;
+    if (p.state === 'move' && this.dustT <= 0) {
+      this.dustT = 0.13;
+      this.view.particles.burst(p.x - Math.cos(p.facing) * 0.3, 0.06, p.z - Math.sin(p.facing) * 0.3, 2, 1.4, 0xb4aea4, 0.16, 0.45, -0.5);
+    }
   }
 
   private botCmd(): Partial<PlayerCmd> {
@@ -348,7 +372,7 @@ export class Game {
 
   // ---- world events ---------------------------------------------------------------------------
 
-  private processEvents(events: WorldEvent[]): void {
+  processEvents(events: WorldEvent[]): void {
     const v = this.view;
     const p = v.particles;
     const now = performance.now();
@@ -356,6 +380,7 @@ export class Game {
       switch (e.type) {
         case 'hit': {
           const x = e.x ?? 0, y = e.y ?? 1.2, z = e.z ?? 0;
+          if (e.heavy) v.aberr = Math.min(0.012, v.aberr + 0.005);
           if (e.target === 'player') {
             p.burst(x, y, z, 14, 5, 0xff5040, 0.1, 0.4, 8);
             v.shake = Math.max(v.shake, 0.5);
@@ -452,6 +477,92 @@ export class Game {
           v.shake = Math.max(v.shake, 0.4);
           p.burst(e.x ?? 0, 1, e.z ?? 0, 20, 6, 0xc0b8a8, 0.2, 0.5, 4);
           audio.play('boom', 1.2);
+          break;
+        case 'perkOffer':
+          this.hud.showPerks(this.world.perkChoices);
+          break;
+        case 'perkChosen': {
+          const perk = PERKS.find((q) => q.id === e.kind);
+          audio.play('buy', 1);
+          this.hud.toast(perk ? perk.name : '', 1.1, 'yellow');
+          break;
+        }
+        case 'launch':
+          p.burst(e.x ?? 0, 0.3, e.z ?? 0, 16, 5, 0xb4aea4, 0.2, 0.5, 2);
+          v.fx.ring(e.x ?? 0, 0.2, e.z ?? 0, 2.2, 0xffffff, 0.3);
+          v.shake = Math.max(v.shake, 0.3);
+          audio.play('hitHeavy', 0.7);
+          break;
+        case 'land':
+          p.burst(e.x ?? 0, 0.1, e.z ?? 0, e.n ? 28 : 12, e.n ? 8 : 4, 0xb4aea4, 0.24, 0.6, 3);
+          if (e.n) { v.fx.ring(e.x ?? 0, 0.15, e.z ?? 0, 3.6, 0xe0d0b0, 0.45); v.shake = Math.max(v.shake, 0.55); this.hitStop.trigger(now, 80); audio.play('boom', 0.8); this.hud.toast('SMASH!', 0.7, 'yellow'); }
+          else audio.play('hit', 0.6);
+          break;
+        case 'slamdown':
+          audio.play('swing', 0.5);
+          v.fovKick = Math.max(v.fovKick, 6);
+          break;
+        case 'finisher':
+          this.slow.trigger(now, 700, 0.18);
+          this.hitStop.trigger(now, 160);
+          v.fovKick = Math.max(v.fovKick, 11);
+          v.shake = Math.max(v.shake, 0.7);
+          v.aberr = 0.012;
+          p.burst(e.x ?? 0, 0.6, e.z ?? 0, 40, 9, 0xffe9b0, 0.14, 0.6, 8);
+          v.fx.ring(e.x ?? 0, 0.3, e.z ?? 0, 3.4, 0xffffff, 0.4);
+          audio.play('hitHeavy', 0.6);
+          audio.play('ult', 1.2);
+          this.hud.toast('FINISH!', 1.1, 'red');
+          break;
+        case 'clang':
+          p.burst(e.x ?? 0, e.y ?? 1.2, e.z ?? 0, 14, 7, 0xd8e4ff, 0.08, 0.3, 6);
+          v.fx.flash(e.x ?? 0, e.y ?? 1.2, e.z ?? 0, 0.6, 0xffffff, 0.08);
+          v.shake = Math.max(v.shake, 0.18);
+          this.hitStop.trigger(now, 40);
+          audio.play('break', 1.6);
+          audio.play('counter', 0.5);
+          break;
+        case 'guardBreak':
+          this.slow.trigger(now, 300, 0.3);
+          v.shake = Math.max(v.shake, 0.4);
+          p.burst(e.x ?? 0, e.y ?? 1.2, e.z ?? 0, 30, 9, 0xd8e4ff, 0.12, 0.5, 6);
+          audio.play('break', 0.8);
+          this.hud.toast('GUARD BREAK', 0.9, 'blue');
+          break;
+        case 'explode': {
+          const x = e.x ?? 0, z = e.z ?? 0;
+          v.explodeProp(e.id ?? -1, x, z);
+          v.fx.flash(x, 0.9, z, 3.2, 0xffc060, 0.35);
+          v.fx.flash(x, 0.9, z, 1.8, 0xffffff, 0.18);
+          v.fx.ring(x, 0.25, z, (e.n ?? 3.5) * 1.1, 0xffa040, 0.5);
+          p.burst(x, 0.9, z, 70, 13, 0xff9a30, 0.3, 0.8, 4);
+          p.burst(x, 0.9, z, 26, 7, 0x2a2a2a, 0.28, 1.4, -1.2);
+          p.burst(x, 1.2, z, 24, 16, 0xffe080, 0.12, 0.6, 12);
+          v.shake = 1.0;
+          v.fovKick = Math.max(v.fovKick, 10);
+          v.aberr = 0.012;
+          this.hitStop.trigger(now, 110);
+          this.slow.trigger(now, 400, 0.4);
+          audio.play('boom', 0.45);
+          audio.play('ult', 0.5);
+          this.hud.toast('BOOM', 0.8, 'yellow');
+          break;
+        }
+        case 'pshoot':
+          p.burst(e.x ?? 0, e.y ?? 1.3, e.z ?? 0, 10, 6, 0xffd070, 0.1, 0.18, 0);
+          v.shake = Math.max(v.shake, 0.12);
+          audio.play('boom', 2.2);
+          break;
+        case 'throwW':
+          audio.play('swing', 0.5);
+          this.hud.toast('THROW', 0.4, 'white');
+          break;
+        case 'enrage':
+          this.slow.trigger(now, 500, 0.35);
+          v.shake = Math.max(v.shake, 0.7);
+          p.burst(e.x ?? 0, 1.5, e.z ?? 0, 40, 10, 0xff3a20, 0.2, 0.7, 2);
+          audio.play('horde', 0.6);
+          this.hud.toast('ENRAGED', 1.2, 'red');
           break;
         case 'rushStart':
           audio.play('ult', 1);

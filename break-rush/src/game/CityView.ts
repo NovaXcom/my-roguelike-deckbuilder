@@ -3,6 +3,8 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { Prop, StageDef } from '../brawl/stages';
 import { Enemy, World } from '../brawl/World';
 import { Effects, Particles } from './Fx';
@@ -22,6 +24,29 @@ const LOOKS: Record<string, LookDef> = {
   street: { skyTop: 0x34467f, skyHor: 0xff9658, skyBot: 0x6a4a50, fog: 0xb98466, fogD: 0.011, hemiSky: 0xa8b4e0, hemiGround: 0x5a4038, hemiI: 0.8, sun: 0xffb070, sunI: 2.6, sunDir: [0.85, 0.5, 0.25], lit: 0.5, exposure: 1.05, bloom: 0.3, lamp: 0xffd090, lampI: 50, rain: false, ceiling: false },
   garage: { skyTop: 0x050608, skyHor: 0x0c0e14, skyBot: 0x05060a, fog: 0x0a0c12, fogD: 0.026, hemiSky: 0x8a96b0, hemiGround: 0x2a2c30, hemiI: 0.9, sun: 0xc8d4ff, sunI: 0.2, sunDir: [0, 1, 0], lit: 0.3, exposure: 1.2, bloom: 0.35, lamp: 0xe8f0ff, lampI: 60, rain: false, ceiling: true },
   plaza: { skyTop: 0x4a8fd8, skyHor: 0xf2e2c4, skyBot: 0xb8c0c8, fog: 0xd9d4c4, fogD: 0.006, hemiSky: 0xcfe0ff, hemiGround: 0x7a6e5e, hemiI: 0.85, sun: 0xfff0d0, sunI: 3.0, sunDir: [0.45, 0.9, 0.3], lit: 0.12, exposure: 1.0, bloom: 0.12, lamp: 0xffe0b0, lampI: 20, rain: false, ceiling: false },
+};
+
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    time: { value: 0 }, aberr: { value: 0.0006 }, vig: { value: 0.38 }, sat: { value: 1.08 }, contrast: { value: 1.07 }, grain: { value: 0.03 },
+    tint: { value: new THREE.Color(1, 1, 1) },
+  },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float time; uniform float aberr; uniform float vig; uniform float sat; uniform float contrast; uniform float grain; uniform vec3 tint; varying vec2 vUv;
+    float rnd(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){
+      vec2 c = vUv - 0.5; float d = length(c); vec2 off = c * aberr * (0.4 + d * 2.0);
+      vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+      float l = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(vec3(l), col, sat);
+      col = (col - 0.5) * contrast + 0.5;
+      col *= tint;
+      col *= 1.0 - vig * smoothstep(0.3, 0.95, d * 1.3);
+      col += (rnd(vUv * vec2(1920.0, 1080.0) + time) - 0.5) * grain;
+      gl_FragColor = vec4(col, 1.0);
+    }`,
 };
 
 function hash(n: number): number {
@@ -97,9 +122,11 @@ function lookFor(kind: string, id: number): Look {
     case 'player': return { skin: 0xe0b08c, hair: 0x1b1512, top: 0x1d2027, sleeves: true, pants: 0x2d3442, shoes: 0x15151a, scale: 1, bulk: 1, hairStyle: 'short', scarf: 0xd9402a };
     case 'knife': return { skin: pick(PALETTES.skin, 1), hair: 0x111111, top: 0x1b1b20, sleeves: true, pants: 0x14141a, shoes: 0x0e0e10, scale: 0.98, bulk: 0.92, hairStyle: 'hood' };
     case 'bat': return { skin: pick(PALETTES.skin, 1), hair: pick(PALETTES.hair, 2), top: 0x4a3426, sleeves: true, pants: 0x2a3447, shoes: 0x2a1c14, scale: 1.04, bulk: 1.1, hairStyle: 'cap' };
-    case 'brute': return { skin: pick(PALETTES.skin, 1), hair: 0x000000, top: 0xb8b8b8, sleeves: false, pants: 0x4a5a3a, shoes: 0x1a1a1a, scale: 1.26, bulk: 1.38, hairStyle: 'bald', vest: 0x23242a };
-    case 'gunman': return { skin: pick(PALETTES.skin, 1), hair: 0x151515, top: 0x16161c, sleeves: true, pants: 0x16161c, shoes: 0x050505, scale: 1.02, bulk: 1, hairStyle: 'slick', glasses: true };
-    case 'boss': return { skin: 0xd8b090, hair: 0x9a9a9a, top: 0x15151a, sleeves: true, pants: 0x15151a, shoes: 0x050505, scale: 1.32, bulk: 1.22, hairStyle: 'slick', glasses: true, coat: 0xe8e4dc };
+    case 'brute': return { skin: pick(PALETTES.skin, 1), hair: 0x000000, top: 0xb8b8b8, sleeves: false, pants: 0x4a5a3a, shoes: 0x1a1a1a, scale: 1.26, bulk: 1.38, hairStyle: 'bald', vest: 0x23242a, tattoo: true };
+    case 'shield': return { skin: pick(PALETTES.skin, 1), hair: 0x151515, top: 0x2a3140, sleeves: true, pants: 0x20252e, shoes: 0x0a0a0a, scale: 1.06, bulk: 1.15, hairStyle: 'cap', riot: true, vest: 0x3a4250 };
+    case 'assassin': return { skin: pick(PALETTES.skin, 1), hair: 0x111111, top: 0x101216, sleeves: true, pants: 0x101216, shoes: 0x050505, scale: 0.96, bulk: 0.88, hairStyle: 'hood', mask: 0x1a1c22, scarf: 0x8a1a1a };
+    case 'gunman': return { skin: pick(PALETTES.skin, 1), hair: 0x151515, top: 0x16161c, sleeves: true, pants: 0x16161c, shoes: 0x050505, scale: 1.02, bulk: 1, hairStyle: 'slick', glasses: true, tie: 0x303038 };
+    case 'boss': return { skin: 0xd8b090, hair: 0x9a9a9a, top: 0x15151a, sleeves: true, pants: 0x15151a, shoes: 0x050505, scale: 1.32, bulk: 1.22, hairStyle: 'slick', glasses: true, coat: 0xe8e4dc, tie: 0x8a1a1a };
     default: return { skin: pick(PALETTES.skin, 1), hair: pick(PALETTES.hair, 2), top: pick(PALETTES.tops, 3), sleeves: hash(id * 3) < 0.5, pants: pick(PALETTES.pants, 4), shoes: 0x1a1a1c, scale: 0.97 + hash(id) * 0.08, bulk: 0.95 + hash(id + 5) * 0.15, hairStyle: hash(id * 9) < 0.3 ? 'bald' : hash(id * 9) < 0.6 ? 'short' : 'cap' };
   }
 }
@@ -112,6 +139,15 @@ export class CityView {
   readonly camera = new THREE.PerspectiveCamera(60, 1, 0.25, 600);
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
+  private smaa: SMAAPass;
+  private grade: ShaderPass;
+  private propGroups = new Map<number, THREE.Group>();
+  private decals: THREE.Mesh[] = [];
+  private cones: THREE.Mesh[] = [];
+  private steam: { x: number; z: number }[] = [];
+  private steamT = 0;
+  /** Extra chromatic aberration from big hits (decays on its own). */
+  aberr = 0;
   readonly fx: Effects;
   readonly particles: Particles;
   private stageGroup = new THREE.Group();
@@ -172,6 +208,10 @@ export class CityView {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.3, 0.6, 0.85);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
+    this.smaa = new SMAAPass();
+    this.composer.addPass(this.smaa);
+    this.grade = new ShaderPass(GradeShader);
+    this.composer.addPass(this.grade);
 
     this.fx = new Effects(this.scene);
     this.particles = new Particles(this.scene);
@@ -222,6 +262,10 @@ export class CityView {
     for (const l of this.lampLights) this.scene.remove(l);
     this.lampLights.length = 0;
     this.blockers.length = 0;
+    this.propGroups.clear();
+    this.decals.length = 0;
+    this.cones.length = 0;
+    this.steam.length = 0;
     if (this.rain) { this.scene.remove(this.rain); this.rain = null; }
     for (const [, o] of this.pickupMeshes) this.scene.remove(o);
     this.pickupMeshes.clear();
@@ -296,6 +340,7 @@ export class CityView {
         this.lampLights.push(l);
       }
     }
+    this.buildDecor(stage, add);
     if (L.rain) this.buildRain();
     this.focusInit = false;
   }
@@ -306,6 +351,8 @@ export class CityView {
     t.needsUpdate = true;
     t.repeat.set(1, 1);
     m.map = t;
+    m.bumpMap = t;
+    m.bumpScale = 0.9;
     m.userData.perMeter = perMeter;
     // BoxGeometry UVs: rescale to metres on first use
     return m;
@@ -379,7 +426,7 @@ export class CityView {
     variants.forEach((list, i) => {
       if (!list.length) return;
       const f = facade(kinds[i] as 'brick' | 'concrete' | 'glass', L.lit, i + stage.id * 4);
-      const mat = new THREE.MeshStandardMaterial({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: stage.look === 'plaza' ? 0.15 : 1.1, roughness: 0.85, metalness: 0.05 });
+      const mat = new THREE.MeshStandardMaterial({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: stage.look === 'plaza' ? 0.15 : 1.1, roughness: 0.85, metalness: 0.05, bumpMap: f.map, bumpScale: 1.6 });
       const mesh = new THREE.Mesh(mergeBoxes(list, 1 / 8), mat);
       mesh.receiveShadow = true;
       mesh.castShadow = true;
@@ -430,6 +477,170 @@ export class CityView {
         x += w;
       }
     }
+  }
+
+  private buildDecor(stage: StageDef, add: (o: THREE.Object3D) => THREE.Object3D): void {
+    const W = stage.w, D = stage.d;
+    let seed = stage.id * 31 + 5;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const std = (c: number, r = 0.8, m = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+    const wallZ = (s: number) => s * (D / 2 + (stage.look === 'garage' ? 0.1 : 0.05));
+    // ---- wall furniture: AC units, pipes, fire escapes, cables
+    if (stage.look !== 'garage') {
+      for (const s of [-1, 1]) {
+        for (let x = -W / 2 - 18; x < W / 2 + 18; x += 5 + rnd() * 6) {
+          const r = rnd();
+          const z = wallZ(s) + s * 0.02;
+          if (r < 0.35) {
+            const ac = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.55), std(0xc8ccd0, 0.6, 0.3));
+            const grill = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.06, 14), std(0x30343a, 0.5, 0.5));
+            grill.rotation.x = Math.PI / 2;
+            grill.position.set(0, 0, -s * 0.29);
+            ac.add(body, grill);
+            ac.position.set(x, 5 + rnd() * 6, z + s * 0.3);
+            ac.traverse((o) => { o.castShadow = true; });
+            add(ac);
+          } else if (r < 0.6) {
+            const h = 8 + rnd() * 12;
+            const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, h, 10), std(0x5a4a40, 0.6, 0.5));
+            pipe.position.set(x, h / 2, z + s * 0.14);
+            pipe.castShadow = true;
+            add(pipe);
+            for (let y = 1.5; y < h; y += 2.6) {
+              const clamp = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.08, 10), std(0x2a2a2e, 0.5, 0.6));
+              clamp.position.set(x, y, z + s * 0.14);
+              add(clamp);
+            }
+          } else if (r < 0.78 && stage.look !== 'plaza') {
+            // fire escape: platforms + railing + ladder
+            const fe = new THREE.Group();
+            for (let level = 0; level < 3; level++) {
+              const y = 4 + level * 3.2;
+              const plat = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.08, 1.1), std(0x3a3d44, 0.5, 0.6));
+              plat.position.set(0, y, s * 0.55);
+              const rail = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.9, 0.04), std(0x2a2d33, 0.5, 0.6));
+              rail.position.set(0, y + 0.5, s * 1.08);
+              fe.add(plat, rail);
+              const ladder = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.1, 0.05), std(0x2a2d33, 0.6, 0.6));
+              ladder.position.set(0.8, y + 1.5, s * 0.6);
+              fe.add(ladder);
+            }
+            fe.position.set(x, 0, z);
+            fe.traverse((o) => { o.castShadow = true; });
+            add(fe);
+          }
+        }
+      }
+    }
+    // ---- street furniture along the kerbs: trash piles, boxes, bags
+    const piles = stage.look === 'alley' ? 9 : stage.look === 'garage' ? 3 : 5;
+    for (let i = 0; i < piles; i++) {
+      const s = rnd() < 0.5 ? -1 : 1;
+      const x = (rnd() - 0.5) * W * 0.92;
+      const z = s * (D / 2 - 0.6 - rnd() * 0.5);
+      const clash = stage.props.some((q) => q.solid !== false && Math.abs(q.x - x) < q.hw + 1.4 && Math.abs(q.z - z) < q.hd + 1.0);
+      if (clash) continue;
+      const g = new THREE.Group();
+      for (let k = 0; k < 3 + Math.floor(rnd() * 3); k++) {
+        const bag = new THREE.Mesh(new THREE.SphereGeometry(0.28 + rnd() * 0.15, 8, 7), std(rnd() < 0.5 ? 0x1c1c20 : 0x2a3a2a, 0.4));
+        bag.scale.y = 0.8;
+        bag.position.set((rnd() - 0.5) * 1.0, 0.22, (rnd() - 0.5) * 0.7);
+        bag.castShadow = true;
+        g.add(bag);
+      }
+      if (rnd() < 0.6) {
+        const box = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.5), std(0x9a7a50, 0.9));
+        box.position.set((rnd() - 0.5) * 0.8, 0.25, (rnd() - 0.5) * 0.6);
+        box.rotation.y = rnd() * 3;
+        box.castShadow = true;
+        g.add(box);
+      }
+      g.position.set(x, 0, z);
+      add(g);
+    }
+    // ---- ground detail: puddles that mirror the light, graffiti, manholes
+    if (stage.look !== 'garage' && stage.look !== 'plaza') {
+      const wet = stage.look === 'alley';
+      const n = wet ? 10 : 4;
+      for (let i = 0; i < n; i++) {
+        const r = 0.7 + rnd() * 1.4;
+        const puddle = new THREE.Mesh(new THREE.CircleGeometry(r, 18).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x0a1018, roughness: 0.04, metalness: 0.9, emissive: wet ? 0x2a2014 : 0x201408, emissiveIntensity: 0.7, transparent: true, opacity: 0.5 }));
+        puddle.scale.set(1.4, 1, 0.8 + rnd() * 0.5);
+        puddle.position.set((rnd() - 0.5) * W * 0.9, 0.02, (rnd() - 0.5) * (D - 5));
+        puddle.receiveShadow = true;
+        add(puddle);
+        this.decals.push(puddle);
+      }
+      for (let i = 0; i < 2; i++) {
+        const mx = (rnd() - 0.5) * W * 0.7, mz = (rnd() - 0.5) * (D - 6);
+        const man = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.03, 18), std(0x2a2c30, 0.5, 0.7));
+        man.position.set(mx, 0.025, mz);
+        add(man);
+        this.steam.push({ x: mx, z: mz });
+      }
+    }
+    // ---- traffic light / overhead wires on street levels
+    if (stage.look === 'street' || stage.look === 'plaza') {
+      const wireMat = new THREE.LineBasicMaterial({ color: 0x15171c });
+      for (let x = -W / 2 - 20; x < W / 2 + 20; x += 13) {
+        const pts: THREE.Vector3[] = [];
+        for (let k = 0; k <= 12; k++) {
+          const t = k / 12;
+          pts.push(new THREE.Vector3(x + (rnd() - 0.5) * 0.2, 7.2 - Math.sin(t * Math.PI) * 0.7, -D / 2 - 1 + t * (D + 2)));
+        }
+        add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wireMat));
+      }
+    }
+    if (stage.look === 'street') {
+      // traffic lights at the far ends
+      for (const x of [-W / 2 + 3, W / 2 - 3]) {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 5.2, 8), std(0x2a2d33, 0.5, 0.6));
+        pole.position.set(x, 2.6, D / 2 - 2.4);
+        pole.castShadow = true;
+        add(pole);
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.0, 0.3), std(0x15171a, 0.5));
+        head.position.set(x, 5.0, D / 2 - 2.4);
+        add(head);
+        for (const [i, c] of [[0.3, 0xff2010], [0, 0x302000], [-0.3, 0x002010]] as [number, number][]) {
+          const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: i === 0.3 ? 2.5 : 0.15 }));
+          lamp.position.set(x + 0.18, 5.0 + i, D / 2 - 2.4);
+          add(lamp);
+        }
+      }
+    }
+    // ---- soft light cones under the lamps
+    const coneTex = (() => {
+      const cv = document.createElement('canvas'); cv.width = 8; cv.height = 128;
+      const g = cv.getContext('2d')!;
+      const gr = g.createLinearGradient(0, 0, 0, 128);
+      gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, 8, 128);
+      return new THREE.CanvasTexture(cv);
+    })();
+    for (const pr of stage.props) {
+      if (pr.kind !== 'lamp') continue;
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(2.8, 4.7, 20, 1, true), new THREE.MeshBasicMaterial({ map: coneTex, color: this.look.lamp, transparent: true, opacity: stage.look === 'plaza' ? 0.07 : 0.2, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: true }));
+      cone.position.set(pr.x, 2.4, pr.z + (pr.z > 0 ? -1 : 1));
+      add(cone);
+      this.cones.push(cone);
+    }
+    if (stage.look === 'garage') {
+      for (let x = -W / 2 + 6; x < W / 2; x += 12) {
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(2.4, 4.3, 16, 1, true), new THREE.MeshBasicMaterial({ map: coneTex, color: 0xdfeaff, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+        cone.position.set(x, 2.2, x % 24 === 0 ? 4.5 : -4.5);
+        add(cone);
+      }
+    }
+  }
+
+  /** A barrel blew up: hide it and leave a scorch mark. */
+  explodeProp(index: number, x: number, z: number): void {
+    const g = this.propGroups.get(index);
+    if (g) g.visible = false;
+    const mark = new THREE.Mesh(new THREE.CircleGeometry(1.6, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x050505, transparent: true, opacity: 0.55, depthWrite: false }));
+    mark.position.set(x, 0.035, z);
+    this.stageGroup.add(mark);
   }
 
   private buildRain(): void {
@@ -518,7 +729,15 @@ export class CityView {
         break;
       }
       case 'bin': C(0.34, 0.3, 0.95, std(0x3a3f46, 0.6, 0.4), 0, 0.48, 0); break;
-      case 'barrel': C(0.42, 0.42, 1.0, std(idx % 2 ? 0x8a2c1c : 0x234a7a, 0.5, 0.5), 0, 0.5, 0); break;
+      case 'barrel': {
+        C(0.42, 0.42, 1.0, std(p.explosive ? 0xb02a1c : 0x234a7a, 0.45, 0.5), 0, 0.5, 0);
+        for (const y of [0.2, 0.8]) C(0.435, 0.435, 0.05, std(0x1a1a1a, 0.5, 0.6), 0, y, 0);
+        if (p.explosive) {
+          const warn = B(0.02, 0.3, 0.3, new THREE.MeshStandardMaterial({ color: 0xffd23a, emissive: 0xffa000, emissiveIntensity: 0.6 }), 0.42, 0.5, 0);
+          warn.rotation.x = Math.PI / 4;
+        }
+        break;
+      }
       case 'bench': {
         B(p.hw * 2, 0.08, p.hd * 2, std(0x7a5a3a, 0.8), 0, 0.5, 0);
         B(p.hw * 2, 0.5, 0.08, std(0x7a5a3a, 0.8), 0, 0.78, -p.hd * 0.8);
@@ -557,7 +776,7 @@ export class CityView {
         break;
       }
     }
-    g.rotation.y = p.kind === 'car' ? 0 : 0;
+    this.propGroups.set(idx, g);
     add(g);
   }
 
@@ -567,7 +786,7 @@ export class CityView {
     let r = this.rigs.get(e.id);
     if (!r) {
       r = new Rig(lookFor(e.kind, e.id));
-      r.setWeapon(e.kind === 'bat' ? 'bat' : e.kind === 'knife' ? 'knife' : e.kind === 'gunman' ? 'pistol' : null);
+      r.setWeapon(e.kind === 'bat' ? 'bat' : e.kind === 'knife' || e.kind === 'assassin' ? 'knife' : e.kind === 'gunman' ? 'pistol' : null);
       this.scene.add(r.root);
       this.rigs.set(e.id, r);
     }
@@ -577,7 +796,7 @@ export class CityView {
   sync(world: World, dt: number, time: number, playerHidden: boolean): void {
     const p = world.player;
     const pa = p.state === 'attack' ? p.atk : null;
-    this.playerRig.setWeapon(p.weapon);
+    this.playerRig.setWeapon(p.weapon === 'gun' ? 'pistol' : p.weapon);
     this.playerRig.root.visible = !playerHidden;
     this.playerRig.update({ state: p.state, anim: p.anim, t: p.t, dur: p.dur, walk: p.walk, facing: p.facing, x: p.x, z: p.z, atk: pa ? { wind: pa.wind, strike: pa.strike, rec: pa.rec } : null, guardUp: p.state === 'guard' }, dt, time);
     this.playerRig.setGlow(0xffffff, p.flash > 0 ? 0.6 : p.invuln > 0.35 ? 0.15 + Math.sin(time * 40) * 0.1 : 0);
@@ -587,14 +806,14 @@ export class CityView {
       seen.add(e.id);
       const r = this.rigFor(e);
       const a = e.atk;
-      r.update({ state: e.state === 'wind' || e.state === 'strike' || e.state === 'rec' ? e.state : e.state, anim: e.anim, t: e.t, dur: e.dur, walk: e.walk, facing: e.facing, x: e.x, z: e.z, atk: a ? { wind: a.wind, strike: a.strike, rec: a.rec } : null, guardUp: false }, dt, time + e.id);
+      r.update({ state: e.state === 'wind' || e.state === 'strike' || e.state === 'rec' ? e.state : e.state, anim: e.anim, t: e.t, dur: e.dur, walk: e.walk, facing: e.facing, x: e.x, y: e.y, z: e.z, atk: a ? { wind: a.wind, strike: a.strike, rec: a.rec } : null, guardUp: false }, dt, time + e.id);
       let glow = 0, col = 0xffffff;
       if (e.flash > 0) { glow = 0.55; col = 0xffffff; }
       else if (e.state === 'wind' && a) { glow = 0.04 + e.telegraph * 0.18 + Math.sin(time * 30) * 0.03 * e.telegraph; col = ICON_COLOR[a.icon]; }
       r.setGlow(col, glow);
       r.root.visible = !(e.state === 'dead' && e.deadT > 1.9);
       if (e.state === 'dead' && e.deadT > 1.2) r.root.position.y = -(e.deadT - 1.2) * 0.9;
-      else r.root.position.y = 0;
+      else r.root.position.y = e.y;
     }
     for (const [id, r] of this.rigs) if (!seen.has(id)) { this.scene.remove(r.root); r.dispose(); this.rigs.delete(id); }
 
@@ -645,8 +864,21 @@ export class CityView {
     this.sun.target.position.set(p.x, 0, p.z);
   }
 
-  private makePickup(kind: 'bat' | 'pipe' | 'health'): THREE.Object3D {
+  private makePickup(kind: 'bat' | 'pipe' | 'gun' | 'health'): THREE.Object3D {
     const g = new THREE.Group();
+    if (kind === 'gun') {
+      const dark = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.4, metalness: 0.6 });
+      const slide = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.07, 0.04), dark);
+      slide.position.y = 0.1;
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.15, 0.04), dark);
+      grip.position.set(-0.1, 0.02, 0);
+      g.add(slide, grip);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.025, 6, 28), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.85, toneMapped: false }));
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.02;
+      g.add(ring);
+      return g;
+    }
     if (kind === 'health') {
       const m = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.3, 0.3), new THREE.MeshStandardMaterial({ color: 0xf2f2f2, emissive: 0x228822, emissiveIntensity: 0.5 }));
       g.add(m);
@@ -712,6 +944,14 @@ export class CityView {
     this.fx.update(dt);
     this.particles.update(dt);
     this.sky.position.copy(this.camera.position);
+    this.aberr *= Math.pow(0.002, dt);
+    this.grade.uniforms.aberr.value = 0.0006 + this.aberr;
+    this.grade.uniforms.time.value = (this.grade.uniforms.time.value + dt * 60) % 1000;
+    this.steamT -= dt;
+    if (this.steamT <= 0 && this.steam.length) {
+      this.steamT = 0.16;
+      for (const v of this.steam) this.particles.emit(v.x + (Math.random() - 0.5) * 0.3, 0.1, v.z + (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, 0.9 + Math.random() * 0.6, (Math.random() - 0.5) * 0.3, 1.5, 0.14, 0x8a9098, -0.3);
+    }
     if (this.bloomOn) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
   }

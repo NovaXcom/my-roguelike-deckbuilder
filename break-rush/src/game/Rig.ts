@@ -14,6 +14,11 @@ export interface Look {
   scarf?: number;
   vest?: number;
   coat?: number;
+  /** Carries a riot shield on the left arm. */
+  riot?: boolean;
+  mask?: number;
+  tie?: number;
+  tattoo?: boolean;
 }
 
 export interface Pose {
@@ -68,6 +73,11 @@ const ATTACKS: Record<string, Attack> = {
   slash: { wind: P({ bS: 2.5, bE: 0.9, twist: 0.5, lean: 0.22, y: -0.22, aS: 1.0 }), strike: P({ bS: 0.75, bE: 0.3, bX: 0.4, twist: -0.4, lean: -0.55, fwd: 0.4, y: -0.3, rH: -0.8, lH: 0.8 }) },
   swing: { wind: P({ aS: 1.0, bS: 1.1, aE: 1.0, bE: 1.0, twist: 1.3, lean: 0.06, y: -0.16 }), strike: P({ aS: 1.35, bS: 1.4, aE: 0.5, bE: 0.4, twist: -0.9, lean: -0.35, fwd: 0.28, y: -0.2 }) },
   slam: { wind: P({ aS: 2.8, bS: 2.8, aE: 0.7, bE: 0.7, lean: 0.35, y: -0.05, twist: 0 }), strike: P({ aS: 0.55, bS: 0.55, aE: 0.2, bE: 0.2, lean: -0.8, y: -0.42, fwd: 0.35, twist: 0, lH: 0.8, rH: -0.5 }) },
+  bash: { wind: P({ aS: 1.2, aE: 0.5, bS: 0.8, bE: 1.4, lean: 0.12, y: -0.12, twist: 0.2 }), strike: P({ aS: 1.55, aE: 0.2, bS: 1.0, bE: 1.2, lean: -0.55, fwd: 0.42, y: -0.26, twist: -0.1, lH: 0.8, rH: -0.6 }) },
+  stab: { wind: P({ bS: -0.1, bE: 1.1, aS: 0.8, lean: -0.5, y: -0.38, twist: 0.7, lH: 0.9, rH: -0.7 }), strike: P({ bS: 1.65, bE: 0.1, aS: -0.2, lean: -0.75, fwd: 0.55, y: -0.44, twist: 0.85, lH: 1.1, rH: -0.9 }) },
+  shootP: { wind: P({ bS: 1.4, bE: 0.15, aS: 1.0, aE: 1.8, twist: 0.45, lean: -0.05 }), strike: P({ bS: 1.65, bE: 0.12, aS: 1.0, aE: 1.8, twist: 0.5, lean: 0.06 }) },
+  throwW: { wind: P({ bS: 2.8, bE: 0.9, lean: 0.3, twist: 0.6, y: -0.1 }), strike: P({ bS: 1.0, bE: 0.1, lean: -0.45, twist: -0.3, fwd: 0.22, y: -0.18 }) },
+  finish: { wind: P({ rH: 1.4, rK: -1.1, lean: 0.25, aS: 1.8, bS: 1.8, y: -0.05 }), strike: P({ rH: 0.2, rK: -0.1, y: -0.55, lean: -0.85, aS: 0.7, bS: 0.7, aE: 0.4, bE: 0.4, fwd: 0.32, lH: 0.9 }) },
   shoot: { wind: P({ bS: 1.45, bE: 0.15, aS: 1.0, aE: 1.8, twist: 0.45, lean: -0.05, head: 0.0 }), strike: P({ bS: 1.7, bE: 0.12, aS: 1.0, aE: 1.8, twist: 0.5, lean: 0.06, head: 0.0 }) },
 };
 
@@ -104,6 +114,7 @@ export interface RigState {
   walk: number;
   facing: number;
   x: number;
+  y?: number;
   z: number;
   atk: { wind: number; strike: number; rec: number } | null;
   guardUp: boolean;
@@ -171,6 +182,34 @@ export class Rig {
       v.position.y = 0.3;
       this.spine.add(v);
     }
+    // belt and collar
+    const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.16 * b, 0.165 * b, 0.05, 14), mat(0x1a1410, 0.5));
+    belt.scale.set(0.9, 1, 1.3);
+    belt.position.y = 0.0;
+    this.spine.add(belt);
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.05), mat(0xb8a060, 0.3, 0.8));
+    buckle.position.set(0.15 * b, 0, 0);
+    this.spine.add(buckle);
+    if (L.sleeves && !L.coat) {
+      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.1 * b, 0.03, 6, 14), mat(L.top, 0.9));
+      collar.rotation.x = Math.PI / 2;
+      collar.scale.set(1, 1.3, 1);
+      collar.position.y = 0.5;
+      this.spine.add(collar);
+    }
+    if (L.tie) {
+      const tie = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.28, 0.05), mat(L.tie, 0.6));
+      tie.position.set(0.17 * b, 0.28, 0);
+      this.spine.add(tie);
+    }
+    if (L.tattoo) {
+      const tat = mat(0x1c2a3a, 0.9);
+      for (const side of [-1, 1]) for (let i = 0; i < 3; i++) {
+        const t = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.015, 0.09), tat);
+        t.position.set(0.03, 0.34 + i * 0.05, side * 0.3);
+        this.spine.add(t);
+      }
+    }
     this.spine.add(this.chest);
     this.chest.position.y = 0.5;
 
@@ -188,6 +227,41 @@ export class Rig {
     const nose = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.04, 0.03), skin);
     nose.position.set(0.115, 0.12, 0);
     this.head.add(nose);
+    if (!L.glasses && !L.mask) {
+      const white = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.4 });
+      const dark = new THREE.MeshStandardMaterial({ color: 0x14100e, roughness: 0.3 });
+      for (const side of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.019, 8, 6), white);
+        eye.scale.set(0.5, 1, 1.3);
+        eye.position.set(0.106, 0.145, side * 0.04);
+        this.head.add(eye);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.01, 6, 5), dark);
+        pupil.position.set(0.114, 0.145, side * 0.04);
+        this.head.add(pupil);
+        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.01, 0.05), hair.clone());
+        brow.position.set(0.108, 0.172, side * 0.042);
+        brow.rotation.x = -side * 0.25;
+        this.head.add(brow);
+      }
+      const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.008, 0.05), dark);
+      mouth.position.set(0.108, 0.075, 0);
+      this.head.add(mouth);
+    }
+    for (const side of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 5), skin);
+      ear.scale.set(0.5, 1, 0.8);
+      ear.position.set(0, 0.125, side * 0.112);
+      this.head.add(ear);
+    }
+    if (L.mask) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.119, 14, 10, 0, Math.PI * 2, Math.PI * 0.42, Math.PI * 0.4), mat(L.mask, 0.8));
+      m.scale.set(1.02, 1.12, 1.0);
+      m.position.y = 0.13;
+      this.head.add(m);
+      const slit = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.025, 0.12), mat(0xffd0a0, 0.3));
+      slit.position.set(0.112, 0.15, 0);
+      this.head.add(slit);
+    }
     if (L.hairStyle !== 'bald') {
       const cover = L.hairStyle === 'long' ? 0.85 : L.hairStyle === 'slick' ? 0.62 : 0.55;
       const h = new THREE.Mesh(new THREE.SphereGeometry(0.122, 16, 12, 0, Math.PI * 2, 0, Math.PI * cover), L.hairStyle === 'cap' || L.hairStyle === 'hood' ? mat(L.top, 0.9) : hair);
@@ -236,12 +310,37 @@ export class Rig {
       fore.position.y = -0.15;
       el.add(fore);
       const fist = new THREE.Mesh(new THREE.SphereGeometry(0.06 * b, 10, 8), skin);
+      fist.scale.set(1.1, 1, 0.9);
       fist.position.y = -0.31;
       fist.castShadow = true;
       el.add(fist);
+      const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.018 * b, 0.04, 3, 6), skin);
+      thumb.position.set(0.05 * b, -0.28, side * -0.02);
+      thumb.rotation.z = -0.6;
+      el.add(thumb);
+      if (L.sleeves) {
+        const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.056 * b, 0.058 * b, 0.05, 10), sleeve);
+        cuff.position.y = -0.255;
+        el.add(cuff);
+      }
       return fist;
     };
     arm(this.shL, this.elL, -1);
+    if (L.riot) {
+      const shieldMat = new THREE.MeshStandardMaterial({ color: 0x2a3140, roughness: 0.35, metalness: 0.3, transparent: true, opacity: 0.92 });
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.15, 0.7), shieldMat);
+      plate.position.set(0.18, -0.2, 0);
+      plate.castShadow = true;
+      this.elL.add(plate);
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.2, 0.04), mat(0xcfd2d8, 0.4, 0.5));
+      frame.position.set(0.18, -0.2, 0.36);
+      const frame2 = frame.clone();
+      frame2.position.z = -0.36;
+      this.elL.add(frame, frame2);
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.1, 0.7), mat(0xe0b020, 0.5));
+      stripe.position.set(0.18, 0.2, 0);
+      this.elL.add(stripe);
+    }
     arm(this.shR, this.elR, 1);
     this.elR.add(this.handR);
     this.handR.position.y = -0.31;
@@ -262,6 +361,9 @@ export class Rig {
       foot.position.set(0.06, -0.47, 0);
       foot.castShadow = true;
       kn.add(foot);
+      const sole = new THREE.Mesh(new THREE.BoxGeometry(0.285, 0.025, 0.12 * b), mat(0xd8d4cc, 0.9));
+      sole.position.set(0.06, -0.505, 0);
+      kn.add(sole);
     };
     leg(this.hipL, this.kneeL, -1);
     leg(this.hipR, this.kneeR, 1);
@@ -401,6 +503,12 @@ export class Rig {
         const p = s.t < 0.34 ? mix(reach, heave, ease(u)) : mix(thr, STANCE, ease(Math.min(1, (s.t - 0.34) / 0.3)));
         return { pose: p, rate: 40 };
       }
+      case 'launched': {
+        const p = P({ y: -0.28, aS: 2.2, aX: 0.9, aE: 0.6, bS: 2.0, bX: 0.9, bE: 0.5, lH: 0.7, rH: 0.3, lK: -0.9, rK: -0.4, lean: 0.5, head: 0.5, twist: 0 });
+        p.pitch = 0.75 + Math.sin(time * 7) * 0.25;
+        p.roll = Math.sin(time * 5) * 0.3;
+        return { pose: p, rate: 20 };
+      }
       case 'grabbed':
         return { pose: P({ lean: -0.5, head: -0.4, aS: 0.2, aE: 0.2, bS: 0.2, bE: 0.2, y: -0.3, lH: 0.5, rH: 0.2 }), rate: 20 };
       case 'thrown': {
@@ -431,7 +539,7 @@ export class Rig {
       else if (key === 'roll' && s.state === 'thrown') c[key] = tgt[key];
       else c[key] += (tgt[key] - c[key]) * k;
     }
-    this.root.position.set(s.x, 0, s.z);
+    this.root.position.set(s.x, s.y ?? 0, s.z);
     this.root.rotation.y = -s.facing;
     const lyingFix = c.pitch > 0.6 && c.pitch < 2 ? 0 : 0;
     this.body.position.set(c.fwd, 0.93 + c.y + lyingFix, 0);

@@ -10,6 +10,9 @@ export interface Intent {
   grab: boolean;
   pickup: boolean;
   rush: boolean;
+  throw: boolean;
+  /** 1..3 when a number key was pressed (perk picks). */
+  digit: number;
   pausePressed: boolean;
   /** Camera turn this frame, in radians (already scaled). */
   lookYaw: number;
@@ -85,6 +88,8 @@ export class Input {
     let grab = kp('KeyF');
     let pickup = kp('KeyQ');
     let rush = kp('KeyR');
+    let thr = kp('KeyG');
+    const digit = kp('Digit1') ? 1 : kp('Digit2') ? 2 : kp('Digit3') ? 3 : 0;
     let pausePressed = kp('Escape') || kp('KeyP');
     const mouseScale = 0.0022 * this.sens;
     let lookYaw = this.dx * mouseScale;
@@ -111,6 +116,7 @@ export class Input {
       pickup ||= edge(4);
       grab ||= edge(5);
       rush ||= edge(7) || edge(6);
+      thr ||= edge(11);
       pausePressed ||= edge(9);
       lookYaw += rx * 2.9 * dt * this.sens;
       lookPitch += -ry * 2.2 * dt * this.sens;
@@ -123,7 +129,7 @@ export class Input {
       mx /= l;
       my /= l;
     }
-    const out: Intent = { moveX: mx, moveY: my, light, heavy, dodge, counter, grab, pickup, rush, pausePressed, lookYaw, lookPitch };
+    const out: Intent = { moveX: mx, moveY: my, light, heavy, dodge, counter, grab, pickup, rush, throw: thr, digit, pausePressed, lookYaw, lookPitch };
     this.pressed.clear();
     this.mousePressed.clear();
     this.dx = this.dy = 0;
