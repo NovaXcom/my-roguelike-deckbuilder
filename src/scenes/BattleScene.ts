@@ -83,7 +83,7 @@ interface SkillBtn {
 const EVENT_MS: Record<BattleEvent['type'], number> = {
   skill: 0, damage: 260, shield: 0, break: 600, chain: 1450, stunned: 550, recover: 500,
   guard: 250, heal: 300, taunt: 250, enemyAttack: 380, hurt: 450, down: 450,
-  enemyDown: 300, reaction: 700, status: 350, dot: 450, wait: 300, enemyCharge: 650, enemyGuard: 600, canceled: 700, enemyHeal: 350,
+  enemyDown: 300, disrupt: 650, reaction: 700, status: 350, dot: 450, wait: 300, enemyCharge: 650, enemyGuard: 600, canceled: 700, enemyHeal: 350,
 };
 
 const STATUS_TEXT: Record<'burn' | 'bleed' | 'freeze' | 'weaken' | 'charge' | 'focus', [string, string]> = {
@@ -113,6 +113,7 @@ export class BattleScene extends Phaser.Scene {
   /** 選択中の狙う敵 */
   private target = 0;
   private dragTarget = -1;
+  private skipCut = new Set<BattleEvent>();
   private bars!: Phaser.GameObjects.Graphics;
   private hpTexts: Phaser.GameObjects.Text[] = [];
   private guardTexts: Phaser.GameObjects.Text[] = [];
@@ -386,7 +387,7 @@ export class BattleScene extends Phaser.Scene {
     const skill = effectiveSkill(baseSkill, level);
     const bg = this.add.graphics();
     const col = skill.element !== 'none' ? ELEMENT_COLOR[skill.element] : skill.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;
-    const kindLabel = skill.kind === 'support' ? '補助' : skill.kind === 'physical' ? '物理' : ELEMENT_LABEL[skill.element] + '魔法';
+    const kindLabel = skill.aoe ? '全体' : skill.kind === 'support' ? '補助' : skill.kind === 'physical' ? '物理' : ELEMENT_LABEL[skill.element] + '魔法';
     // 名前は幅に収まらなければ折り返す（コンパクト時は最小16pxのため）
     const iconKey = skillIconKey(skill.id);
     const iconSize = cmp ? 40 : 50; // コンパクト時は文字が最小16pxになるため、アイコンを小さくして縦の余白を確保
@@ -401,7 +402,7 @@ export class BattleScene extends Phaser.Scene {
     const chipText = txt(this, -BTN_W / 2 + 6 + chipW / 2, chipY + chipH / 2, kindLabel, 11, '#111', { fontStyle: 'bold' }).setOrigin(0.5);
     const cd = txt(this, BTN_W / 2 - 6, chipY + chipH / 2, `${level > 1 ? `Lv${level} ` : ''}CD${skill.cooldown}`, 11, level > 1 ? '#ffe066' : '#9fb0c8').setOrigin(1, 0.5);
     // 説明: 通常は全文 / コンパクトは要点のみ（全文はタップ時にツールチップで表示）
-    const hasCond = !!skill.conds?.length;
+    const hasCond = !!skill.conds?.length && BTN_W >= 130;
     const bodyText = cmp ? skillSummary(skill).join('\n') : (level > 1 ? skillSummary(skill).join(' / ') : skill.text) + (hasCond ? '\n◆条件で強化' : '');
     const body = txt(this, 0, chipY + chipH + 8, bodyText, cmp ? 16 : BTN_W < 130 ? 11 : 12, cmp ? '#ffd9a0' : '#e8dfd3', {
       align: cmp ? 'center' : 'left', fontStyle: cmp ? 'bold' : 'normal', wordWrap: { width: BTN_W - 14, useAdvancedWrap: true },
@@ -599,7 +600,7 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
     const kind = it.kind ?? 'attack';
-    const ring = kind === 'heavy' ? 0xff2d2d : kind === 'charge' ? 0xffa23c : kind === 'guard' ? 0x6fa8ff : 0xff5c5c;
+    const ring = kind === 'heavy' ? 0xff2d2d : kind === 'charge' ? 0xffa23c : kind === 'guard' ? 0x6fa8ff : kind === 'disrupt' ? 0xc58bff : 0xff5c5c;
     g.lineStyle(kind === 'heavy' ? 6 : 3, ring, 1).strokeCircle(0, 0, kind === 'heavy' ? 38 : 34);
     if (kind === 'attack' || kind === 'heavy') {
       const iconKey = kind === 'heavy' && hasImg(this, 'icon_status_intent_heavy') ? 'icon_status_intent_heavy'
@@ -616,6 +617,12 @@ export class BattleScene extends Phaser.Scene {
       v.intentValue.setText('溜め').setColor('#ffb86b').setFontSize(22);
       v.intentLabel.setText(`${it.name} → 次は${next.name}`);
       v.intentHint.setText('溜め中にブレイクで両方阻止').setColor('#ffe066');
+    } else if (kind === 'disrupt') {
+      drawSword(g, 0, 0, 40, 0xc58bff);
+      g.lineStyle(3, 0xc58bff, 1).strokeCircle(0, 0, 34);
+      v.intentValue.setText('封印').setColor('#d9a8ff').setFontSize(22);
+      v.intentLabel.setText(`${it.name} → ${target}`);
+      v.intentHint.setText('スキルを1つ封印される').setColor('#ffe066');
     } else {
       if (hasImg(this, 'icon_status_intent_guard')) v.intentImg.setTexture('icon_status_intent_guard').setDisplaySize(50, 50).setVisible(true);
       else drawShield(g, 0, 0, 40, 0x6fa8ff);
@@ -673,7 +680,7 @@ export class BattleScene extends Phaser.Scene {
         g.fillStyle(m.def.color, 1).fillRoundedRect(cx - 122, y - h / 2, 6, h, 3);
         const name = st.skillId === WAIT_ID ? '待機' : SKILLS[st.skillId].name;
         const sk = st.skillId === WAIT_ID ? null : SKILLS[st.skillId];
-        const tg = this.state.enemies.length > 1 && sk && (sk.damage || sk.breakPower) && st.target !== undefined ? `→${ENEMY_TAG[st.target]}` : '';
+        const tg = sk?.aoe ? '→全体' : this.state.enemies.length > 1 && sk && (sk.damage || sk.breakPower) && st.target !== undefined ? `→${ENEMY_TAG[st.target]}` : '';
         this.planTexts[k].setText(`${k + 1}  ${name}${tg}`).setColor('#ffffff');
         const cost = st.skillId === WAIT_ID ? 1 : skillCost(SKILLS[st.skillId]);
         this.planCost[k].setText(`AP${cost}`);
@@ -822,6 +829,7 @@ export class BattleScene extends Phaser.Scene {
     if (p.reaction) lines.push(`${p.reaction.name}!`);
     if (p.focus) lines.push('集中');
     if (p.charged) lines.push('帯電');
+    if (sk.aoe) lines.push('全体攻撃');
     if (p.protectedBy) lines.push('守護で被ダメ-25%');
     for (const c of p.conds) lines.push(`◆${c}`);
     this.preview.setText(lines.join('\n')).setColor(p.chain ? '#ff9a3c' : p.breaks ? '#ffe066' : '#ffffff').setAlpha(0.95);
@@ -1003,6 +1011,14 @@ export class BattleScene extends Phaser.Scene {
       const col = ELEMENT_COLOR[sk.element];
       const orb = this.add.circle(p.x + 40, p.y - 160, 14, col).setDepth(2000);
       this.tweens.add({ targets: hero, y: p.y - 8, duration: 120, yoyo: true });
+      if (sk.aoe) {
+        // 全体攻撃: 他の敵にも魔力の弾が飛ぶ
+        this.ev.forEach((v, i) => {
+          if (i === ti || this.state.enemies[i].hp <= 0 && !events.some((x) => x.type === 'damage' && x.enemy === i)) return;
+          const o2 = this.add.circle(p.x + 40, p.y - 160, 12, col).setDepth(2000);
+          this.tweens.add({ targets: o2, x: v.pos.x, y: v.pos.y - 90, scale: 1.4, duration: 320, delay: 140, ease: 'Cubic.in', onComplete: () => o2.destroy() });
+        });
+      }
       this.tweens.add({
         targets: orb, x: tp.x, y: tp.y - 90, scale: 1.6, duration: 320, delay: 140, ease: 'Cubic.in',
         onComplete: () => { orb.destroy(); this.playSeq(events, done); },
@@ -1022,9 +1038,14 @@ export class BattleScene extends Phaser.Scene {
   /** イベントを種類ごとの所要時間で順に再生。完了後に表示値を state に同期する */
   private playSeq(events: BattleEvent[], onDone?: () => void): void {
     let t = 0;
+    let seenChain = false;
+    this.skipCut.clear();
     for (const e of events) {
+      // 全体攻撃で複数の敵がチェインしても、カットインは最初の1回だけ(以降はダメージ表示のみ)
+      const extraChain = e.type === 'chain' && seenChain;
+      if (e.type === 'chain') { if (seenChain) this.skipCut.add(e); seenChain = true; }
       this.time.delayedCall(t, () => this.playEvent(e));
-      t += EVENT_MS[e.type];
+      t += extraChain ? 120 : EVENT_MS[e.type];
     }
     this.time.delayedCall(t + 120, () => {
       this.syncDisp();
@@ -1080,8 +1101,20 @@ export class BattleScene extends Phaser.Scene {
         break;
       }
       case 'chain':
-        this.cutIn(e.element, e.amount, en);
+        if (this.skipCut.has(e)) {
+          de.hp -= e.amount;
+          this.damagePopup(EX, EY - 140, e.amount, hex(ELEMENT_COLOR[e.element]), { chain: true });
+          this.impact(e.amount, ELEMENT_COLOR[e.element], en);
+        } else this.cutIn(e.element, e.amount, en);
         break;
+      case 'disrupt': {
+        const hp = HERO_POS[e.member];
+        audio.play('deny');
+        this.popup(hp.x, hp.y - 230, `封印! ${SKILLS[e.skillId].name}`, '#d9a8ff', 30);
+        this.shockwave(hp.x, hp.y - 100, 0xc58bff);
+        this.cameras.main.flash(120, 197, 139, 255);
+        break;
+      }
       case 'guard':
         d.guard[e.member] += e.amount;
         audio.play('sup_guard');

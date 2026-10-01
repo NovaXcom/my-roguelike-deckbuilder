@@ -22,6 +22,8 @@ export interface SkillDef {
   inflict?: 'burn';
   /** 行動ポイント消費(既定1)。強力なスキルは2 */
   cost?: number;
+  /** 全体攻撃: 生存している敵全員に当たる。値はダメージ/ゲージ削りの倍率(例: 0.7) */
+  aoe?: number;
   /** 条件を満たすと発動する追加効果（「今使う価値があるか」を考えさせる） */
   conds?: SkillCond[];
   text: string;
@@ -64,8 +66,8 @@ export interface MemberDef {
 /** front=前衛狙い / back=後衛狙い（前衛がヘイトを取っていると前衛に逸れる） / all=全体攻撃 */
 export type EnemyTarget = 'front' | 'back' | 'all';
 
-/** attack=通常攻撃 / heavy=強攻撃(ブレイクで阻止できる) / charge=溜め(次の強攻撃の予告) / guard=自己防御 */
-export type IntentKind = 'attack' | 'heavy' | 'charge' | 'guard';
+/** attack=通常攻撃 / heavy=強攻撃(ブレイクで阻止できる) / charge=溜め(次の強攻撃の予告) / guard=自己防御 / disrupt=妨害(標的のスキルを封印する) */
+export type IntentKind = 'attack' | 'heavy' | 'charge' | 'guard' | 'disrupt';
 
 export interface EnemyIntent {
   name: string;

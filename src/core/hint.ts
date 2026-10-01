@@ -33,6 +33,8 @@ export function recommend(s: BattleState): string | null {
     const who = multi ? `${name(threat)}の` : '';
     return canBreak(threat) ? `${who}強攻撃をブレイクで阻止できる! 今ならシールドを削り切れる` : `${multi ? name(threat) + 'の' : ''}シールドを削って、強攻撃の前にブレイクを狙おう`;
   }
+  const jammer = alive_.find((i) => !s.enemies[i].broken && currentIntent(s, i).kind === 'disrupt');
+  if (jammer !== undefined) return `${multi ? name(jammer) + 'の' : ''}超音波でスキルが封印される。挑発で逸らすか、ブレイクで止めよう`;
   const protector = alive_.find((i) => !s.enemies[i].broken && s.enemies[i].def.traits?.protects);
   if (multi && protector !== undefined) return `${name(protector)}が仲間を守っている。ブレイクで守護を崩そう`;
   if (alive_.some((i) => currentIntent(s, i).target === 'back')) return '後衛が狙われる。挑発で前衛に引きつけよう';

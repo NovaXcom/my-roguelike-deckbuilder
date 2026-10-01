@@ -110,6 +110,7 @@ export type BattleEvent =
   | { type: 'enemyGuard'; enemy: number; amount: number }
   | { type: 'canceled'; enemy: number; intent: EnemyIntent }
   | { type: 'enemyHeal'; enemy: number; amount: number }
+  | { type: 'disrupt'; enemy: number; member: number; skillId: string }
   | { type: 'hurt'; member: number; amount: number; blocked: number }
   | { type: 'guard'; member: number; amount: number }
   | { type: 'heal'; member: number; amount: number }
@@ -320,6 +321,7 @@ export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0, ti
     if (powered) mult *= GUARD_POWER_MULT;
     mult *= s.mods?.elementMult?.[skill.element] ?? 1;
     mult *= protectionMult(s, ti);
+    mult *= skill.aoe ?? 1;
     total = Math.max(1, Math.floor((skill.damage + m.power + bonus.damageBonus) * mult));
     if (chain) {
       reaction = reactionFor(e.lastElement, skill.element);
@@ -333,7 +335,7 @@ export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0, ti
 
   const bp0 = skill.breakPower ?? 0;
   let bp = (bp0 > 0 ? bp0 + m.breakBonus : 0) + bonus.breakBonus + (focus ? FOCUS_BREAK : 0);
-  if (bp > 0) bp = Math.floor(bp * (s.mods?.breakMult ?? 1));
+  if (bp > 0) bp = Math.floor(bp * (s.mods?.breakMult ?? 1) * (skill.aoe ?? 1));
   const shield = e.broken ? 0 : Math.min(e.shield, Math.max(0, bp));
   const freeze = (bonus.freeze || (m.effects.includes('freeze_ice') && skill.element === 'ice')) && !!skill.damage;
   const burn = (skill.inflict === 'burn' || (m.effects.includes('ignite') && skill.element === 'fire')) && !!skill.damage;
@@ -366,39 +368,25 @@ export function useSkill(s: BattleState, member: number, skillId: string, target
   const base = SKILLS[skillId];
   const m = s.party[member];
   const skill = skillFor(m, base);
-  const p = previewSkill(s, base, member, ti);
   m.acted = true;
   m.used.push(skillId);
   s.ap -= skillCost(base);
   m.cooldowns[skillId] = skillCooldown(s, m, base);
   const ev: BattleEvent[] = [{ type: 'skill', member, skillId }];
-  const e = s.enemies[ti];
 
   if (skill.damage || skill.breakPower) {
-    if (p.focus) m.focus = false;
-    if (p.charged) m.charged = false;
-    if (skill.damage) {
-      e.guard -= p.absorbed;
-      const dealt = hpLoss(p);
-      e.hp = Math.max(0, e.hp - dealt);
-      ev.push({ type: 'damage', enemy: ti, amount: dealt, absorbed: p.absorbed, element: skill.element, weak: p.weak, resist: p.resist, chain: p.chain });
-      if (p.chain) ev.push({ type: 'chain', enemy: ti, element: skill.element, amount: p.hp });
-      if (p.reaction) applyReaction(s, e, ti, p.reaction, member, ev);
+    // 全体攻撃は生存している敵全員(編成順)。単体は指定した敵だけ
+    const targets = skill.aoe ? livingEnemies(s) : [ti];
+    let focusUsed = false;
+    let chargedUsed = false;
+    for (const t of targets) {
+      const p = previewSkill(s, base, member, t);
+      focusUsed = focusUsed || p.focus;
+      chargedUsed = chargedUsed || p.charged;
+      strike(s, member, skill, p, t, ev);
     }
-    if (p.shield > 0) {
-      e.shield -= p.shield;
-      ev.push({ type: 'shield', enemy: ti, amount: p.shield });
-      if (e.shield <= 0) {
-        e.broken = true;
-        ev.push({ type: 'break', enemy: ti });
-        onBreak(s, e, ti, m, ev);
-      }
-    }
-    if (skill.damage && e.hp > 0) {
-      if (p.burn) { e.burn = { ...ENEMY_BURN }; ev.push({ type: 'status', enemy: ti, kind: 'burn' }); }
-      if (p.freeze && !e.frozen) { e.frozen = true; ev.push({ type: 'status', enemy: ti, kind: 'freeze' }); }
-      if (skill.element !== 'none') e.lastElement = skill.element;
-    }
+    if (focusUsed) m.focus = false;
+    if (chargedUsed) m.charged = false;
   }
   const gm = s.mods?.guardMult ?? 1;
   if (skill.guardSelf) {
@@ -420,9 +408,37 @@ export function useSkill(s: BattleState, member: number, skillId: string, target
     m.taunt = true;
     ev.push({ type: 'taunt', member });
   }
-  if (e.hp <= 0) onEnemyDown(s, ti, ev);
   checkEnd(s);
   return ev;
+}
+
+/** 1体の敵への命中処理(ダメージ・ガード吸収・ブレイク・状態付与・反応) */
+function strike(s: BattleState, member: number, skill: SkillDef, p: DamagePreview, ti: number, ev: BattleEvent[]): void {
+  const m = s.party[member];
+  const e = s.enemies[ti];
+  if (skill.damage) {
+    e.guard -= p.absorbed;
+    const dealt = hpLoss(p);
+    e.hp = Math.max(0, e.hp - dealt);
+    ev.push({ type: 'damage', enemy: ti, amount: dealt, absorbed: p.absorbed, element: skill.element, weak: p.weak, resist: p.resist, chain: p.chain });
+    if (p.chain) ev.push({ type: 'chain', enemy: ti, element: skill.element, amount: p.hp });
+    if (p.reaction) applyReaction(s, e, ti, p.reaction, member, ev);
+  }
+  if (p.shield > 0) {
+    e.shield -= p.shield;
+    ev.push({ type: 'shield', enemy: ti, amount: p.shield });
+    if (e.shield <= 0) {
+      e.broken = true;
+      ev.push({ type: 'break', enemy: ti });
+      onBreak(s, e, ti, m, ev);
+    }
+  }
+  if (skill.damage && e.hp > 0) {
+    if (p.burn) { e.burn = { ...ENEMY_BURN }; ev.push({ type: 'status', enemy: ti, kind: 'burn' }); }
+    if (p.freeze && !e.frozen) { e.frozen = true; ev.push({ type: 'status', enemy: ti, kind: 'freeze' }); }
+    if (skill.element !== 'none') e.lastElement = skill.element;
+  }
+  if (e.hp <= 0) onEnemyDown(s, ti, ev);
 }
 
 /** 敵が倒れた: 通知し、仲間が「奮起」持ちなら攻撃力が上がる */
@@ -577,6 +593,17 @@ function enemyAct(s: BattleState, e: EnemyState, ei: number, ev: BattleEvent[]):
     ev.push({ type: 'recover', enemy: ei });
   } else if (intent.kind === 'charge') {
     ev.push({ type: 'enemyCharge', enemy: ei, intent });
+    e.patternIndex += 1;
+  } else if (intent.kind === 'disrupt') {
+    const idx = Math.max(0, resolveTarget(s, intent));
+    const t = s.party[idx];
+    // 使える(CD0)スキルのうち、最も強力(CDが長い)ものを2ターン封印する。使えるものが無ければ何もしない
+    const ready = t.skills.filter((id) => t.cooldowns[id] === 0).sort((a, b) => SKILLS[b].cooldown - SKILLS[a].cooldown);
+    ev.push({ type: 'enemyAttack', enemy: ei, intent, target: idx });
+    if (ready.length && alive(t)) {
+      t.cooldowns[ready[0]] = Math.max(t.cooldowns[ready[0]], 2);
+      ev.push({ type: 'disrupt', enemy: ei, member: idx, skillId: ready[0] });
+    }
     e.patternIndex += 1;
   } else if (intent.kind === 'guard') {
     const g = intent.guard ?? 0;

@@ -27,7 +27,7 @@ export function autoBattle(run: RunState, node: MapNode): BattleState {
           const sk = SKILLS[id];
           const offensive = !!sk.damage || !!sk.breakPower;
           const targets = offensive ? livingEnemies(s) : [defaultTarget(s)];
-          for (const ti of targets) {
+          const scoreAt = (ti: number): number => {
             const e = s.enemies[ti];
             const p = previewSkill(s, sk, mi, ti);
             let score = p.hp - p.absorbed * 0.5 + p.shield * 0.8 + (p.breaks ? 15 : 0) + (p.chain ? 20 : 0);
@@ -38,10 +38,20 @@ export function autoBattle(run: RunState, node: MapNode): BattleState {
             if (p.hp - p.absorbed >= e.hp) score += 22;
             if (p.breaks && e.def.traits?.protects) score += 10;
             if (p.protectedBy) score -= 4;
-            if (sk.healAll) score += avg < 0.6 ? 30 : 0;
-            if (sk.guardSelf || sk.guardAlly) score += 4;
-            if (sk.taunt) score += 3;
-            score -= (skillCost(sk) - 1) * 6; // 高コストは割高
+            return score;
+          };
+          let extra = 0;
+          if (sk.healAll) extra += avg < 0.6 ? 30 : 0;
+          if (sk.guardSelf || sk.guardAlly) extra += 4;
+          if (sk.taunt) extra += 3;
+          extra -= (skillCost(sk) - 1) * 6; // 高コストは割高
+          if (sk.aoe) {
+            const score = targets.reduce((a, ti) => a + scoreAt(ti), 0) + extra;
+            if (score > bestScore) { bestScore = score; best = { mi, id, ti: targets[0] }; }
+            continue;
+          }
+          for (const ti of targets) {
+            const score = scoreAt(ti) + extra;
             if (score > bestScore) { bestScore = score; best = { mi, id, ti }; }
           }
         }
