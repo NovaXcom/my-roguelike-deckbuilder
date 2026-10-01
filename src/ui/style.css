@@ -153,3 +153,14 @@ kbd { display: inline-block; padding: 0 6px; margin: 0 1px; border: 1px solid #f
 #sbar b.ok { color: #7affaa; } #sbar b.ng { color: #ff6a6a; } #sbar b.wn { color: #ffe27a; animation: blink .4s infinite; } #sbar small { color: var(--dim); }
 
 .titlebox h1.logo { margin: 4px 0; letter-spacing: 0; } .titlebox h1.logo img { width: min(78%, 520px); image-rendering: auto; filter: drop-shadow(0 4px 12px #000a); }
+
+/* ───── スマホ・タッチ ───── */
+.ctl.tc { display: none; }
+@media (pointer: coarse) { #prompt { animation: none; } .ctl.kb { display: none; } .ctl.tc { display: block; } .act, .ch, .hb { min-height: 44px; } #prompt { padding: 10px 20px; } #sbar button { min-height: 32px; } }
+#sbar button { background: #2a1a1a; border: 1px solid #ff8a8a; border-radius: 6px; padding: 2px 10px; color: #ffd0d0; }
+@media (max-width: 640px) {
+  #dlg { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); min-height: 0; z-index: 40; padding: 12px 14px 10px; }
+  #prompt { bottom: 3%; font-size: 13px; }
+  #sbar { top: 40px; gap: 6px; padding: 4px 8px; font-size: 11px; } #sbar i, #sbar .al { width: 52px; }
+  #wrap { padding-bottom: 140px; }
+}

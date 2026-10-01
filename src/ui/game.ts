@@ -374,7 +374,7 @@ export class Game {
     this.sound.sfx('sneak');
     const status = await new Promise<StealthStatus | 'quit'>((res) => { this.stealthResolve = res; });
     this.stealth = null; this.stealthResolve = null;
-    this.$('sbar').hidden = true;
+    this.$('sbar').hidden = true; this.$('sbar').dataset.built = '0';
     this.keys.clear(); this.goal = null;
     this.actors.delete(def.target); this.cacheKey = '';
     if (status === 'quit') { this.refresh(); return; }
@@ -409,11 +409,20 @@ export class Game {
     if (d.goal) { p = st.hold / d.goal.hold; line = dist > d.goal.hear ? '👂 もっと近づく' : Math.abs(this.hero.x - d.goal.x) > d.goal.r ? '👂 光る線の上へ' : '👂 聞き耳を立てている…'; }
     else { p = st.hold / d.tail!.hold; line = dist > d.tail!.max ? '🏃 離れすぎている！' : dist < d.tail!.min ? '⚠ 近すぎる！' : '👣 いい距離'; }
     const state = st.hidden ? '<b class="ok">隠れている</b>' : st.glancing > 0 ? '<b class="ng">見られている！</b>' : st.warn ? '<b class="wn">？ 物陰へ！</b>' : '';
-    el.innerHTML = `<span>${line}</span><i><u style="width:${Math.min(100, p * 100)}%"></u></i><span class="al"><u style="width:${st.alert * 100}%"></u></span>${state}<small>Esc でやめる</small>`;
+    if (el.dataset.built !== '1') {
+      el.dataset.built = '1';
+      el.innerHTML = '<span id="sl"></span><i><u id="sh"></u></i><span class="al"><u id="sa"></u></span><span id="ss"></span><button id="sq">やめる</button>';
+      el.querySelector<HTMLElement>('#sq')!.onclick = () => { const r = this.stealthResolve; this.stealthResolve = null; r?.('quit'); };
+    }
+    const set = (id: string, f: (n: HTMLElement) => void) => f(el.querySelector<HTMLElement>('#' + id)!);
+    set('sl', (n) => { if (n.textContent !== line) n.textContent = line; });
+    set('sh', (n) => { n.style.width = Math.min(100, p * 100) + '%'; });
+    set('sa', (n) => { n.style.width = st.alert * 100 + '%'; });
+    set('ss', (n) => { if (n.innerHTML !== state) n.innerHTML = state; });
   }
 
   /** 20:00 の駅のホームに立つ「病衣の男」（自分自身だと分かる前だけ見える人影） */
-  private patientView() {
+  private patientView(): ActorView[] {
     const s = this.s;
     return s.loc === 'station' && s.time >= 19 * 60 + 55 && s.time <= 20 * 60 + 25 && s.facts.self_patient === undefined
       ? [{ id: 'patient', x: 60, y: 150, dir: 1, moving: false }] : [];
@@ -576,7 +585,8 @@ export class Game {
     panel.innerHTML = `
       <div class="here"><b>${esc(locDef(s.loc).name)}</b><span>${esc(locDef(s.loc).blurb)}</span></div>
       ${lead ? `<div class="lead">📌 今日の焦点：${esc(lead)}</div>` : ''}
-      <div class="ctl"><kbd>WASD</kbd> / <kbd>矢印</kbd> で歩く　<kbd>E</kbd> 話す・調べる　クリックでその場所へ移動　<b>画面の端</b>から別の場所へ　光る印＝調べられる場所</div>
+      <div class="ctl kb"><kbd>WASD</kbd> / <kbd>矢印</kbd> で歩く　<kbd>E</kbd> 話す・調べる　クリックでその場所へ移動　<b>画面の端</b>から別の場所へ　光る印＝調べられる場所</div>
+      <div class="ctl tc"><b>タップ</b>でその場所へ歩く／人や<b>光る印</b>をタップで話す・調べる／<b>画面の端</b>へ歩くと別の場所へ</div>
       <div class="acts sys">
         <button class="act tell" id="aTell" ${canTell ? '' : 'disabled'}>🗣 伝える<small>10分</small></button>
         <button class="act wt" data-w="15">⏳ 15分待つ</button>
