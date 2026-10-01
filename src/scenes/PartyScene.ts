@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { audio } from '../audio';
 import { ELEMENT_COLOR, ELEMENT_LABEL, MEMBERS, PARTY_ORDER, SKILLS } from '../core/data';
 import { RARITY_LABEL, statLines } from '../core/equipment';
-import { memberMaxHp, memberSkills } from '../core/run';
+import { memberDeck, memberMaxHp, memberSkills } from '../core/run';
 import { startRun } from '../game';
 import { rollModChoices } from '../core/mods';
 import { Rng } from '../core/rng';
@@ -53,13 +53,15 @@ export class PartyScene extends Phaser.Scene {
       const lines = [gear.weapon, gear.armor].map((it) =>
         it ? `${it.name} [${RARITY_LABEL[it.rarity]}] ${statLines(it.stats).join(' ')}` : '');
       txt(this, px + 240, 218, lines.join('\n'), 12, '#d8d0c4', { lineSpacing: 3 });
-      memberSkills(run, i).forEach((sid, si) => {
+      const cards = memberSkills(run, i);
+      const step = Math.min(56, Math.floor(300 / cards.length));
+      cards.forEach((sid, si) => {
         const sk = SKILLS[sid];
-        const y = 268 + si * 56;
+        const y = 262 + si * step;
         const col = sk.element !== 'none' ? ELEMENT_COLOR[sk.element] : sk.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;
-        g.fillStyle(col, 1).fillRoundedRect(px + 240, y + 3, 6, 42, 3);
-        txt(this, px + 256, y, `${sk.name}${sk.element !== 'none' ? `（${ELEMENT_LABEL[sk.element]}）` : ''}`, 15, '#fff', { fontStyle: 'bold' });
-        txt(this, px + 510, y + 2, `CD ${sk.cooldown}`, 12, '#ffb86b').setOrigin(1, 0);
+        g.fillStyle(col, 1).fillRoundedRect(px + 240, y + 3, 6, step - 14, 3);
+        txt(this, px + 256, y, `${sk.name}${sk.element !== 'none' ? `（${ELEMENT_LABEL[sk.element]}）` : ''} ×${memberDeck(run, i).filter((x) => x === sid).length}`, 15, '#fff', { fontStyle: 'bold' });
+        txt(this, px + 510, y + 2, `${sk.cooldown ? `疲労 ${sk.cooldown}` : "疲労なし"}`, 12, '#ffb86b').setOrigin(1, 0);
         // コンパクト(スマホ)は長文の代わりに要点を1行で大きく表示
         txt(this, px + 256, y + 20, compact() ? skillSummary(sk).join('  ') : sk.text, 12, '#b8c2d0', { wordWrap: { width: 300, useAdvancedWrap: true } });
       });

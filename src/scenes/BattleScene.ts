@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { audio } from '../audio';
 import { bgmForScene, castCue, deathCue, enemyAttackCue, hurtCue, impactCues, type Cue } from '../audio/cues';
 import {
-  BattleEvent, BattleState, canUse, canWait, currentIntent, defaultTarget, effectiveSkill, endPlayerTurn, skillCost, intentValue, isEnraged,
+  BattleEvent, BattleState, HAND_SIZE, nextDraw, canUse, canWait, currentIntent, defaultTarget, effectiveSkill, endPlayerTurn, skillCost, intentValue, isEnraged,
   nextIntent, previewSkill, resolveTarget, usePotion, useSkill, wait,
 } from '../core/battle';
 import { recommend } from '../core/hint';
@@ -72,6 +72,8 @@ type Actor = Phaser.GameObjects.Graphics | Phaser.GameObjects.Image;
 
 interface SkillBtn {
   member: number;
+  /** 手札のカード実体ID(旧方式は0) */
+  uid: number;
   skill: SkillDef;
   w: number;
   c: Phaser.GameObjects.Container;
@@ -114,6 +116,7 @@ export class BattleScene extends Phaser.Scene {
   private target = 0;
   private dragTarget = -1;
   private skipCut = new Set<BattleEvent>();
+  private lastHandSig = '';
   private bars!: Phaser.GameObjects.Graphics;
   private hpTexts: Phaser.GameObjects.Text[] = [];
   private guardTexts: Phaser.GameObjects.Text[] = [];
@@ -199,13 +202,12 @@ export class BattleScene extends Phaser.Scene {
       const px = PANEL_X[mi];
       const line = this.add.graphics();
       line.lineStyle(2, m.def.color, 0.8).lineBetween(px, 500, px + PANEL_W, 500);
-      this.tags.push(txt(this, px + PANEL_W - 104, 488, '', 14, '#9fb0c8').setOrigin(1, 0.5));
-      this.buildWait(mi, px + PANEL_W - 48, 487);
+      // デッキ戦闘では待機は手札のカード。ヘッダーの待機ボタンは旧方式のみ
+      this.tags.push(txt(this, px + PANEL_W - (s.deckMode ? 0 : 104), 488, '', compact() ? 15 : 13, '#9fb0c8').setOrigin(1, 0.5));
+      if (!s.deckMode) this.buildWait(mi, px + PANEL_W - 48, 487);
       txt(this, px, 486, `${m.def.name}（${m.def.position}）`, 17, hex(m.def.color), { fontStyle: 'bold' }).setOrigin(0, 0.5);
-      const gap = 6;
-      const bw = (PANEL_W - gap * (m.skills.length - 1)) / m.skills.length;
-      m.skills.forEach((sid, si) => this.buildButton(mi, SKILLS[sid], px + bw / 2 + si * (bw + gap), bw));
     });
+    this.rebuildHand();
 
     // --- ターン終了 ---
     this.endBtnBg = this.add.graphics();
@@ -381,7 +383,27 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  private buildButton(member: number, baseSkill: SkillDef, x: number, BTN_W: number): void {
+  /** 手札の署名(変わったら手札ボタンを作り直す) */
+  private handSig(): string {
+    return this.state.party.map((m) => m.deck.hand.map((c) => `${c.uid}:${c.sealed}`).join(',')).join('|');
+  }
+
+  /** 手札(旧方式は全スキル)に合わせて、スキルボタンを作り直す */
+  private rebuildHand(): void {
+    for (const b of this.buttons) { this.tweens.killTweensOf(b.c); b.c.destroy(); }
+    this.buttons = [];
+    this.armed = null;
+    this.lastHandSig = this.handSig();
+    this.state.party.forEach((m, mi) => {
+      const px = PANEL_X[mi];
+      const gap = 6;
+      const n = Math.max(m.deck.hand.length, HAND_SIZE);
+      const bw = (PANEL_W - gap * (n - 1)) / n;
+      m.deck.hand.forEach((card, si) => this.buildButton(mi, SKILLS[card.defId], px + bw / 2 + si * (bw + gap), bw, card.uid));
+    });
+  }
+
+  private buildButton(member: number, baseSkill: SkillDef, x: number, BTN_W: number, uid = 0): void {
     const cmp = compact();
     const level = this.state.party[member].levels[baseSkill.id] ?? 1;
     const skill = effectiveSkill(baseSkill, level);
@@ -400,7 +422,7 @@ export class BattleScene extends Phaser.Scene {
     const chip = this.add.graphics();
     chip.fillStyle(col, 1).fillRoundedRect(-BTN_W / 2 + 6, chipY, chipW, chipH, chipH / 2);
     const chipText = txt(this, -BTN_W / 2 + 6 + chipW / 2, chipY + chipH / 2, kindLabel, 11, '#111', { fontStyle: 'bold' }).setOrigin(0.5);
-    const cd = txt(this, BTN_W / 2 - 6, chipY + chipH / 2, `${level > 1 ? `Lv${level} ` : ''}CD${skill.cooldown}`, 11, level > 1 ? '#ffe066' : '#9fb0c8').setOrigin(1, 0.5);
+    const cd = txt(this, BTN_W / 2 - 6, chipY + chipH / 2, `${level > 1 ? `Lv${level} ` : ''}${this.state.deckMode ? (skill.cooldown > 0 ? `疲労${skill.cooldown}` : '') : `CD${skill.cooldown}`}`, 11, level > 1 ? '#ffe066' : '#9fb0c8').setOrigin(1, 0.5);
     // 説明: 通常は全文 / コンパクトは要点のみ（全文はタップ時にツールチップで表示）
     const hasCond = !!skill.conds?.length && BTN_W >= 130;
     const bodyText = cmp ? skillSummary(skill).join('\n') : (level > 1 ? skillSummary(skill).join(' / ') : skill.text) + (hasCond ? '\n◆条件で強化' : '');
@@ -412,7 +434,7 @@ export class BattleScene extends Phaser.Scene {
     const badge = badgeKey && hasImg(this, badgeKey) ? this.add.image(BTN_W / 2 - 18, -BTN_H / 2 + 18, badgeKey).setDisplaySize(32, 32) : null;
     const c = this.add.container(x, BTN_Y, [bg, ...(icon ? [icon] : []), ...(badge ? [badge] : []), title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
     c.setInteractive({ useHandCursor: true });
-    const btn: SkillBtn = { member, skill: baseSkill, c, bg, status, w: BTN_W, hover: false };
+    const btn: SkillBtn = { member, uid, skill: baseSkill, c, bg, status, w: BTN_W, hover: false };
     this.buttons.push(btn);
     this.input.setDraggable(c);
     c.on('pointerover', () => {
@@ -513,9 +535,15 @@ export class BattleScene extends Phaser.Scene {
   // ------------------------------------------------------------------ 描画更新
   private paintBtn(b: SkillBtn, hover: boolean): void {
     const m = this.view.party[b.member];
-    const ok = !this.locked() && canUse(this.view, b.member, b.skill.id);
     const cdLeft = m.cooldowns[b.skill.id];
-    const queued = this.plan.some((st) => st.member === b.member && st.skillId === b.skill.id);
+    const real = this.state.party[b.member];
+    const card = real.deck.hand.find((c) => c.uid === b.uid);
+    const sealed = this.state.deckMode && !!card && card.sealed > 0;
+    // 予約済みか: 同名カードの何枚目かで判定(旧方式は種類で判定)
+    const planned = this.plan.filter((st) => st.member === b.member && st.skillId === b.skill.id).length;
+    const rank = this.buttons.filter((x) => x.member === b.member && x.skill.id === b.skill.id && x.uid < b.uid).length;
+    const queued = this.state.deckMode ? rank < planned : planned > 0;
+    const ok = !this.locked() && !queued && !sealed && canUse(this.view, b.member, b.skill.id);
     const col = m.def.color;
     const g = b.bg;
     const BTN_W = b.w;
@@ -526,8 +554,9 @@ export class BattleScene extends Phaser.Scene {
     b.c.setAlpha(ok ? 1 : 0.55);
     if (!alive(m)) b.status.setText('戦闘不能').setColor('#ff7a7a');
     else if (queued) b.status.setText('予約中').setColor('#9ff0c0');
+    else if (sealed) b.status.setText(`封印 あと${card!.sealed}ターン`).setColor('#d9a8ff');
     else if (cdLeft > 0) b.status.setText(`あと${cdLeft}ターン`).setColor('#ffb86b');
-    else if (m.used.includes(b.skill.id)) b.status.setText('使用済み').setColor('#9fb0c8');
+    else if (!this.state.deckMode && m.used.includes(b.skill.id)) b.status.setText('使用済み').setColor('#9fb0c8');
     else if (this.view.ap < skillCost(b.skill)) b.status.setText('AP不足').setColor('#ff9a9a');
     else b.status.setText('使用可能').setColor('#7be495');
   }
@@ -545,7 +574,12 @@ export class BattleScene extends Phaser.Scene {
     this.buttons.forEach((b) => this.paintBtn(b, b.hover));
     this.state.party.forEach((m, i) => {
       const buff = [m.focus ? '集中' : '', m.charged ? '帯電' : ''].filter(Boolean).join('・');
-      this.tags[i].setText((!alive(m) ? '戦闘不能' : '') + (buff ? ` ${buff}` : ''))
+      const dk = m.deck;
+      const nx = nextDraw(this.state, i);
+      const pile = this.state.deckMode
+        ? `山${dk.draw.length} 捨${dk.discard.length} 疲${dk.fatigued.length}${!compact() && nx ? ` 次:${SKILLS[nx].name}` : ''}`
+        : '';
+      this.tags[i].setText([!alive(m) ? '戦闘不能' : '', buff, pile].filter(Boolean).join('  '))
         .setColor(!alive(m) ? '#ff7a7a' : '#ffe066');
       (this.waitBtns[i]?.getData('paint') as ((h: boolean) => void) | undefined)?.(false);
     });
@@ -790,6 +824,7 @@ export class BattleScene extends Phaser.Scene {
   private refreshAll(): void {
     const tag = this.node.type === 'elite' ? ' ─ エリート' : this.node.danger ? ' ─ 危険な戦闘' : '';
     this.turnText.setText(`第${this.node.row + 1}階層 ─ ターン ${this.state.turn}${tag}`);
+    if (this.handSig() !== this.lastHandSig) this.rebuildHand();
     this.drawBars();
     this.refreshButtons();
     this.refreshIntent();

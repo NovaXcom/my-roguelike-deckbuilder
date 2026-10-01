@@ -37,10 +37,10 @@ export class SkillsScene extends Phaser.Scene {
         txt(this, x0 + 32, y, base.name, 18, '#fff', { fontStyle: 'bold' });
         txt(this, x0 + 32 + 190, y + 2, `Lv${lv}${lv >= MAX_SKILL_LEVEL ? ' (MAX)' : ''}`, 16, lv > 1 ? '#ffe066' : '#9fb0c8', { fontStyle: 'bold' });
         const cur = effectiveSkill(base, lv);
-        txt(this, x0 + 32, y + 28, `${skillSummary(cur).join('  ')}　CD ${cur.cooldown}`, 14, '#d8d0c4');
+        txt(this, x0 + 32, y + 28, `${skillSummary(cur).join('  ')}　疲労 ${cur.cooldown}`, 14, '#d8d0c4');
         if (lv < MAX_SKILL_LEVEL) {
           const nxt = effectiveSkill(base, lv + 1);
-          txt(this, x0 + 32, y + 50, `→ ${skillSummary(nxt).join('  ')}　CD ${nxt.cooldown}`, 14, '#7be495');
+          txt(this, x0 + 32, y + 50, `→ ${skillSummary(nxt).join('  ')}　疲労 ${nxt.cooldown}`, 14, '#7be495');
           const cost = skillUpgradeCost(lv);
           makeButton(this, x0 + 510, y + 36, 130, 44, `強化 ${cost}SP`, () => {
             if (upgradeSkill(run, i, sid)) { audio.play('equip'); this.scene.restart(); }
