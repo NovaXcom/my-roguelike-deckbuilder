@@ -1,18 +1,18 @@
-import type { Element, EnemyDef, MemberDef, Role, SkillDef } from './types';
+import type { Element, EnemyDef, EquipEffectId, MemberDef, Role, SkillDef } from './types';
 
 const sk = (d: SkillDef): [string, SkillDef] => [d.id, d];
 
 export const SKILLS: Record<string, SkillDef> = Object.fromEntries([
   // --- ナイト ---
-  sk({ id: 'slash', name: '斬撃', kind: 'physical', element: 'none', cooldown: 0, damage: 8, breakPower: 8,
+  sk({ id: 'slash', branches: [{ id: 'a', name: '出血型', text: '敵を出血させる(4×3ターン)', set: { inflict: 'bleed' } }, { id: 'b', name: '破砕型', text: 'ゲージ削り+4', add: { breakPower: 4 } }], name: '斬撃', kind: 'physical', element: 'none', cooldown: 0, damage: 8, breakPower: 8,
     conds: [{ when: { kind: 'bleeding' }, then: { damageBonus: 4 }, label: '出血中の敵: ダメージ+4' }],
     text: '8ダメージ。シールドゲージ-8。' }),
-  sk({ id: 'shield_bash', name: 'シールドバッシュ', kind: 'physical', element: 'none', cooldown: 2, damage: 6, breakPower: 14,
+  sk({ id: 'shield_bash', branches: [{ id: 'a', name: '重撃型', text: 'ダメージ+8', add: { damage: 8 } }, { id: 'b', name: '守備型', text: 'ゲージ削り+6・自分にガード6', add: { breakPower: 6, guardSelf: 6 } }], name: 'シールドバッシュ', kind: 'physical', element: 'none', cooldown: 2, damage: 6, breakPower: 14,
     conds: [{ when: { kind: 'shieldAtLeast', n: 10 }, then: { breakBonus: 10 }, label: 'シールド10以上の敵: ブレイク力+10' }],
     text: '6ダメージ。シールドゲージ-14。' }),
-  sk({ id: 'provoke', name: '挑発の構え', kind: 'support', element: 'none', cooldown: 3, guardSelf: 10, taunt: true,
+  sk({ id: 'provoke', branches: [{ id: 'a', name: '鉄壁型', text: 'ガード+8', add: { guardSelf: 8 } }, { id: 'b', name: '軽装型', text: '疲労-1', cooldownDelta: -1 }], name: '挑発の構え', kind: 'support', element: 'none', cooldown: 3, guardSelf: 10, taunt: true,
     text: '自分にガード10。敵の攻撃を自分に引きつける。' }),
-  sk({ id: 'guardian', name: '守護の盾', kind: 'support', element: 'none', cooldown: 2, guardSelf: 6, guardAlly: 10,
+  sk({ id: 'guardian', branches: [{ id: 'a', name: '庇護型', text: '味方のガード+8', add: { guardAlly: 8 } }, { id: 'b', name: '治癒型', text: '全員のHPを6回復', add: { healAll: 6 } }], name: '守護の盾', kind: 'support', element: 'none', cooldown: 2, guardSelf: 6, guardAlly: 10,
     text: '自分にガード6、味方にガード10。' }),
   sk({ id: 'defend', name: '防御', kind: 'support', element: 'none', cooldown: 0, guardSelf: 6,
     text: '自分にガード6。' }),
@@ -32,6 +32,23 @@ export const SKILLS: Record<string, SkillDef> = Object.fromEntries([
   sk({ id: 'crush', name: '粉砕', kind: 'physical', element: 'none', cooldown: 3, damage: 10, breakPower: 26, reward: { owner: 'knight', rarity: 'rare' },
     conds: [{ when: { kind: 'shieldAtMost', n: 20 }, then: { damageMult: 1.5 }, label: 'シールド20以下の敵: ダメージ×1.5' }],
     text: '10ダメージ。シールドゲージ-26。' }),
+  // --- 装備で書き換わるカード(装備の固有効果。元のカードのLv・分岐を引き継ぐ) ---
+  sk({ id: 'shatter_bash', base: 'shield_bash', name: '砕撃', kind: 'physical', element: 'none', cooldown: 2, damage: 8, breakPower: 18,
+    conds: [{ when: { kind: 'shieldAtLeast', n: 10 }, then: { breakBonus: 10 }, label: 'シールド10以上の敵: ブレイク力+10' }],
+    text: '8ダメージ。ゲージ-18。' }),
+  sk({ id: 'ember_bolt', base: 'firebolt', name: '燃焼弾', kind: 'magic', element: 'fire', cooldown: 1, damage: 7, inflict: 'burn', chargeAfter: true,
+    conds: [{ when: { kind: 'burning' }, then: { damageBonus: 5 }, label: '火傷中の敵: ダメージ+5' }],
+    text: '火7ダメージ。火傷＋次の攻撃+30%。' }),
+  sk({ id: 'bulwark_guard', base: 'guardian', name: '守護の盾・改', kind: 'support', element: 'none', cooldown: 3, guardSelf: 10, guardAlly: 10,
+    text: '自分と味方にガード10。' }),
+  sk({ id: 'frost_lance', base: 'ice_lance', name: '氷晶槍', kind: 'magic', element: 'ice', cooldown: 1, damage: 12, breakPower: 6, freezeAlways: true,
+    text: '氷12ダメージ。ゲージ-6。必ず凍結。' }),
+  sk({ id: 'storm_bolt', base: 'thunder', name: '雷嵐', kind: 'magic', element: 'thunder', cooldown: 2, damage: 15, breakPower: 12,
+    conds: [{ when: { kind: 'shieldAtMost', n: 14 }, then: { breakBonus: 8 }, label: 'シールド14以下の敵: ブレイク力+8' }],
+    text: '雷15ダメージ。ゲージ-12。' }),
+  sk({ id: 'guard_slash', base: 'slash', name: '護り斬り', kind: 'physical', element: 'none', cooldown: 0, damage: 8, breakPower: 8, guardSelf: 4,
+    conds: [{ when: { kind: 'bleeding' }, then: { damageBonus: 4 }, label: '出血中の敵: ダメージ+4' }],
+    text: '8ダメージ。ゲージ-8。ガード4。' }),
   // --- 連携カード(2人共通。直前の手を参照する) ---
   sk({ id: 'chase', name: '追撃', kind: 'support', element: 'none', cooldown: 1, link: 'chase',
     text: '直前の攻撃と同じ敵に、そのダメージの50%を追加で与える。' }),
@@ -57,16 +74,16 @@ export const SKILLS: Record<string, SkillDef> = Object.fromEntries([
     text: '【全体】氷9ダメージ（×0.7）' }),
   sk({ id: 'overcharge', name: '過充電', kind: 'magic', element: 'thunder', cooldown: 3, damage: 16, breakPower: 14, reward: { owner: 'elementalist', rarity: 'rare' },
     text: '雷属性16ダメージ。シールドゲージ-14。' }),
-  sk({ id: 'firebolt', name: 'ファイアボルト', kind: 'magic', element: 'fire', cooldown: 0, damage: 7,
+  sk({ id: 'firebolt', branches: [{ id: 'a', name: '燃焼型', text: '敵を火傷にする', set: { inflict: 'burn' } }, { id: 'b', name: '連鎖型', text: '使用後、次のダメージスキル+30%', set: { chargeAfter: true } }], name: 'ファイアボルト', kind: 'magic', element: 'fire', cooldown: 0, damage: 7,
     conds: [{ when: { kind: 'burning' }, then: { damageBonus: 5 }, label: '火傷中の敵: ダメージ+5' }],
     text: '火属性7ダメージ。' }),
-  sk({ id: 'ice_lance', name: 'アイスランス', kind: 'magic', element: 'ice', cooldown: 1, damage: 10,
+  sk({ id: 'ice_lance', branches: [{ id: 'a', name: '凍結型', text: '敵を必ず凍結する', set: { freezeAlways: true } }, { id: 'b', name: '貫通型', text: 'ダメージ+6', add: { damage: 6 } }], name: 'アイスランス', kind: 'magic', element: 'ice', cooldown: 1, damage: 10,
     conds: [{ when: { kind: 'broken' }, then: { freeze: true }, label: 'ブレイク中の敵: 凍結(復帰時シールド半減)' }],
     text: '氷属性10ダメージ。' }),
-  sk({ id: 'thunder', name: 'サンダーボルト', kind: 'magic', element: 'thunder', cooldown: 2, damage: 13, breakPower: 10,
+  sk({ id: 'thunder', branches: [{ id: 'a', name: '麻痺型', text: 'ゲージ削り+8', add: { breakPower: 8 } }, { id: 'b', name: '速射型', text: '疲労-1', cooldownDelta: -1 }], name: 'サンダーボルト', kind: 'magic', element: 'thunder', cooldown: 2, damage: 13, breakPower: 10,
     conds: [{ when: { kind: 'shieldAtMost', n: 12 }, then: { breakBonus: 8 }, label: 'シールド12以下の敵: ブレイク力+8' }],
     text: '雷属性13ダメージ。シールドゲージ-10。' }),
-  sk({ id: 'heal', name: 'ヒール', kind: 'support', element: 'none', cooldown: 3, healAll: 12,
+  sk({ id: 'heal', branches: [{ id: 'a', name: '大回復型', text: '回復+6', add: { healAll: 6 } }, { id: 'b', name: '加護型', text: '回復後、全員にガード6', set: { guardSelf: 6, guardAlly: 6 } }], name: 'ヒール', kind: 'support', element: 'none', cooldown: 3, healAll: 12,
     text: 'パーティ全員のHPを12回復。' }),
   // --- 装備固有スキル（装備すると使用可能） ---
   sk({ id: 'cleave', cost: 2, aoe: 0.7, name: 'なぎ払い', kind: 'physical', element: 'none', cooldown: 2, damage: 11, breakPower: 12,
@@ -89,6 +106,23 @@ export const SKILLS: Record<string, SkillDef> = Object.fromEntries([
     conds: [{ when: { kind: 'shieldAtMost', n: 20 }, then: { breakBonus: 10 }, label: 'シールド20以下の敵: ブレイク力+10' }],
     text: '【全体】雷14ダメージ・ゲージ-20（×0.7）' }),
 ]);
+
+/** 装備の固有効果で書き換わるカード: 効果 → {元のカード → 書き換え後} */
+export const CARD_VARIANTS: Partial<Record<EquipEffectId, Record<string, string>>> = {
+  bleed_on_break: { shield_bash: 'shatter_bash' },
+  ignite: { firebolt: 'ember_bolt' },
+  guard_power: { guardian: 'bulwark_guard' },
+  freeze_ice: { ice_lance: 'frost_lance' },
+  storm_chain: { thunder: 'storm_bolt' },
+  break_guard: { slash: 'guard_slash' },
+};
+
+/** 装備効果の一覧から、書き換えのマップ(元のカード→新しいカード)を作る。先に挙げた効果を優先 */
+export function variantMap(effects: readonly EquipEffectId[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const e of effects) for (const [from, to] of Object.entries(CARD_VARIANTS[e] ?? {})) if (!out[from]) out[from] = to;
+  return out;
+}
 
 /** 連携デッキの初期カード(2人共通) */
 export const START_LINK_DECK = ['chase', 'enchant', 'convert', 'counter'];

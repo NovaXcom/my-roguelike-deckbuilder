@@ -290,8 +290,9 @@ describe('スキルレベル', () => {
     expect(upgradeSkill(run, 0, 'slash')).toBe(false);
     run.skillPoints = 3;
     expect(upgradeSkill(run, 0, 'slash')).toBe(true);
-    expect(upgradeSkill(run, 0, 'slash')).toBe(true);
-    expect(upgradeSkill(run, 0, 'slash')).toBe(false); // 最大Lv
+    expect(upgradeSkill(run, 0, 'slash')).toBe(false); // Lv3へは分岐の選択が必要
+    expect(upgradeSkill(run, 0, 'slash', 'b')).toBe(true);
+    expect(upgradeSkill(run, 0, 'slash', 'a')).toBe(false); // 最大Lv
     expect(run.skillPoints).toBe(0);
     expect(run.party[0].levels.slash).toBe(3);
     const s = createBattle('bat', buildSetup(run));

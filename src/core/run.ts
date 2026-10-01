@@ -1,7 +1,7 @@
 import {
   CHAIN_MULT, MAX_SKILL_LEVEL, alive, createBattle, skillUpgradeCost, startPlayerTurn, type BattleSetup, type BattleState, type EnemyScale,
 } from './battle';
-import { MEMBERS, PARTY_ORDER, SKILLS, START_LINK_DECK } from './data';
+import { MEMBERS, PARTY_ORDER, SKILLS, START_LINK_DECK, variantMap } from './data';
 import {
   BUY_PRICE, SELL_VALUE, rollItem, type EquipItem, type EquipStats, type Slot,
 } from './equipment';
@@ -16,6 +16,8 @@ export interface RunMember {
   gear: Record<Slot, EquipItem | null>;
   /** スキルごとのLv(未設定=1) */
   levels: Record<string, number>;
+  /** Lv3の分岐の選択(元のカードID→'a'|'b') */
+  branches: Record<string, 'a' | 'b'>;
   /** 恒久デッキ(カードID。重複で枚数)。武器の固有カードは装備中のみ戦闘デッキに加わる */
   deck: string[];
 }
@@ -74,7 +76,7 @@ export function newRun(meta: MetaState, seed: number, mods: RunMods | null = nul
     visited: [],
     party: PARTY_ORDER.map((role) => {
       const g = startingGear(role, meta.smith, nextUid);
-      return { role, hp: 1, gear: { weapon: g.weapon, armor: g.armor, accessory: null }, levels: {}, deck: [...MEMBERS[role].deck] };
+      return { role, hp: 1, gear: { weapon: g.weapon, armor: g.armor, accessory: null }, levels: {}, branches: {}, deck: [...MEMBERS[role].deck] };
     }),
     gold: 30,
     stones: 0,
@@ -182,26 +184,40 @@ export function memberEffects(run: RunState, i: number): EquipEffectId[] {
 export const skillLevel = (run: RunState, i: number, skillId: string): number => run.party[i].levels[skillId] ?? 1;
 
 /** スキルを強化する(Lv1→2:1pt / Lv2→3:2pt)。成功すればtrue */
-export function upgradeSkill(run: RunState, i: number, skillId: string): boolean {
+/** Lv3へ上げるカードに分岐がある場合は、分岐('a'|'b')を選ぶ必要がある */
+export const needsBranch = (skillId: string, level: number): boolean => level + 1 === MAX_SKILL_LEVEL && !!SKILLS[skillId]?.branches;
+
+export function upgradeSkill(run: RunState, i: number, skillId: string, branch?: 'a' | 'b'): boolean {
   const lv = skillLevel(run, i, skillId);
   if (lv >= MAX_SKILL_LEVEL || !memberSkills(run, i).includes(skillId)) return false;
+  if (needsBranch(skillId, lv) && !SKILLS[skillId].branches!.some((x) => x.id === branch)) return false;
   const cost = skillUpgradeCost(lv);
   if (run.skillPoints < cost) return false;
   run.skillPoints -= cost;
   run.party[i].levels[skillId] = lv + 1;
+  if (needsBranch(skillId, lv) && branch) run.party[i].branches[skillId] = branch;
   return true;
 }
 
 /** 戦闘で使うデッキ(恒久デッキ＋装備中の武器の固有カード) */
-export function memberDeck(run: RunState, i: number): string[] {
+export function memberBaseDeck(run: RunState, i: number): string[] {
   const m = run.party[i];
   const extra = m.gear.weapon?.skill;
   return extra ? [...m.deck, extra] : [...m.deck];
 }
 
+/** 戦闘で使うデッキ: 装備の固有効果でカードが書き換わる(例: 砕きの腕輪でシールドバッシュ→砕撃) */
+export function memberDeck(run: RunState, i: number): string[] {
+  const vm = variantMap(memberEffects(run, i));
+  return memberBaseDeck(run, i).map((id) => vm[id] ?? id);
+}
+
+/** 元のカードIDに対して、今の装備で何に書き換わっているか(無ければ元のID) */
+export const variantOf = (run: RunState, i: number, baseId: string): string => variantMap(memberEffects(run, i))[baseId] ?? baseId;
+
 /** 使えるスキル(カード)の種類 */
 export function memberSkills(run: RunState, i: number): string[] {
-  return [...new Set(memberDeck(run, i))];
+  return [...new Set(memberBaseDeck(run, i))];
 }
 
 export function buildSetup(run: RunState): BattleSetup {
@@ -220,6 +236,7 @@ export function buildSetup(run: RunState): BattleSetup {
         skills: memberSkills(run, i),
         deck: memberDeck(run, i),
         levels: { ...m.levels },
+        branches: { ...m.branches },
         effects: memberEffects(run, i),
       };
     }),

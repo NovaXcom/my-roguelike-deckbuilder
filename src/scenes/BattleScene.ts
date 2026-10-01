@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { audio } from '../audio';
 import { bgmForScene, castCue, deathCue, enemyAttackCue, hurtCue, impactCues, type Cue } from '../audio/cues';
 import {
-  BattleEvent, BattleState, HAND_SIZE, LINK, LINK_HAND, nextDraw, canUse, canWait, currentIntent, defaultTarget, effectiveSkill, endPlayerTurn, skillCost, intentValue, isEnraged,
+  BattleEvent, BattleState, HAND_SIZE, LINK, LINK_HAND, nextDraw, canUse, canWait, currentIntent, defaultTarget, effectiveFor, levelOf, branchOf, endPlayerTurn, skillCost, intentValue, isEnraged,
   nextIntent, previewSkill, resolveTarget, usePotion, useSkill, wait,
 } from '../core/battle';
 import { recommend } from '../core/hint';
@@ -470,8 +470,10 @@ export class BattleScene extends Phaser.Scene {
 
   private buildButton(member: number, baseSkill: SkillDef, x: number, BTN_W: number, uid = 0): void {
     const cmp = compact();
-    const level = this.state.party[member].levels[baseSkill.id] ?? 1;
-    const skill = effectiveSkill(baseSkill, level);
+    const pm = this.state.party[member];
+    const level = levelOf(pm, baseSkill);
+    const skill = effectiveFor(pm, baseSkill);
+    const brName = branchOf(pm, baseSkill)?.name ?? '';
     const bg = this.add.graphics();
     const col = skill.element !== 'none' ? ELEMENT_COLOR[skill.element] : skill.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;
     const kindLabel = skill.aoe ? '全体' : skill.kind === 'support' ? '補助' : skill.kind === 'physical' ? '物理' : ELEMENT_LABEL[skill.element] + '魔法';
@@ -487,7 +489,7 @@ export class BattleScene extends Phaser.Scene {
     const chip = this.add.graphics();
     chip.fillStyle(col, 1).fillRoundedRect(-BTN_W / 2 + 6, chipY, chipW, chipH, chipH / 2);
     const chipText = txt(this, -BTN_W / 2 + 6 + chipW / 2, chipY + chipH / 2, kindLabel, 11, '#111', { fontStyle: 'bold' }).setOrigin(0.5);
-    const cd = txt(this, BTN_W / 2 - 6, chipY + chipH / 2, `${level > 1 ? `Lv${level} ` : ''}${this.state.deckMode ? (skill.cooldown > 0 ? `疲労${skill.cooldown}` : '') : `CD${skill.cooldown}`}`, 11, level > 1 ? '#ffe066' : '#9fb0c8').setOrigin(1, 0.5);
+    const cd = txt(this, BTN_W / 2 - 6, chipY + chipH / 2, `${level > 1 ? `Lv${level}${brName ? '★' : ''} ` : ''}${this.state.deckMode ? (skill.cooldown > 0 ? `疲労${skill.cooldown}` : '') : `CD${skill.cooldown}`}`, 11, level > 1 ? '#ffe066' : '#9fb0c8').setOrigin(1, 0.5);
     // 説明: 通常は全文 / コンパクトは要点のみ（全文はタップ時にツールチップで表示）
     const hasCond = !!skill.conds?.length && BTN_W >= 130;
     const bodyText = cmp ? skillSummary(skill).join('\n') : (level > 1 ? skillSummary(skill).join(' / ') : skill.text) + (hasCond ? '\n◆条件で強化' : '');
@@ -562,11 +564,13 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private showTip(b: SkillBtn, armedHint = false): void {
-    const lv = this.state.party[b.member].levels[b.skill.id] ?? 1;
-    const eff = effectiveSkill(b.skill, lv);
+    const pm = this.state.party[b.member];
+    const lv = levelOf(pm, b.skill);
+    const eff = effectiveFor(pm, b.skill);
+    const br = branchOf(pm, b.skill);
     const conds = (eff.conds ?? []).map((c) => `◆${c.label}`);
     const body = lv > 1 ? skillSummary(eff).join(' / ') : b.skill.text;
-    this.showTipText(b.skill.name + (lv > 1 ? ` Lv${lv}` : '') + (armedHint ? '　─ もう一度タップで使用 / 敵へドラッグ' : ''), [body, ...conds].join('\n'));
+    this.showTipText(b.skill.name + (lv > 1 ? ` Lv${lv}` : '') + (armedHint ? '　─ もう一度タップで使用 / 敵へドラッグ' : ''), [body, ...(br ? [`★${br.name}: ${br.text}`] : []), ...conds].join('\n'));
   }
 
   private showTipText(title: string, body: string): void {

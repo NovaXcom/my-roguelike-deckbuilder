@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { audio } from '../audio';
 import { ELEMENT_COLOR, MEMBERS, SKILLS } from '../core/data';
-import { MIN_DECK, memberDeck, removeCard, buyRemoval, removalCost } from '../core/run';
+import { MIN_DECK, memberBaseDeck, removeCard, buyRemoval, removalCost, variantOf } from '../core/run';
 import { game } from '../game';
 import { drawBackground, txt } from '../ui/art';
 import { hex, makeButton } from '../ui/widgets';
@@ -42,12 +42,12 @@ export class DeckScene extends Phaser.Scene {
       const x0 = 30 + i * 625;
       const g = this.add.graphics();
       g.fillStyle(0x2d3748, 0.92).fillRoundedRect(x0, 116, 590, 504, 14).lineStyle(3, def.color, 1).strokeRoundedRect(x0, 116, 590, 504, 14);
-      const deck = memberDeck(run, i);
+      const deck = memberBaseDeck(run, i);
       txt(this, x0 + 20, 124, `${def.name}  ${deck.length}枚`, 20, hex(def.color), { fontStyle: 'bold' });
       const kinds = [...new Set(deck)];
       const step = Math.min(56, Math.floor(450 / Math.max(1, kinds.length)));
       kinds.forEach((id, k) => {
-        const sk = SKILLS[id];
+        const sk = SKILLS[variantOf(run, i, id)];
         const y = 160 + k * step;
         const n = deck.filter((x) => x === id).length;
         const col = sk.element !== 'none' ? ELEMENT_COLOR[sk.element] : sk.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;

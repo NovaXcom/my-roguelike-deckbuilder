@@ -1,6 +1,14 @@
 import Phaser from 'phaser';
 import { EFFECT_TEXT, RARITY_COLOR, RARITY_LABEL, SLOT_LABEL, statLines, type EquipItem } from '../core/equipment';
-import { ELEMENT_COLOR, SKILLS } from '../core/data';
+import { CARD_VARIANTS, ELEMENT_COLOR, SKILLS } from '../core/data';
+import type { EquipEffectId } from '../core/types';
+
+/** 装備でカードが書き換わる場合の注記(例: 「 / シールドバッシュ→砕撃」) */
+export function variantNote(effect: EquipEffectId): string {
+  const m = CARD_VARIANTS[effect];
+  if (!m) return '';
+  return ' ／ ' + Object.entries(m).map(([from, to]) => `${SKILLS[from].name}→${SKILLS[to].name}`).join('・');
+}
 import { audio } from '../audio';
 import { equipIconKey, skillIconKey } from './assetMap';
 import { skillSummary } from './skillText';
@@ -110,7 +118,7 @@ export function itemCard(scene: Phaser.Scene, x: number, y: number, w: number, h
     c.add(txt(scene, 0, sy + 44, sk.text, 12, '#b8c2d0', { align: 'center', wordWrap: { width: w - 24, useAdvancedWrap: true } }).setOrigin(0.5, 0));
   }
   if (item.effect) {
-    c.add(txt(scene, 0, top + h - 52, `◆${EFFECT_TEXT[item.effect]}`, 12, '#9ff0c0', { fontStyle: 'bold', align: 'center', wordWrap: { width: w - 20, useAdvancedWrap: true } }).setOrigin(0.5, 0));
+    c.add(txt(scene, 0, top + h - 52, `◆${EFFECT_TEXT[item.effect]}${variantNote(item.effect)}`, 12, '#9ff0c0', { fontStyle: 'bold', align: 'center', wordWrap: { width: w - 20, useAdvancedWrap: true } }).setOrigin(0.5, 0));
   }
   return c;
 }

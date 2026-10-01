@@ -107,7 +107,7 @@ export function autoSpendSkillPoints(run: RunState): void {
   for (let guard = 0; guard < 30 && run.skillPoints > 0; guard++) {
     let any = false;
     run.party.forEach((_, mi) => {
-      for (const id of order) if (upgradeSkill(run, mi, id)) { any = true; return; }
+      for (const id of order) if (upgradeSkill(run, mi, id, 'a')) { any = true; return; }
     });
     if (!any) break;
   }

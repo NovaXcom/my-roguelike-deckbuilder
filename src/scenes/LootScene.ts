@@ -5,7 +5,7 @@ import { EFFECT_TEXT, RARITY_COLOR, RARITY_LABEL, SELL_VALUE, statLines, type Eq
 import { canEquip, equip, sellItem, type Reward } from '../core/run';
 import { game } from '../game';
 import { drawBackground, txt } from '../ui/art';
-import { hex, itemCard, makeButton } from '../ui/widgets';
+import { hex, itemCard, makeButton, variantNote } from '../ui/widgets';
 import { H, W } from './TitleScene';
 
 const STAT_NAMES: [keyof EquipStats, string][] = [['hp', '最大HP'], ['power', '攻撃'], ['guard', 'ガード'], ['breakBonus', 'ブレイク']];
@@ -21,7 +21,7 @@ export function diffText(cur: EquipItem | null, next: EquipItem): { text: string
     parts.push(next.skill ? `スキル「${SKILLS[next.skill].name}」を習得` : '固有スキルを失う');
   }
   if ((cur?.effect ?? null) !== (next.effect ?? null)) {
-    parts.push(next.effect ? `固有効果「${EFFECT_TEXT[next.effect]}」` : '固有効果を失う');
+    parts.push(next.effect ? `固有効果「${EFFECT_TEXT[next.effect]}」${variantNote(next.effect)}` : '固有効果を失う');
   }
   return { text: parts.join('  /  ') || '変化なし' };
 }

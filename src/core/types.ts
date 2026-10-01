@@ -19,7 +19,7 @@ export interface SkillDef {
   /** 使用ターンの敵の攻撃を自分に引きつける(ヘイト) */
   taunt?: boolean;
   /** 命中時に敵へ付与する状態（火傷など） */
-  inflict?: 'burn';
+  inflict?: 'burn' | 'bleed';
   /** 行動ポイント消費(既定1)。強力なスキルは2 */
   cost?: number;
   /** 報酬カードのレア度(報酬プールに入るカードのみ)。owner=使えるキャラ */
@@ -30,11 +30,31 @@ export interface SkillDef {
   chargeSelf?: boolean;
   /** 待機カード: CD/疲労-1・ガード+5・次のダメージスキル強化 */
   waitEffect?: boolean;
+  /** 装備でカードが書き換わったとき、元のカードID(Lv・分岐は元のカードのものを使う) */
+  base?: string;
+  /** Lv3の分岐(2択)。Lv3に上げるとき選ぶ */
+  branches?: SkillBranch[];
+  /** 命中した敵を必ず凍結する */
+  freezeAlways?: boolean;
+  /** ダメージを与えた後、自分の次のダメージスキルが強化される(帯電) */
+  chargeAfter?: boolean;
   /** 全体攻撃: 生存している敵全員に当たる。値はダメージ/ゲージ削りの倍率(例: 0.7) */
   aoe?: number;
   /** 条件を満たすと発動する追加効果（「今使う価値があるか」を考えさせる） */
   conds?: SkillCond[];
   text: string;
+}
+
+/** Lv3の分岐: Lv2の強化倍率に加えて、効果が変わる */
+export interface SkillBranch {
+  id: 'a' | 'b';
+  name: string;
+  text: string;
+  /** 上書きする項目(例: inflict) */
+  set?: Partial<SkillDef>;
+  /** 加算する数値 */
+  add?: { damage?: number; breakPower?: number; guardSelf?: number; guardAlly?: number; healAll?: number };
+  cooldownDelta?: number;
 }
 
 /** スキルの発動条件（敵の状態） */
@@ -138,6 +158,8 @@ export interface MemberState {
   deck: DeckState;
   /** 戦闘開始ターンのみ得るガード */
   openingGuard: number;
+  /** Lv3の分岐の選択(カードID→'a'|'b') */
+  branches: Record<string, 'a' | 'b'>;
   /** スキルごとのレベル(1〜3)。未設定は1 */
   levels: Record<string, number>;
   /** 装備の固有効果 */

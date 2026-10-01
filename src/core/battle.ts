@@ -1,6 +1,6 @@
 import { ENEMIES, MEMBERS, PARTY_ORDER, SKILLS } from './data';
 import type {
-  CardInst, DeckState, Element, EnemyIntent, EnemyState, EquipEffectId, MemberState, Role, RunMods, SkillBonus, SkillCond, SkillDef,
+  CardInst, DeckState, Element, EnemyIntent, EnemyState, EquipEffectId, MemberState, Role, RunMods, SkillBonus, SkillBranch, SkillCond, SkillDef,
 } from './types';
 
 export const CHAIN_MULT = 2;
@@ -26,9 +26,26 @@ const ENEMY_BURN = { turns: 3, dmg: 4 };
 const ENEMY_BLEED = { turns: 3, dmg: 4 };
 
 /** スキルレベルによる強化後の定義（Lv2: ×1.2 / Lv3: ×1.45、Lv3はCD2以上なら-1） */
-export function effectiveSkill(skill: SkillDef, level = 1): SkillDef {
+export const BRANCH_MULT = 1.3;
+
+/** 分岐を持つカードの Lv3 は「Lv2より少し強い数値(×1.3)＋分岐の効果」。分岐を選んでいない/持たないカードは従来どおり×1.45 */
+export function effectiveSkill(skill: SkillDef, level = 1, branch?: 'a' | 'b'): SkillDef {
   const lv = Math.max(1, Math.min(MAX_SKILL_LEVEL, level));
   if (lv === 1) return skill;
+  const br = lv === 3 ? skill.branches?.find((b) => b.id === branch) : undefined;
+  if (br) {
+    const sc3 = (v?: number): number | undefined => (v ? Math.round(v * BRANCH_MULT) : v);
+    const add = br.add ?? {};
+    const plus = (v: number | undefined, a?: number): number | undefined => (a ? (v ?? 0) + a : v);
+    return {
+      ...skill,
+      damage: plus(sc3(skill.damage), add.damage), breakPower: plus(sc3(skill.breakPower), add.breakPower),
+      guardSelf: plus(sc3(skill.guardSelf), add.guardSelf), guardAlly: plus(sc3(skill.guardAlly), add.guardAlly),
+      healAll: plus(sc3(skill.healAll), add.healAll),
+      cooldown: Math.max(0, skill.cooldown + (br.cooldownDelta ?? 0)),
+      ...br.set,
+    };
+  }
   const k = LEVEL_MULT[lv];
   const sc = (v?: number): number | undefined => (v ? Math.round(v * k) : v);
   return {
@@ -102,6 +119,7 @@ export interface MemberSetup {
   /** デッキ(カードID。重複で枚数)。指定するとデッキ戦闘になる */
   deck?: string[];
   levels?: Record<string, number>;
+  branches?: Record<string, 'a' | 'b'>;
   effects?: EquipEffectId[];
 }
 export interface BattleSetup {
@@ -203,7 +221,7 @@ export function createBattle(
         def: d, hp: m.hp, maxHp: m.maxHp, guard: 0, taunt: false, acted: false, used: [],
         cooldowns: Object.fromEntries((m.deck ? [...new Set(m.deck)] : m.skills).map((s) => [s, 0])),
         skills: m.deck ? [...new Set(m.deck)] : [...m.skills], power: m.power, guardBonus: m.guardBonus, breakBonus: m.breakBonus, openingGuard: m.openingGuard,
-        levels: { ...(m.levels ?? {}) }, effects: [...(m.effects ?? [])], focus: false, charged: false,
+        levels: { ...(m.levels ?? {}) }, branches: { ...(m.branches ?? {}) }, effects: [...(m.effects ?? [])], focus: false, charged: false,
         deck: ((): DeckState => {
           const dk = emptyDeck();
           const card = (defId: string): CardInst => ({ uid: uid++, defId, sealed: 0 });
@@ -433,6 +451,7 @@ export interface DamagePreview {
   conds: string[];
   freeze: boolean;
   burn: boolean;
+  bleed: boolean;
   focus: boolean;
   charged: boolean;
   /** 守護役に守られていて、ダメージが減っているか */
@@ -456,9 +475,20 @@ function withEnchant(s: BattleState, sk: SkillDef): SkillDef {
 }
 
 /** スキル(レベル反映前の基本定義)の実効定義: メンバーのスキルLvを反映 */
+/** 分岐の候補(書き換えカードは元のカードの分岐を引き継ぐ) */
+const branchesOf = (skill: SkillDef): SkillBranch[] | undefined => skill.branches ?? (skill.base ? SKILLS[skill.base]?.branches : undefined);
+
 function skillFor(m: MemberState, skill: SkillDef): SkillDef {
-  return effectiveSkill(skill, m.levels[skill.id] ?? 1);
+  const key = skill.base ?? skill.id;
+  const brs = branchesOf(skill);
+  return effectiveSkill(brs && !skill.branches ? { ...skill, branches: brs } : skill, m.levels[key] ?? 1, m.branches[key]);
 }
+
+/** UI用: そのキャラが使うときの実効スキル / レベル / 分岐 */
+export const effectiveFor = (m: MemberState, skill: SkillDef): SkillDef => skillFor(m, skill);
+export const levelOf = (m: MemberState, skill: SkillDef): number => m.levels[skill.base ?? skill.id] ?? 1;
+export const branchOf = (m: MemberState, skill: SkillDef): SkillBranch | undefined =>
+  levelOf(m, skill) >= 3 ? branchesOf(skill)?.find((b) => b.id === m.branches[skill.base ?? skill.id]) : undefined;
 
 /** スキルが現在の敵に与える影響（実行時と同一ロジック。UIのプレビューにも使う）。装備・Lv・条件・反応を含む。 */
 export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0, ti = defaultTarget(s)): DamagePreview {
@@ -516,12 +546,13 @@ export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0, ti
   let bp = (bp0 > 0 ? bp0 + m.breakBonus : 0) + bonus.breakBonus + (focus ? FOCUS_BREAK : 0);
   if (bp > 0) bp = Math.floor(bp * (s.mods?.breakMult ?? 1) * (skill.aoe ?? 1));
   const shield = e.broken ? 0 : Math.min(e.shield, Math.max(0, bp));
-  const freeze = (bonus.freeze || (m.effects.includes('freeze_ice') && skill.element === 'ice')) && !!skill.damage;
+  const freeze = (bonus.freeze || !!skill.freezeAlways || (m.effects.includes('freeze_ice') && skill.element === 'ice')) && !!skill.damage;
+  const bleed = skill.inflict === 'bleed' && !!skill.damage;
   const burn = (skill.inflict === 'burn' || (m.effects.includes('ignite') && skill.element === 'fire')) && !!skill.damage;
   return {
     hp: total, absorbed, shield, weak, resist, chain,
     breaks: !e.broken && e.shield > 0 && shield >= e.shield && shield > 0,
-    reaction, conds, freeze, burn, focus, charged, protectedBy: protectionMult(s, ti) < 1,
+    reaction, conds, freeze, burn, bleed, focus, charged, protectedBy: protectionMult(s, ti) < 1,
   };
 }
 
@@ -585,6 +616,10 @@ export function useSkill(s: BattleState, member: number, skillId: string, target
     }
     if (focusUsed) m.focus = false;
     if (chargedUsed) m.charged = false;
+    if (skill.damage && skill.chargeAfter) {
+      m.charged = true;
+      ev.push({ type: 'status', kind: 'charge' });
+    }
     if (skill.damage) {
       s.lastHit = { member, skillId, enemy: targets[0] };
       if (skill.kind === 'magic' && skill.element !== 'none') s.lastMagic = skill.element;
@@ -695,6 +730,7 @@ function strike(s: BattleState, member: number, skill: SkillDef, p: DamagePrevie
   }
   if (skill.damage && e.hp > 0) {
     if (p.burn) { e.burn = { ...ENEMY_BURN }; ev.push({ type: 'status', enemy: ti, kind: 'burn' }); }
+    if (p.bleed) { e.bleed = { ...ENEMY_BLEED }; ev.push({ type: 'status', enemy: ti, kind: 'bleed' }); }
     if (p.freeze && !e.frozen) { e.frozen = true; ev.push({ type: 'status', enemy: ti, kind: 'freeze' }); }
     if (skill.element !== 'none') e.lastElement = skill.element;
   }
