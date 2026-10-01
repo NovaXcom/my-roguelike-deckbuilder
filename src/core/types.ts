@@ -20,6 +20,8 @@ export interface SkillDef {
   taunt?: boolean;
   /** 命中時に敵へ付与する状態（火傷など） */
   inflict?: 'burn';
+  /** 行動ポイント消費(既定1)。強力なスキルは2 */
+  cost?: number;
   /** 条件を満たすと発動する追加効果（「今使う価値があるか」を考えさせる） */
   conds?: SkillCond[];
   text: string;
@@ -107,6 +109,8 @@ export interface MemberState {
   guard: number;
   taunt: boolean;
   acted: boolean;
+  /** このターンに使った行動(スキルID/'wait')。同じ行動は1ターン1回まで */
+  used: string[];
   cooldowns: Record<string, number>;
   /** 使用可能なスキルID（基本スキル + 装備スキル） */
   skills: string[];

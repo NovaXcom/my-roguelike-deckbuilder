@@ -176,10 +176,10 @@ export function pickEnemy(run: RunState, node: MapNode): string {
 export function enemyScale(node: MapNode, mods: RunMods | null = null): EnemyScale {
   let hp: number;
   let atk: number;
-  if (node.type === 'boss') { hp = 1.9; atk = 1.8; }
+  if (node.type === 'boss') { hp = 5.5; atk = 2.6; }
   else {
-    hp = 1 + 0.35 * node.row;
-    atk = 1 + 0.28 * node.row;
+    hp = 1 + 1.2 * node.row;
+    atk = 1 + 0.7 * node.row;
     if (node.type === 'elite') { hp *= 1.35; atk *= 1.2; }
     if (node.danger) { hp *= 1.3; atk *= 1.3; }
   }

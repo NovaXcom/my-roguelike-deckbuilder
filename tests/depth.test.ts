@@ -127,10 +127,10 @@ describe('待機', () => {
     s.party[K].cooldowns.shield_bash = 2;
     const base = previewSkill(s, SKILLS.slash, K);
     expect(wait(s, K)).not.toBeNull();
-    expect(s.party[K].acted).toBe(true);
+    expect(s.ap).toBe(2);
     expect(s.party[K].cooldowns.shield_bash).toBe(1);
     expect(s.party[K].guard).toBe(5);
-    expect(wait(s, K)).toBeNull();
+    expect(wait(s, K)).toBeNull(); // 同じターンに待機は1回まで
     const next = previewSkill(s, SKILLS.slash, K);
     expect(next.hp).toBeGreaterThanOrEqual(base.hp);
     expect(next.shield).toBe(base.shield + 5);

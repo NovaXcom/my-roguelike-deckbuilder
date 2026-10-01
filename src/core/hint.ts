@@ -1,4 +1,4 @@
-import { alive, currentIntent, nextIntent, previewSkill, type BattleState } from './battle';
+import { alive, canUse, currentIntent, nextIntent, previewSkill, type BattleState } from './battle';
 import { SKILLS } from './data';
 
 /**
@@ -9,7 +9,7 @@ export function recommend(s: BattleState): string | null {
   if (s.phase !== 'player') return null;
   const e = s.enemy;
   const it = currentIntent(s);
-  const usable = s.party.flatMap((m, mi) => (alive(m) && !m.acted ? m.skills.filter((id) => m.cooldowns[id] === 0).map((id) => ({ mi, id })) : []));
+  const usable = s.party.flatMap((m, mi) => m.skills.filter((id) => canUse(s, mi, id)).map((id) => ({ mi, id })));
   if (usable.length === 0) return 'ターンを終了しよう（待機も選べる）';
 
   const canBreak = usable.some(({ mi, id }) => previewSkill(s, SKILLS[id], mi).breaks);

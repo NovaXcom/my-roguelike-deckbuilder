@@ -21,12 +21,13 @@ describe('パーティ', () => {
 });
 
 describe('スキルとクールダウン', () => {
-  it('使用後にクールダウンが付き、同ターンは各キャラ1回まで', () => {
+  it('使用後にクールダウンが付き、同じスキルは1ターン1回まで', () => {
     const s = fresh();
     expect(useSkill(s, K, 'shield_bash')).not.toBeNull();
     expect(s.party[K].cooldowns.shield_bash).toBe(2);
-    expect(canUse(s, K, 'slash')).toBe(false); // 行動済み
-    expect(useSkill(s, K, 'slash')).toBeNull();
+    expect(canUse(s, K, 'shield_bash')).toBe(false); // CD中
+    expect(useSkill(s, K, 'shield_bash')).toBeNull();
+    expect(canUse(s, K, 'slash')).toBe(true); // 行動ポイントがあれば別スキルも使える
     expect(canUse(s, E, 'firebolt')).toBe(true);
   });
   it('CD2のスキルは2ターン後(3ターン目)に再使用できる', () => {
@@ -45,12 +46,31 @@ describe('スキルとクールダウン', () => {
     endPlayerTurn(s);
     expect(canUse(s, K, 'slash')).toBe(true);
   });
-  it('全員行動済みを判定できる', () => {
+  it('行動ポイント(3)を使い切るとそれ以上行動できない', () => {
     const s = fresh();
+    expect(s.ap).toBe(3);
     expect(allActed(s)).toBe(false);
     useSkill(s, K, 'slash');
     useSkill(s, E, 'firebolt');
+    expect(s.ap).toBe(1);
+    useSkill(s, E, 'thunder');
+    expect(s.ap).toBe(0);
     expect(allActed(s)).toBe(true);
+    expect(canUse(s, K, 'provoke')).toBe(false);
+  });
+  it('強力な装備スキルは行動ポイントを2消費する', () => {
+    const s = fresh();
+    s.party[K].skills.push('dragon_slash');
+    s.party[K].cooldowns.dragon_slash = 0;
+    useSkill(s, K, 'dragon_slash');
+    expect(s.ap).toBe(1);
+  });
+  it('ターン開始で行動ポイントが回復する', () => {
+    const s = fresh();
+    useSkill(s, K, 'slash');
+    endPlayerTurn(s);
+    expect(s.ap).toBe(3);
+    expect(canUse(s, K, 'slash')).toBe(true);
   });
 });
 

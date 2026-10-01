@@ -10,6 +10,9 @@ export const RESIST_MULT = 0.5;
 
 export const MAX_SKILL_LEVEL = 3;
 const LEVEL_MULT = [1, 1, 1.2, 1.45];
+export const AP_MAX = 3;
+export const WAIT_COST = 1;
+export const skillCost = (sk: SkillDef): number => sk.cost ?? 1;
 export const WAIT_GUARD = 5;
 export const FOCUS_MULT = 1.2;
 export const FOCUS_BREAK = 5;
@@ -56,6 +59,9 @@ export interface BattleState {
   party: MemberState[]; // [0]=前衛 [1]=後衛
   enemy: EnemyState;
   turn: number;
+  /** 残り行動ポイント(1ターンに2人で使える行動の総数) */
+  ap: number;
+  apMax: number;
   phase: BattlePhase;
   chainMult: number;
   mods: RunMods | null;
@@ -130,7 +136,7 @@ export function createBattle(
     party: setup.members.map((m) => {
       const d = MEMBERS[m.role];
       return {
-        def: d, hp: m.hp, maxHp: m.maxHp, guard: 0, taunt: false, acted: false,
+        def: d, hp: m.hp, maxHp: m.maxHp, guard: 0, taunt: false, acted: false, used: [],
         cooldowns: Object.fromEntries(m.skills.map((s) => [s, 0])),
         skills: [...m.skills], power: m.power, guardBonus: m.guardBonus, breakBonus: m.breakBonus, openingGuard: m.openingGuard,
         levels: { ...(m.levels ?? {}) }, effects: [...(m.effects ?? [])], focus: false, charged: false,
@@ -141,6 +147,8 @@ export function createBattle(
       guard: 0, burn: null, bleed: null, frozen: false, weakened: false, lastElement: null,
     },
     turn: 0,
+    ap: AP_MAX,
+    apMax: AP_MAX,
     phase: 'player',
     chainMult: setup.chainMult,
     mods: setup.mods ?? null,
@@ -186,6 +194,7 @@ export function resolveTarget(s: BattleState, intent: EnemyIntent): number {
 export function startPlayerTurn(s: BattleState): void {
   s.turn += 1;
   s.phase = 'player';
+  s.ap = s.apMax;
   for (const m of s.party) {
     for (const id of Object.keys(m.cooldowns)) if (s.turn > 1) m.cooldowns[id] = Math.max(0, m.cooldowns[id] - 1);
     if (s.turn > 1 && alive(m) && m.effects.includes('low_hp_cd') && m.hp <= m.maxHp * 0.5) {
@@ -194,12 +203,14 @@ export function startPlayerTurn(s: BattleState): void {
     m.guard = s.turn === 1 && alive(m) ? m.openingGuard : 0;
     m.taunt = false;
     m.acted = false;
+    m.used = [];
   }
 }
 
 export function canUse(s: BattleState, member: number, skillId: string): boolean {
   const m = s.party[member];
-  return s.phase === 'player' && !!m && alive(m) && !m.acted && m.cooldowns[skillId] === 0;
+  const sk = SKILLS[skillId];
+  return s.phase === 'player' && !!m && !!sk && alive(m) && !m.used.includes(skillId) && m.cooldowns[skillId] === 0 && s.ap >= skillCost(sk);
 }
 
 export interface DamagePreview {
@@ -325,6 +336,8 @@ export function useSkill(s: BattleState, member: number, skillId: string): Battl
   const skill = skillFor(m, base);
   const p = previewSkill(s, base, member);
   m.acted = true;
+  m.used.push(skillId);
+  s.ap -= skillCost(base);
   m.cooldowns[skillId] = skillCooldown(s, m, base);
   const ev: BattleEvent[] = [{ type: 'skill', member, skillId }];
   const e = s.enemy;
@@ -411,7 +424,7 @@ function onBreak(s: BattleState, m: MemberState, ev: BattleEvent[]): void {
 
 export const canWait = (s: BattleState, member: number): boolean => {
   const m = s.party[member];
-  return s.phase === 'player' && !!m && alive(m) && !m.acted;
+  return s.phase === 'player' && !!m && alive(m) && !m.used.includes('wait') && s.ap >= WAIT_COST;
 };
 
 /** 待機: 行動を溜める。自分の全スキルCD-1・ガード+5・次のダメージスキルが強化(×1.2・ブレイク+5) */
@@ -419,6 +432,8 @@ export function wait(s: BattleState, member: number): BattleEvent[] | null {
   if (!canWait(s, member)) return null;
   const m = s.party[member];
   m.acted = true;
+  m.used.push('wait');
+  s.ap -= WAIT_COST;
   for (const id of Object.keys(m.cooldowns)) m.cooldowns[id] = Math.max(0, m.cooldowns[id] - 1);
   m.guard += WAIT_GUARD;
   m.focus = true;
@@ -451,8 +466,9 @@ export function usePotion(s: BattleState, ratio = 0.35): BattleEvent[] | null {
   return ev;
 }
 
-/** 生存メンバー全員が行動済みか（自動でターン終了する判定に使う） */
-export const allActed = (s: BattleState): boolean => s.party.every((m) => !alive(m) || m.acted);
+/** これ以上できる行動が無いか（行動ポイント切れ、または使える行動が残っていない） */
+export const allActed = (s: BattleState): boolean =>
+  s.ap <= 0 || !s.party.some((m, i) => m.skills.some((id) => canUse(s, i, id)) || canWait(s, i));
 
 function hit(s: BattleState, idx: number, value: number, ev: BattleEvent[]): number {
   const t = s.party[idx];

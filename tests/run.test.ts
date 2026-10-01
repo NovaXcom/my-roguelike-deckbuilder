@@ -127,7 +127,7 @@ describe('ショップ・休憩・ポーション', () => {
     const ev = usePotion(s)!;
     expect(s.party[1].hp).toBe(20 + Math.ceil(s.party[1].maxHp * 0.35));
     expect(ev.some((e) => e.type === 'heal')).toBe(true);
-    expect(s.party[0].acted).toBe(false); // 行動は消費しない
+    expect(s.ap).toBe(3); // 行動ポイントは消費しない
   });
 });
 
