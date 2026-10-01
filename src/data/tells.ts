@@ -4,10 +4,15 @@ import { fact, flag, rel, sc } from '../engine/dsl';
 import type { Node } from '../engine/types';
 import { SHARED } from './events_town_a';
 
+// 噂を聞いただけの段階で伝えても、確かめに行かせるきっかけになる（実際に見た内容と同じ扱いにする）
+const MINA_STATION = sc(
+  ['ミナ', '「え、駅が3時に？ ふうん……なんでだろ。ちょっと、確かめてこようかな。」'],
+  '好奇心の強いミナの目が、きらりと光った。——何かが、動き出した気がする。',
+  flag('told:mina|station_3pm', 'p:told:mina|station_3pm'), rel('mina', 1));
+
 export const TELLS: Record<string, Node[]> = {
-  'mina|station_3pm': sc(
-    ['ミナ', '「え、駅が3時に？ ふうん……なんでだろ。ちょっと、確かめてこようかな。」'],
-    '好奇心の強いミナの目が、きらりと光った。——何かが、動き出した気がする。', rel('mina', 1)),
+  'mina|station_rumor': MINA_STATION,
+  'mina|station_3pm': MINA_STATION,
   'mina|loop_confirmed': sc(
     ['ミナ', '「……やっぱり。やっぱりそうなんだ。」'],
     ['ミナ', '「ありがとう、言ってくれて。ひとりで抱えてるの、きつかったでしょ。」'],

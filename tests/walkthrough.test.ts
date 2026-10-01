@@ -51,8 +51,9 @@ describe('攻略ルート：TRUE END まで8周で到達できる', () => {
 
     // ── LOOP 1：ごく普通の一日 ──
     b.begin();
-    b.at('shopping', 9, 0).do('tad_hello').do('han_hello');
-    b.at('station', 14, 50).do('st_close');
+    b.at('shopping', 9, 0).do('tad_hello').do('tad_gossip').do('han_hello');
+    b.at('station', 14, 50).do('st_close').do('st_warehouse');
+    expect(b.s.facts.warehouse_empty).toBeDefined();
     b.at('beach', 17, 30).do('min_beach').do('gen_monument');
     b.at('shrine', 23, 40).do('gi_talk1');
     b.endDay();
@@ -68,12 +69,14 @@ describe('攻略ルート：TRUE END まで8周で到達できる', () => {
     b.at('park').do('yu_hello').do('yu_aware_talk').do('yu_sketch').do('yu_girl_talk');
     b.at('station', 14, 10).do('kur_talk');
     b.at('station', 14, 30).do('st_mina_clash');
-    b.do('st_overhear').do('st_close').do('st_warehouse');
+    b.do('st_overhear').do('st_close');
     expect(b.s.facts.key_basement).toBeDefined();
     expect(b.s.facts.warehouse_empty).toBeDefined();
     b.at('beach', 17, 30).do('min_follow').do('min_beach').do('min_if_a');
+    b.at('clinic', 19, 15).do('sae_peek');
     b.at('station', 19, 56).do('st_figure');
-    b.at('shrine', 21, 50).do('asa_ema').do('asa_hello').do('shr_follow');
+    b.at('shrine', 21, 30).do('asa_shiina_night').do('asa_ema').do('asa_hello');
+    b.at('shrine', 21, 50).do('shr_follow');
     b.at('shrine', 23, 40).do('gi_why');
     b.endDay();
 
@@ -85,7 +88,6 @@ describe('攻略ルート：TRUE END まで8周で到達できる', () => {
     b.do('sin_names').do('sin_hello');
     b.at('clinic').do('sae_hello').tell('saeki', 'loop_confirmed');
     b.at('beach', 17, 30).do('min_kei');
-    b.at('clinic', 19, 15).do('sae_peek');
     b.at('clinic', 19, 50).do('sae_cert').do('sae_chart');
     b.endDay();
 

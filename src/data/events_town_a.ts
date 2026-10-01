@@ -64,6 +64,12 @@ export const TOWN_A: GameEvent[] = [
         ifc({ loop: [3], not: ['tad_cans'] },
           sc(['田所', '「あ、これ。最後の一本、あんたにあげるよ。」'], '缶コーヒーを渡された。ぬるい。', fact('tad_cans'))))),
     rel('tadokoro', 1))},
+  { id: 'tad_gossip', kind: 'talk', npc: 'tadokoro', label: '田所に、最近の噂を聞く', cost: 10, once: 'ever', cond: { at: 'shopping' }, script: sc(
+    ['ソウ', '「最近、何か変わった話、ない？」'],
+    ['田所', '「あー、そういや。さっき来た客が言ってたんすけど、駅、今日は3時で閉まるらしいっすよ。貼り紙が出てたとか。」'],
+    ['田所', '「あの駅、昼間は誰も使わないから、別にいいんすけどね。」'],
+    '……あの駅員が、そんなことを？ 本当かどうか、後で確かめてみようか。',
+    fact('station_rumor'), rel('tadokoro', 1))},
   { id: 'tad_shelf', kind: 'look', label: 'コンビニの棚を調べる', cost: 15, cond: { at: 'shopping', has: ['loop_confirmed'] }, script: sc(
     '棚の商品を、片っ端から裏返してみる。',
     '賞味期限の欄。弁当も、パンも、牛乳も、ペットボトルも。',

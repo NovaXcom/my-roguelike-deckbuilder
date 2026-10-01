@@ -78,6 +78,7 @@ describe('周回をまたぐ変化（1周目に存在しなかったイベント
   });
   it('ミナに伝えた周回は、駅でミナと黒田の遭遇が起き、鍵を得る', () => {
     const s = at('shopping', 13, 0);
+    know(s, 'warehouse_empty');
     runAll(s, tellScript(s, 'mina', 'station_3pm'));
     s.loc = 'station'; s.time = 14 * 60 + 35;
     expect(presentNpcs(s)).toContain('mina');
@@ -171,14 +172,20 @@ describe('朝の自動イベントと夜の異変', () => {
 });
 
 describe('「誰に何を伝えたか」', () => {
-  it('伝えられる選択肢は、知っている情報（と噂）だけ', () => {
-    const s = at('shopping', 12, 0);
-    s.time = 9 * 60;
-    let opts = tellOptions(s);
-    expect(opts.every((o) => o.fact === 'station_3pm')).toBe(true); // 噂は最初から流せる
+  it('知らないことは話せない：最初の状態では「伝える」ことがない', () => {
+    const s = at('shopping', 9, 0);
+    expect(tellOptions(s)).toEqual([]);
+    know(s, 'station_rumor');
+    expect(tellOptions(s).some((o) => o.npc === 'tadokoro' && o.fact === 'station_rumor')).toBe(true);
     know(s, 'blackout_2347');
-    opts = tellOptions(s);
-    expect(opts.some((o) => o.npc === 'tadokoro' && o.fact === 'blackout_2347')).toBe(true);
+    expect(tellOptions(s).some((o) => o.npc === 'tadokoro' && o.fact === 'blackout_2347')).toBe(true);
+  });
+  it('噂を聞いただけでも、ミナに伝えれば駅へ確かめに行く', () => {
+    const s = at('shopping', 13, 0);
+    know(s, 'station_rumor');
+    runAll(s, tellScript(s, 'mina', 'station_rumor'));
+    s.loc = 'station'; s.time = 14 * 60 + 35;
+    expect(where(s, 'mina')).toBe('station');
   });
   it('ユウに少女のことを伝えると、夜に神社へ現れる', () => {
     const s = at('park', 12, 0);
@@ -334,5 +341,26 @@ describe('データ整合性', () => {
       const evs = availableEvents(s);
       expect(evs.length + tellOptions(s).length, loc).toBeGreaterThan(0);
     }
+  });
+  it('因果：きっかけの無い質問・行動は選べない', () => {
+    // 黒田に「駅は閉まるのか」と聞けるのは、噂を聞いた後だけ
+    const s = at('station', 10, 0);
+    const kur = EVENTS.find((e) => e.id === 'kur_talk')!;
+    const noRumor = runAll(s, kur.script, [0]);
+    expect((noRumor.find((x) => x.t === 'choice') as { opts: string[] }).opts.length).toBe(1);
+    know(s, 'station_rumor');
+    const withRumor = runAll(s, kur.script, [0]);
+    expect((withRumor.find((x) => x.t === 'choice') as { opts: string[] }).opts.length).toBe(2);
+    // 継ぎ目を見ていないのに「持ち上げてみろ」と言われる場面は起きない
+    const c = at('station', 14, 40); know(c, 'station_3pm'); c.flags['p:told:mina|station_3pm'] = 0; c.pflags['p:told:mina|station_3pm'] = 1;
+    expect(availableEvents({ ...c, time: 14 * 60 + 35 } as typeof c).map((e) => e.id)).not.toContain('st_mina_clash');
+  });
+  it('各「焦点」の最初の手がかりは、前提の情報を持っている時だけ出る', () => {
+    const s = at('home', 8, 0, { loop: 2 });
+    const kuroda = availableThreads(s).find((t) => t.id === 'kuroda')!;
+    expect(kuroda.lead).toContain('田所');           // まず噂を聞く
+    know(s, 'station_rumor');
+    expect(availableThreads(s).find((t) => t.id === 'kuroda')!.lead).toContain('14:50');
+    expect(availableThreads(s).some((t) => t.id === 'under')).toBe(false); // 入口の手がかりが無いうちは出ない
   });
 });

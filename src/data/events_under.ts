@@ -51,15 +51,16 @@ export const UNDER: GameEvent[] = [
     '壁一面に、ガラスのカプセルが並んでいる。それぞれに、名札。',
     'ミナ。黒田。佐伯。ユウ。田所。篠原。朝霧。源。ひなこ。久保。椎名。——全員分。',
     '町の住民、全員の「記憶」が、ここに保管されている。',
-    fact('capsules'))},
+    '広間の奥には、分厚い扉。六桁のテンキーが付いている。暗証番号が分からなければ、開きそうにない。',
+    fact('capsules', 'control_door'))},
   { id: 'u_log', kind: 'look', label: '端末の実験記録を読む', cost: 25, cond: { at: 'underground', has: ['capsules'] }, script: sc(
     '広間の隅の端末に、電源が入っている。',
     '『実験No.1　目的：人間の記憶の保存。　主任研究員：■■■』',
     '主任研究員の名前は、劣化して読めない。',
     '『——記録。実験中、町全体の時間が停止。原因不明。』',
     fact('exp_purpose'))},
-  { id: 'u_monitors', kind: 'look', label: '制御室の扉を開く', cost: 25, cond: { at: 'underground', has: ['door_code'] }, script: sc(
-    '分厚い扉。六桁のテンキー。',
+  { id: 'u_monitors', kind: 'look', label: '制御室の扉を開く', cost: 25, cond: { at: 'underground', has: ['door_code', 'control_door'] }, script: sc(
+    '広間の奥の、分厚い扉。六桁のテンキー。',
     '「0・0・0・8・1・7」。',
     '——開いた。',
     '制御室。壁一面に、大量のモニター。そこには、これまでのすべての「8月17日」が映っている。',

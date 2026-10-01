@@ -8,7 +8,7 @@ export const TOWN_B: GameEvent[] = [
   { id: 'kur_talk', kind: 'talk', npc: 'kuroda', label: '黒田に話しかける', cost: 10, cond: { at: 'station' }, script: sc(
     ['黒田', '「……切符なら、券売機だ。」'],
     choice(
-      opt('「今日、駅って閉まるんですか？」', sc(['黒田', '「いや、いつも通りだよ。」'], '黒田は、目を合わせようとしない。', fact('kuroda_lie'))),
+      opt('「今日、駅って閉まるんですか？」', sc(['黒田', '「いや、いつも通りだよ。」'], '黒田は、目を合わせようとしない。', fact('kuroda_lie')), { has: ['station_rumor'] }),
       opt('「いい天気ですね」', sc(['黒田', '「……ああ。」'],
         ifc({ has: ['station_3pm'] }, sc('黒田の手が、ポケットの鍵束を、そっと握りしめていた。')))),
     ),
@@ -46,12 +46,14 @@ export const TOWN_B: GameEvent[] = [
     fact('warehouse_empty'))},
   { id: 'st_confront', kind: 'talk', npc: 'kuroda', label: '黒田に倉庫のことを問い詰める', cost: 15, once: 'ever',
     cond: { at: 'station', has: ['warehouse_empty'], any: [{ has: ['kuroda_shiina_talk'] }, { has: ['station_3pm'] }] }, script: sc(
-    ['ソウ', '「倉庫に、何かありますよね。町長も知ってる。」'],
+    ifc({ has: ['kuroda_shiina_talk'] },
+      sc(['ソウ', '「倉庫に、何かありますよね。町長も知ってる。」']),
+      sc(['ソウ', '「倉庫の床の継ぎ目……あれは何ですか。」'])),
     ['黒田', '「……あんた、何を知ってる。」'],
     ['黒田', '「床の継ぎ目は扉だ。鍵がなけりゃ開かない。——鍵は、俺が持ってる。渡す気は、ない。」'],
     fact('hatch_known'), rel('kuroda', 1))},
   { id: 'st_mina_clash', kind: 'talk', npc: 'mina', label: 'ミナと黒田のやりとりを見守る', cost: 15, once: 'ever',
-    cond: { at: 'station', t: [hm(14, 30), hm(14, 59)], flag: ['p:told:mina|station_3pm'] }, script: sc(
+    cond: { at: 'station', t: [hm(14, 30), hm(14, 59)], has: ['warehouse_empty'], flag: ['p:told:mina|station_3pm'] }, script: sc(
     'ミナが、改札で黒田に詰め寄っていた。',
     ['ミナ', '「黒田さん、駅って3時に閉まるって、本当ですか？」'],
     ['黒田', '「……誰から聞いた。」'],
@@ -89,6 +91,7 @@ export const TOWN_B: GameEvent[] = [
     '19:20。診察室のドアが、少し開いていた。',
     ['佐伯', '「調子はどうだい。……そうか。今日も、そう言うんだね。」'],
     '佐伯は、誰もいない丸椅子に向かって、聴診器を当てている。',
+    ['佐伯', '「……そうか。今夜も、20時には駅へ行くんだね。」'],
     '椅子には、誰も座っていない。——それなのに、僕には、一瞬だけ、誰かの背中が見えた気がした。',
     fact('saeki_empty_patient'))},
   { id: 'sae_cert', kind: 'look', label: '診療所の控えを調べる', cost: 25, cond: { at: 'clinic', t: [hm(19, 50), hm(24)] }, script: sc(
@@ -240,6 +243,13 @@ export const TOWN_B: GameEvent[] = [
     ['朝霧', '「この町ではね、八月十七日に、死者を送る『送り火』をする習わしでね。」'],
     ['朝霧', '「もっとも、この数十年、ちゃんと火が灯ったためしがないが。」'],
     fact('okuribi'), rel('asagiri', 1))},
+  { id: 'asa_shiina_night', kind: 'talk', npc: 'asagiri', label: '朝霧に、町長のことを尋ねる', cost: 15, once: 'ever',
+    cond: { at: 'shrine', has: ['kuroda_shiina_talk'] }, script: sc(
+    ['ソウ', '「椎名町長は、この神社によく来るんですか？」'],
+    ['朝霧', '「ああ。毎晩22時になると、本殿の裏へ『お参り』にね。熱心なことだ。」'],
+    ['朝霧', '「あそこは私も入れない。町長が鍵を掛けてしまうのでね。」'],
+    '「地下の件は、今日で最後にしてくれ」——町長の言葉が、頭をよぎった。',
+    fact('shiina_night_visit'), rel('asagiri', 1))},
   { id: 'asa_ema', kind: 'look', label: '絵馬を調べる', cost: 15, cond: { at: 'shrine', t: [hm(6), hm(22, 30)] }, script: sc(
     '境内の絵馬掛け。古い絵馬が、風に鳴っている。',
     '裏返す。一枚、また一枚。——どれにも、同じ日付が記されていた。',

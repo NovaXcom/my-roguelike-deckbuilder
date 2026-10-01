@@ -7,7 +7,7 @@ const F = (id: string, cat: FactDef['cat'], title: string, text: string, extra: 
 export const FACTS: FactDef[] = [
   // ───── 時刻表（8月17日） ─────
   F('news', 'time', '23:59に異常現象', 'テレビのニュース：「本日、午後11時59分頃に大規模な異常現象が発生する可能性があります。」', { t: hm(23, 59), who: 'ニュース' }),
-  F('station_3pm', 'time', '駅を閉めて倉庫へ入る', '黒田は15:00になると駅を閉め、一人で倉庫へ入っていく。「いつも通り」と言っていたのに。', { t: hm(15), who: '駅員・黒田', tell: true, rumor: true }),
+  F('station_3pm', 'time', '駅を閉めて倉庫へ入る', '黒田は15:00になると駅を閉め、一人で倉庫へ入っていく。', { t: hm(15), who: '駅員・黒田', tell: true }),
   F('mina_beach_1730', 'time', '海岸へ行く', 'ミナは毎日17:30になると海岸へ行く。「ちょっと散歩してるだけ」と言う。', { t: hm(17, 30), who: 'ミナ', tell: true }),
   F('saeki_empty_patient', 'time', '誰もいない診察室で診察', '佐伯は19:20、誰もいない診察室で「患者」を診察している。', { t: hm(19, 20), who: '医師・佐伯', tell: true }),
   F('patient_station_2000', 'time', '病衣の男が駅に立つ', '20:00、駅のホームの端に病衣の男が立っている。近づくと消えてしまう。', { t: hm(20), who: '病衣の男', tell: true }),
@@ -32,6 +32,8 @@ export const FACTS: FactDef[] = [
   F('kei_brother', 'person', 'ミナの弟', 'ケイはミナの弟。5年前に亡くなった。', { tell: true }),
   F('kei_accident', 'person', 'ケイの事故', 'ケイは海の事故で亡くなった。その日、僕も一緒にいた。', { tell: true }),
   F('mina_truth', 'person', 'ミナは知っていた', 'ミナは、僕が事故に関わっていたことも、この町の正体も、ずっと前から知っていた。「ソウは悪くないよ」と。'),
+  F('station_rumor', 'person', '駅の噂', '田所の話：「駅、今日は3時で閉まるらしいっすよ。貼り紙が出てたとか」。本当だろうか。', { tell: true }),
+  F('shiina_night_visit', 'person', '町長の夜のお参り', '朝霧の話：椎名町長は、毎晩22時になると本殿の裏へ「お参り」に来る。誰も入れないよう、鍵まで掛けて。', { tell: true }),
   F('kuroda_lie', 'person', '黒田の嘘', '「駅は今日もいつも通り」と黒田は言った。嘘だ。'),
   F('kuroda_shiina_talk', 'person', '黒田と町長の密談', '黒田と椎名町長が15:00前に密談していた。「地下の件は、今日で最後にしてくれ」。', { tell: true }),
   F('kuroda_daughter', 'person', '黒田の娘', '黒田には娘がいた。ミナと同い年くらいだったという。', { tell: true }),
@@ -55,6 +57,7 @@ export const FACTS: FactDef[] = [
   F('storeroom_odd', 'place', '開かない物置', '隣の部屋は「物置」のはずなのに、扉に小さな名札の跡がある。', { tell: true }),
   F('expiry_817', 'place', '賞味期限は8/17', 'コンビニの商品の賞味期限は、すべて「8/17」と印字されている。', { tell: true }),
   F('phone_year', 'place', '年のない日付', 'スマートフォンのカレンダーには、年が表示されない。', {}),
+  F('control_door', 'place', '制御室の扉', '地下の奥の分厚い扉は、六桁のテンキーで閉ざされている。暗証番号が要る。'),
   F('capsules', 'place', '記憶カプセル', '地下の広間に、アステルの住民全員分の記憶カプセルが並んでいた。', { tell: true }),
 
   // ───── 資料 ─────
@@ -132,7 +135,8 @@ export const THREADS: Thread[] = [
     { done: 'rec_mina', lead: 'ミナの記憶を受け取ろう。', req: { has: ['mina_truth'] } },
   ] },
   { id: 'kuroda', name: '駅員・黒田を追う', steps: [
-    { done: 'station_3pm', lead: '14:50までに駅へ。黒田が何かをする。' },
+    { done: 'station_rumor', lead: '商店街のコンビニで、田所に最近の噂を聞いてみよう。', req: { not: ['station_3pm'] } },
+    { done: 'station_3pm', lead: '「駅が15時で閉まる」という噂を確かめに、14:50までに駅へ。', req: { has: ['station_rumor'] } },
     { done: 'kuroda_shiina_talk', lead: '14:45頃の駅に、もう一度。誰かが来るはず。', req: { has: ['station_3pm'] } },
     { done: 'warehouse_empty', lead: '15:00ちょうど、倉庫に入る黒田を追ってみよう。', req: { has: ['station_3pm'] } },
     { done: 'key_basement', lead: '誰かに「駅は15:00に閉まる」と伝えてみよう。たとえばミナに。', req: { has: ['warehouse_empty'] } },
@@ -143,7 +147,7 @@ export const THREADS: Thread[] = [
     { done: 'saeki_empty_patient', lead: '19:20、診療所の診察室を覗いてみよう。' },
     { done: 'cert_18', lead: '19:45以降、佐伯が出払った診療所を調べよう。', req: { has: ['saeki_empty_patient'] } },
     { done: 'chart_self', lead: '誰もいなくなった診療所で、カルテ棚を調べよう。', req: { has: ['saeki_empty_patient'] } },
-    { done: 'patient_station_2000', lead: '20:00の駅のホームを見てみよう。' },
+    { done: 'patient_station_2000', lead: '佐伯の呟き。「20時には駅へ行くんだね」——20:00の駅のホームを見てみよう。', req: { has: ['saeki_empty_patient'] } },
     { done: 'self_patient', lead: '「18時に死んだ患者」と「20時の駅」。記憶ボードで繋げてから、20:00の駅へ。', req: { has: ['cert_18', 'patient_station_2000'] } },
     { done: 'rec_saeki', lead: '佐伯と話そう。カルテの話を持って。', req: { has: ['chart_self'] } },
   ] },
@@ -168,8 +172,9 @@ export const THREADS: Thread[] = [
     { done: 'town_replays', lead: '記憶ボードで、集めた日付を繋げてみよう。', req: { has: ['date_school', 'date_shrine', 'date_beach', 'expiry_817'] } },
   ] },
   { id: 'under', name: '地下施設へ', steps: [
+    { done: 'shrine_hatch', lead: '朝霧の話では、町長は22時に本殿の裏へ行く。神社の石段の陰から見張ってみよう。', req: { has: ['shiina_night_visit'] } },
     { done: 'capsules', lead: '地下への入り口を探そう。「駅の倉庫」か「夜の神社」。', req: { has: ['warehouse_empty'] } },
-    { done: 'door_code', lead: '制御室の扉には暗証番号が要る。あの病衣の男を確かめよう。', req: { has: ['capsules'] } },
+    { done: 'door_code', lead: '制御室の扉には暗証番号が要る。20:00の駅に立つ、あの病衣の男を確かめよう。', req: { has: ['control_door'] } },
     { done: 'loop_count_huge', lead: '暗証番号を持って、地下の制御室へ。', req: { has: ['door_code'] } },
     { done: 'truth_self', lead: '制御室を、もっと調べよう。', req: { has: ['loop_count_huge'] } },
   ] },
