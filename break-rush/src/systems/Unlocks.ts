@@ -10,8 +10,8 @@ export interface UnlockRule {
 }
 
 export const UNLOCK_RULES: UnlockRule[] = [
-  { id: 'difficulty:hard', label: 'HARD MODE', hint: 'Clear stage 1', test: (s) => s.clearedStage >= 1 },
-  { id: 'difficulty:rush', label: 'RUSH MODE', hint: 'Clear stage 2', test: (s) => s.clearedStage >= 2 },
+  { id: 'difficulty:hard', label: 'HARD MODE', hint: 'Defeat the zone 1 boss', test: (s) => s.clearedStage >= 1 },
+  { id: 'difficulty:rush', label: 'RUSH MODE', hint: 'Defeat the zone 2 boss', test: (s) => s.clearedStage >= 2 },
   { id: 'upgrade:vampire', label: 'VAMPIRE upgrade', hint: 'Reach a 30 combo', test: (s) => s.bestCombo >= 30 },
   { id: 'upgrade:armor', label: 'ARMOR upgrade', hint: 'Score 20,000 in a run', test: (s) => Math.max(...Object.values(s.bestScore)) >= 20000 },
 ];

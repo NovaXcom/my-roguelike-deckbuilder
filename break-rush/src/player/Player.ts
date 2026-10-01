@@ -21,6 +21,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
   stats: PlayerStats = BASE_STATS;
   /** Where auto-aim should look: enemy positions. Set by the scene. */
   targets: () => Array<{ x: number; y: number }> = () => [];
+  /** Keeps the player inside the screen-lock window during a fight. */
+  clampX: { min: number; max: number } | null = null;
+  private skillDash: { dir: 1 | -1; until: number } | null = null;
   private wasGrounded = true;
   private nextDustAt = 0;
   private invulnUntil = 0;
@@ -38,6 +41,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
     jump: Phaser.Input.Keyboard.Key;
     attack: Phaser.Input.Keyboard.Key;
     dash: Phaser.Input.Keyboard.Key;
+    interact: Phaser.Input.Keyboard.Key;
+    up: Phaser.Input.Keyboard.Key;
+    skill: Phaser.Input.Keyboard.Key;
+    ult: Phaser.Input.Keyboard.Key;
   };
   private slash: Phaser.GameObjects.Rectangle;
 
@@ -58,6 +65,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
       jump: kb.addKey(K.SPACE),
       attack: kb.addKey(K.J),
       dash: kb.addKey(K.SHIFT),
+      interact: kb.addKey(K.E),
+      up: kb.addKey(K.UP),
+      skill: kb.addKey(K.L),
+      ult: kb.addKey(K.I),
     };
     this.slash = scene.add.rectangle(0, 0, 70, 50, 0xffee88, 0).setVisible(false).setDepth(30);
   }
@@ -81,6 +92,45 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
   /** True once per Shift press. The scene decides whether it means RUSH or dodge. */
   dashPressed(): boolean {
     return Phaser.Input.Keyboard.JustDown(this.keys.dash);
+  }
+
+  /** True once per press of E / Up (open chests, talk to the merchant, ...). */
+  interactPressed(): boolean {
+    const a = Phaser.Input.Keyboard.JustDown(this.keys.interact);
+    const b = Phaser.Input.Keyboard.JustDown(this.keys.up);
+    return a || b;
+  }
+
+  skillPressed(): boolean {
+    return Phaser.Input.Keyboard.JustDown(this.keys.skill);
+  }
+
+  ultPressed(): boolean {
+    return Phaser.Input.Keyboard.JustDown(this.keys.ult);
+  }
+
+  get skillDashing(): boolean {
+    return this.skillDash !== null;
+  }
+
+  /** RUSH SLASH: a fast, invulnerable dash that cuts through everything on its path. */
+  startSkillDash(dir: 1 | -1, durationMs: number): void {
+    const now = this.scene.time.now;
+    this.endDodge();
+    this.facing = dir;
+    this.skillDash = { dir, until: now + durationMs };
+    this.invulnUntil = Math.max(this.invulnUntil, now + durationMs + 120);
+    (this.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+  }
+
+  grantInvuln(ms: number): void {
+    this.invulnUntil = Math.max(this.invulnUntil, this.scene.time.now + ms);
+  }
+
+  heal(amount: number): number {
+    const before = this.hp;
+    this.hp = Math.min(this.maxHp, this.hp + amount);
+    return this.hp - before;
   }
 
   /** Returns true if damage was taken (i.e. not invulnerable). */
@@ -131,6 +181,21 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
       this.updateRush(now);
       return;
     }
+    if (this.skillDash) {
+      if (now >= this.skillDash.until) {
+        this.skillDash = null;
+        (this.body as Phaser.Physics.Arcade.Body).setAllowGravity(true);
+        this.setVelocity(this.facing * 120, 0);
+        this.setAlpha(1);
+      } else {
+        this.setVelocity(this.skillDash.dir * 1500, 0);
+        this.setFlipX(this.facing === -1);
+        this.setAlpha(0.65);
+        this.ghost(now);
+        this.clampToWindow();
+        return;
+      }
+    }
 
     const body = this.body as Phaser.Physics.Arcade.Body;
     const dodging = isDodging(this.dodge, now);
@@ -167,6 +232,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
     const hb = this.hitbox;
     this.slash.setPosition(hb.x + hb.w / 2, hb.y + hb.h / 2).setDisplaySize(hb.w, hb.h);
     this.animate(now, dodging, body);
+    this.clampToWindow();
 
     if (dodging) this.setAlpha(0.5);
     else this.setAlpha(now < this.invulnUntil ? (Math.floor(now / 80) % 2 ? 0.4 : 1) : 1);
@@ -209,6 +275,18 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
     if (dodging) lean = 24;
     if (!grounded) lean += body.velocity.y < 0 ? -4 : 4;
     this.setAngle(Phaser.Math.Linear(this.angle, this.facing * lean, 0.35));
+  }
+
+  private clampToWindow(): void {
+    if (!this.clampX) return;
+    const { min, max } = this.clampX;
+    if (this.x < min) {
+      this.x = min;
+      if (this.body!.velocity.x < 0) this.setVelocityX(0);
+    } else if (this.x > max) {
+      this.x = max;
+      if (this.body!.velocity.x > 0) this.setVelocityX(0);
+    }
   }
 
   /** Knocked back by a blocked hit. */

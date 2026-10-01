@@ -1,6 +1,7 @@
 export type SfxName =
   | 'swing' | 'hit' | 'hitHeavy' | 'break' | 'kill' | 'rush' | 'rushHit'
-  | 'dodge' | 'counter' | 'hurt' | 'milestone' | 'multikill' | 'horde' | 'warn';
+  | 'dodge' | 'counter' | 'hurt' | 'milestone' | 'multikill' | 'horde' | 'warn'
+  | 'coin' | 'gem' | 'heal' | 'levelup' | 'chest' | 'skill' | 'boom' | 'ult' | 'buy';
 
 /**
  * Synthesised sound effects (no audio files needed).
@@ -86,6 +87,41 @@ class AudioSystem {
         this.tone('sine', 110, 28, 0.7, 0.9);
         this.noise(0.55, 0.6, 700, 120, 'lowpass');
         [392, 523, 659, 784, 1047].forEach((f, i) => this.tone('square', f, f, 0.1, 0.22, 0.15 + i * 0.06));
+        break;
+      case 'coin':
+        this.tone('square', 1568 * p, 1568 * p, 0.045, 0.1);
+        this.tone('square', 2093 * p, 2093 * p, 0.07, 0.1, 0.04);
+        break;
+      case 'gem':
+        this.tone('triangle', 988 * p, 1480 * p, 0.08, 0.16);
+        break;
+      case 'heal':
+        [523, 659, 784].forEach((f, i) => this.tone('sine', f, f, 0.12, 0.2, i * 0.06));
+        break;
+      case 'levelup':
+        [392, 523, 659, 784, 1047, 1319].forEach((f, i) => this.tone('square', f, f, 0.12, 0.2, i * 0.07));
+        this.tone('sine', 196, 196, 0.5, 0.25);
+        break;
+      case 'chest':
+        [659, 784, 988, 1319].forEach((f, i) => this.tone('triangle', f, f, 0.14, 0.25, i * 0.08));
+        this.noise(0.2, 0.2, 5000, 1500, 'highpass');
+        break;
+      case 'buy':
+        this.tone('square', 880, 880, 0.05, 0.15);
+        this.tone('square', 1320, 1320, 0.09, 0.15, 0.05);
+        break;
+      case 'skill':
+        this.noise(0.22, 0.45, 600, 5000, 'bandpass');
+        this.tone('sawtooth', 300, 1400, 0.2, 0.3);
+        break;
+      case 'boom':
+        this.tone('sine', 140, 30, 0.45, 0.8);
+        this.noise(0.4, 0.7, 900, 100, 'lowpass');
+        break;
+      case 'ult':
+        this.tone('sawtooth', 80, 640, 0.6, 0.35);
+        this.noise(0.6, 0.35, 300, 6000, 'bandpass');
+        [523, 784, 1047, 1568].forEach((f, i) => this.tone('square', f, f, 0.14, 0.2, 0.5 + i * 0.07));
         break;
       case 'warn':
         this.tone('square', 1100, 1100, 0.05, 0.14);

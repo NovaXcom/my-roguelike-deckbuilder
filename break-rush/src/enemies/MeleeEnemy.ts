@@ -3,6 +3,7 @@ import { ENEMY_STATS, EnemyKind, EnemyStats } from '../config';
 import { Rect } from '../combat/DamageSystem';
 import { MeleeBrain } from '../combat/MeleeBrain';
 import { AttackTokens } from '../combat/AttackTokens';
+import { EnemyTier, TIER_DMG_MULT } from '../systems/Loot';
 import { Enemy, HitInfo, HitResult } from './Enemy';
 
 /**
@@ -15,6 +16,14 @@ export abstract class MeleeEnemy extends Enemy {
   readonly speed: number;
   readonly kind: EnemyKind;
   readonly stats: EnemyStats;
+  readonly tier: EnemyTier;
+  /** Damage multiplier from depth and tier. */
+  dmgMult = 1;
+  /** Idle until the player gets this close (fodder stand around between fights). */
+  aggroRange = Infinity;
+  private aggroed = false;
+  /** Belongs to the live locked encounter (the fight ends when all of these are dead). */
+  inEncounter = false;
   readonly brain: MeleeBrain;
   tokens!: AttackTokens;
   attackDir: 1 | -1 = 1;
@@ -25,10 +34,11 @@ export abstract class MeleeEnemy extends Enemy {
   protected boxCentered = false;
   private slotDist: number;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, texture: string, kind: EnemyKind, hpMult: number) {
+  constructor(scene: Phaser.Scene, x: number, y: number, texture: string, kind: EnemyKind, hpMult: number, tier: EnemyTier = 'normal') {
     const st = ENEMY_STATS[kind];
     super(scene, x, y, texture, Math.round(st.maxHp * hpMult), st.maxBreak);
     this.kind = kind;
+    this.tier = tier;
     this.stats = st;
     this.speed = st.speed * Phaser.Math.FloatBetween(0.9, 1.1);
     this.points = st.points;
@@ -39,7 +49,11 @@ export abstract class MeleeEnemy extends Enemy {
   }
 
   get attackDamage(): number {
-    return this.stats.attackDamage;
+    return Math.max(1, Math.round(this.stats.attackDamage * this.dmgMult * TIER_DMG_MULT[this.tier]));
+  }
+
+  override get showBars(): boolean {
+    return this.tier !== 'fodder' || this.hp < this.maxHp;
   }
 
   /** The area that hurts the player while the strike is live. */
@@ -70,6 +84,14 @@ export abstract class MeleeEnemy extends Enemy {
     const dx = target.x - this.x;
     const dist = Math.abs(dx);
     const dir: 1 | -1 = dx >= 0 ? 1 : -1;
+
+    if (!this.aggroed) {
+      if (dist > this.aggroRange) {
+        this.setVelocityX(0);
+        return;
+      }
+      this.aggroed = true;
+    }
 
     const phase = this.brain.update(now);
     if (phase === 'active') {

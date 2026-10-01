@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
-import { ATTACK_STEPS, BOSS, DODGE, ENEMY_STATS, GAME_HEIGHT, GAME_WIDTH, GROUND_Y, RUSH, WORLD_WIDTH } from '../config';
+import { ATTACK_STEPS, BOSS, DODGE, ENEMY_STATS, GAME_HEIGHT, GAME_WIDTH, GROUND_Y, RUSH } from '../config';
 import { Player } from '../player/Player';
-import { HUD } from '../ui/HUD';
+import { RpgHud } from '../ui/RpgHud';
 import { ComboDisplay } from '../ui/ComboDisplay';
 import { EnemyBars } from '../ui/EnemyBars';
 import { RushMarker } from '../ui/RushMarker';
@@ -16,16 +16,25 @@ import { MassKillTracker } from '../combat/MassKill';
 import { SlowMo } from '../combat/SlowMo';
 import { HitStop } from '../combat/HitStop';
 import { RushSystem, pickNearest } from '../combat/RushSystem';
-import { POINTS, ScoreSystem, calcRank } from '../systems/ScoreSystem';
-import { RunState, newRun } from '../systems/RunState';
+import { POINTS, ScoreSystem } from '../systems/ScoreSystem';
+import { BASE_MAX_HP, RunState, RunSummary, newRun } from '../systems/RunState';
 import { DIFFICULTIES, DifficultyDef } from '../systems/Difficulty';
 import { SaveData, loadSave, recordRun, writeSave } from '../systems/SaveSystem';
 import { evaluateUnlocks, unlockedUpgrades } from '../systems/Unlocks';
-import { ROUTES, RouteDef, StageRunner, bossHpScale, buildStage } from '../systems/StageScript';
-import { BASE_UPGRADE_IDS, UPGRADES, UpgradeId, completesSynergy, rollChoices, statsFrom, PlayerStats } from '../systems/UpgradeSystem';
+import { BASE_UPGRADE_IDS, PlayerStats, UPGRADES, UpgradeId, activeSynergies, completesSynergy, rollChoices, statsFrom } from '../systems/UpgradeSystem';
+import { RELICS, RelicId, applyRelics, hasRelic, rollRelics } from '../systems/Relics';
+import { LevelState, addXp, xpToNext } from '../systems/Leveling';
+import { Drop, EnemyTier, crateDrops, dropsFor } from '../systems/Loot';
+import { PickupManager } from '../systems/Pickups';
+import { Crate, Station } from '../systems/Props';
+import { Cooldown, ULT_GAIN, UltGauge } from '../systems/Skills';
+import { ROOM_INFO, ROOMS_PER_ZONE, RoomType, ZONES, depthMods, doorChoices, isBossRoom, isFinalBoss, nextProgress, roomsClearedBefore } from '../systems/RunMap';
+import { RoomPlan, SpawnGroup, encounterRegion, planRoom } from '../systems/RoomPlan';
+import { shardsEarned } from '../systems/Meta';
 import { audio, SfxName } from '../audio/AudioSystem';
 import { spawnDamageNumber } from '../effects/DamageNumber';
-import { burst, deathEffect, directionalBurst, punchZoom, ring, slashArc, slashFx } from '../effects/HitEffect';
+import { burst, deathEffect, directionalBurst, dust, lightning, punchZoom, ring, shockwave, slashArc, slashFx } from '../effects/HitEffect';
+import { ChoiceData, ChoiceOption } from './ChoiceScene';
 
 interface HitOptions {
   baseDamage: number;
@@ -35,10 +44,12 @@ interface HitOptions {
   shake: number;
   counter?: boolean;
   rush?: boolean;
-  /** Chain step (0-2) for light/heavy distinction; undefined for RUSH etc. */
+  /** Chain step (0-2) for light/heavy distinction; 99 = cannot be blocked. */
   step?: number;
   /** Heavy launch: spins the enemy into the air with a screen flash. */
   launch?: boolean;
+  /** Part of the ultimate: does not charge it. */
+  ultHit?: boolean;
   color: number;
   sfx: SfxName;
 }
@@ -50,19 +61,29 @@ interface Missile {
   expireAt: number;
 }
 
-type Phase = 'between' | 'fighting' | 'upgrade' | 'ended';
+/** explore: walking/fodder, locked: screen-locked fight, cleared: portal open, busy: transitions, over: run ended. */
+type RoomState = 'explore' | 'locked' | 'cleared' | 'busy' | 'over';
 
-const HEAL_ON_UPGRADE = 30;
+const BOSS_NAMES = ['IRON BEAST', 'IRON BEAST MK-II', 'OMEGA BEAST'];
+const ZONE_TINT = [
+  { sky: 0xffffff, far: 0xffffff, near: 0xffffff, name: 'NEON CITY' },
+  { sky: 0x88ffd0, far: 0xaaffdd, near: 0x99ffcc, name: 'TOXIC FACTORY' },
+  { sky: 0xff8899, far: 0xffaaaa, near: 0xff99aa, name: 'CRIMSON VOID' },
+];
+const BOSS_TRIGGER_X = 480;
+const LEVEL_HP = 3;
+const LEVEL_DMG = 0.02;
 
 export class GameScene extends Phaser.Scene {
   private run!: RunState;
   private stats!: PlayerStats;
   private diff!: DifficultyDef;
-  private route!: RouteDef;
   private save!: SaveData;
-  private recorded = false;
+  private plan!: RoomPlan;
+  private hpMult = 1;
+  private dmgMult = 1;
   private player!: Player;
-  private hud!: HUD;
+  private hud!: RpgHud;
   private comboDisplay!: ComboDisplay;
   private enemyBars!: EnemyBars;
   private rushMarker!: RushMarker;
@@ -70,68 +91,183 @@ export class GameScene extends Phaser.Scene {
   private shadows!: Phaser.GameObjects.Graphics;
   private bgFar!: Phaser.GameObjects.TileSprite;
   private bgNear!: Phaser.GameObjects.TileSprite;
-  private scoreText!: Phaser.GameObjects.Text;
+  private goArrow!: Phaser.GameObjects.Text;
+  private portal!: Phaser.GameObjects.Image;
+  private portalHint!: Phaser.GameObjects.Text;
   private spawner!: EnemySpawner;
-  private runner!: StageRunner;
+  private pickups!: PickupManager;
+  private crates: Crate[] = [];
+  private station: Station | null = null;
   private combo = new ComboSystem();
   private score = new ScoreSystem();
   private hitStop = new HitStop();
   private rush = new RushSystem<Enemy>();
   private slowmo = new SlowMo();
   private kills = new MassKillTracker();
+  private skillCd = new Cooldown(4500);
+  private ult = new UltGauge();
+  private levelState: LevelState = { level: 1, xp: 0 };
   private missiles: Missile[] = [];
   private boss: IronBeast | null = null;
   private bossEnraged = false;
-  private phase: Phase = 'between';
-  private nextAt = 0;
-  private pendingDelay: number | null = null;
-  private advanceOnNext = false;
-  private damageTaken = 0;
-  private elapsedMs = 0;
-  private timeScale = 1;
+  private state: RoomState = 'explore';
+  private nextEncounter = 0;
+  private skillHit = new Set<unknown>();
+  private ultActive = false;
+  private pendingLevelUps = 0;
+  private pendingRelicReward = false;
+  private overlayOpen = false;
+  private roomKills = 0;
+  private explosionDepth = 0;
+  private shopStock: Array<{ id: string; cost: number; sold: boolean }> = [];
   private physicsFrozen = false;
-  private gameOverShown = false;
+  private timeScale = 1;
+  private runEnded = false;
 
   constructor() {
     super('Game');
   }
 
   init(data: { run?: RunState }): void {
-    this.run = data?.run ?? newRun();
+    this.run = data?.run ?? this.devRun();
   }
 
+  /** Builds a run from URL params so a specific room can be loaded directly while testing. */
+  private devRun(): RunState {
+    const q = new URLSearchParams(location.search);
+    const save = loadSave();
+    const run = newRun(save.difficulty, save.meta);
+    const type = q.get('start') as RoomType | null;
+    const zone = Number(q.get('zone') ?? 1) || 1;
+    if (type === 'boss') run.progress = { zone, room: ROOMS_PER_ZONE - 1 };
+    else if (zone > 1 || (type && type !== 'combat')) run.progress = { zone, room: type ? 1 : 0 };
+    if (type && ['combat', 'elite', 'treasure', 'rest', 'shop', 'boss'].includes(type)) run.roomType = type;
+    if (q.has('gold')) run.gold = Number(q.get('gold'));
+    if (q.has('level')) {
+      run.level = Number(q.get('level'));
+      run.hp = BASE_MAX_HP + run.meta.maxHp + LEVEL_HP * (run.level - 1);
+    }
+    return run;
+  }
+
+  // ---- Setup ------------------------------------------------------------
+
   create(): void {
-    this.gameOverShown = false;
-    this.physicsFrozen = false;
-    this.timeScale = 1;
     this.save = loadSave();
     this.diff = DIFFICULTIES[this.run.difficulty];
-    this.route = ROUTES[this.run.route];
-    this.recorded = false;
-    this.stats = statsFrom(this.run.owned);
+    this.levelState = { level: this.run.level, xp: this.run.xp };
     this.combo = new ComboSystem();
-    this.combo.windowBonusMs = this.stats.comboBonusMs + this.diff.comboWindowDelta;
-    this.score = new ScoreSystem(this.diff.scoreMult * this.route.scoreMult);
+    this.score = new ScoreSystem(this.diff.scoreMult);
     this.hitStop = new HitStop();
     this.rush = new RushSystem<Enemy>();
     this.slowmo = new SlowMo();
     this.kills = new MassKillTracker();
+    this.skillCd = new Cooldown(4500);
+    this.ult = new UltGauge(this.run.ult);
     this.missiles = [];
+    this.crates = [];
+    this.station = null;
     this.boss = null;
     this.bossEnraged = false;
-    this.damageTaken = 0;
-    this.elapsedMs = 0;
+    this.nextEncounter = 0;
+    this.ultActive = false;
+    this.pendingLevelUps = 0;
+    this.pendingRelicReward = false;
+    this.overlayOpen = false;
+    this.roomKills = 0;
+    this.physicsFrozen = false;
+    this.timeScale = 1;
+    this.runEnded = false;
     this.physics.world.timeScale = 1;
     this.tweens.timeScale = 1;
 
-    this.physics.world.setBounds(0, 0, WORLD_WIDTH, GAME_HEIGHT);
-    this.cameras.main.setBounds(0, 0, WORLD_WIDTH, GAME_HEIGHT);
-    this.cameras.main.setBackgroundColor(0x0b0820);
+    const { progress } = this.run;
+    const mods = depthMods(progress);
+    this.hpMult = this.diff.enemyHpMult * mods.hp;
+    this.dmgMult = this.diff.enemyDmgMult * mods.dmg;
+    this.plan = planRoom(this.run.roomType, roomsClearedBefore(progress), Math.random);
+    this.refreshStats();
 
-    // Backdrop: sky + two parallax skylines, drifting embers, glowing floor
-    this.add.image(0, 0, 'bg_sky').setOrigin(0, 0).setScrollFactor(0).setDepth(-30);
-    this.bgFar = this.add.tileSprite(0, GROUND_Y, GAME_WIDTH, 300, 'bg_far').setOrigin(0, 1).setScrollFactor(0).setDepth(-20);
-    this.bgNear = this.add.tileSprite(0, GROUND_Y, GAME_WIDTH, 340, 'bg_near').setOrigin(0, 1).setScrollFactor(0).setDepth(-10);
+    const len = this.plan.length;
+    this.physics.world.setBounds(0, 0, len, GAME_HEIGHT);
+    this.cameras.main.setBounds(0, 0, len, GAME_HEIGHT);
+    this.cameras.main.setBackgroundColor(0x0b0820);
+    this.buildBackdrop(len);
+
+    const ground = this.add.rectangle(len / 2, GROUND_Y + 30, len, 60, 0x000000, 0);
+    this.physics.add.existing(ground, true);
+
+    this.player = new Player(this, this.plan.start, GROUND_Y - 60);
+    this.player.stats = this.stats;
+    this.player.maxHp = this.maxHp();
+    this.player.hp = Math.min(this.run.hp, this.player.maxHp);
+    this.player.clampX = { min: 20, max: len - 20 };
+    this.spawner = new EnemySpawner(this);
+    this.spawner.onSpawn = (e) => this.wireEnemy(e);
+    this.player.targets = () => this.spawner.enemies.filter((e) => e.active && !e.dead);
+    this.pickups = new PickupManager(
+      this,
+      () => ({ x: this.player.x, y: this.player.y }),
+      (d) => this.onCollect(d),
+      () => this.player.hp < this.player.maxHp,
+    );
+
+    this.physics.add.collider(this.player, ground);
+    this.physics.add.collider(this.spawner.group, ground);
+    // Look ahead to the right so you can see what's coming
+    this.cameras.main.startFollow(this.player, true, 0.1, 0.1, -140, 20);
+
+    this.buildRoomContents();
+
+    this.hud = new RpgHud(this);
+    this.comboDisplay = new ComboDisplay(this, 78);
+    this.enemyBars = new EnemyBars(this);
+    this.rushMarker = new RushMarker(this);
+    this.bossBar = new BossBar(this, BOSS_NAMES[Math.min(progress.zone, ZONES) - 1]);
+    this.goArrow = this.add
+      .text(GAME_WIDTH - 40, GAME_HEIGHT / 2 - 40, 'GO ▶', { fontFamily: 'monospace', fontSize: '34px', fontStyle: 'bold', color: '#ffffff', stroke: '#000', strokeThickness: 6 })
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0)
+      .setDepth(110)
+      .setVisible(false);
+
+    // Browsers only allow audio after a user gesture: unlock on input.
+    const unlock = () => audio.unlock();
+    this.input.keyboard!.on('keydown', unlock);
+    this.input.on('pointerdown', unlock);
+    this.input.keyboard!.on('keydown-M', () => {
+      audio.muted = !audio.muted;
+      this.save.settings.muted = audio.muted;
+      writeSave(this.save);
+      spawnDamageNumber(this, this.player.x, this.player.y - 70, audio.muted ? 'SOUND OFF' : 'SOUND ON', '#aab', 16);
+    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.keyboard?.off('keydown', unlock);
+      this.setTimeScale(1);
+    });
+    this.player.on('attack', (step: number, counter: boolean) => {
+      audio.play('swing', counter ? 0.8 : 1 + step * 0.1);
+      const f = this.player.facing;
+      slashArc(this, this.player.x + f * 6, this.player.y - 2, f, ATTACK_STEPS[step].range * 0.78, step, counter ? 0xff8844 : step === ATTACK_STEPS.length - 1 ? 0xffffff : 0xffee88);
+    });
+
+    this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 8, 'A/D Move  Space Jump  J Attack  L Skill  I Ultimate  Shift Dodge  E Interact', { fontFamily: 'monospace', fontSize: '12px', color: '#7f7ba8' })
+      .setOrigin(0.5, 1)
+      .setScrollFactor(0)
+      .setDepth(100);
+
+    this.state = this.plan.encounters.length === 0 && this.run.roomType !== 'boss' ? 'cleared' : 'explore';
+    if (this.state === 'cleared') this.openPortal(false);
+    const z = Math.min(progress.zone, ZONES);
+    this.banner(`${z}-${progress.room + 1}  ${ROOM_INFO[this.run.roomType].name}`, this.run.roomType === 'elite' ? '#ff9933' : this.run.roomType === 'boss' ? '#ff3344' : '#44ffee', 1400);
+  }
+
+  private buildBackdrop(len: number): void {
+    const t = ZONE_TINT[Math.min(this.run.progress.zone, ZONES) - 1];
+    this.add.image(0, 0, 'bg_sky').setOrigin(0, 0).setScrollFactor(0).setDepth(-30).setTint(t.sky);
+    this.bgFar = this.add.tileSprite(0, GROUND_Y, GAME_WIDTH, 300, 'bg_far').setOrigin(0, 1).setScrollFactor(0).setDepth(-20).setTint(t.far);
+    this.bgNear = this.add.tileSprite(0, GROUND_Y, GAME_WIDTH, 340, 'bg_near').setOrigin(0, 1).setScrollFactor(0).setDepth(-10).setTint(t.near);
     this.add
       .particles(0, 0, 'spark', {
         x: { min: 0, max: GAME_WIDTH },
@@ -147,75 +283,53 @@ export class GameScene extends Phaser.Scene {
       })
       .setScrollFactor(0)
       .setDepth(-5);
-    this.add.tileSprite(WORLD_WIDTH / 2, GROUND_Y + (GAME_HEIGHT - GROUND_Y) / 2, WORLD_WIDTH, GAME_HEIGHT - GROUND_Y, 'ground').setDepth(-4);
+    this.add.tileSprite(len / 2, GROUND_Y + (GAME_HEIGHT - GROUND_Y) / 2, len, GAME_HEIGHT - GROUND_Y, 'ground').setDepth(-4);
     this.shadows = this.add.graphics().setDepth(-1);
-    const ground = this.add.rectangle(WORLD_WIDTH / 2, GROUND_Y + 30, WORLD_WIDTH, 60, 0x000000, 0);
-    this.physics.add.existing(ground, true);
-
-    this.player = new Player(this, 300, GROUND_Y - 60);
-    this.player.stats = this.stats;
-    this.spawner = new EnemySpawner(this, this.player, this.diff.enemyHpMult);
-    this.spawner.onSpawn = (e) => this.wireEnemy(e);
-    this.player.targets = () => this.spawner.enemies.filter((e) => e.active && !e.dead);
-    this.hud = new HUD(this, this.player);
-    this.comboDisplay = new ComboDisplay(this);
-    this.enemyBars = new EnemyBars(this);
-    this.rushMarker = new RushMarker(this);
-    this.bossBar = new BossBar(this);
-    this.scoreText = this.add
-      .text(GAME_WIDTH - 24, 14, '', { fontFamily: 'monospace', fontSize: '22px', fontStyle: 'bold', color: '#fff', stroke: '#000', strokeThickness: 4 })
-      .setOrigin(1, 0)
-      .setScrollFactor(0)
-      .setDepth(100);
-
-    this.physics.add.collider(this.player, ground);
-    this.physics.add.collider(this.spawner.group, ground);
-    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
-
-    // Browsers only allow audio after a user gesture: unlock on input.
-    const unlock = () => audio.unlock();
-    this.input.keyboard!.on('keydown', unlock);
-    this.input.on('pointerdown', unlock);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.input.keyboard?.off('keydown', unlock);
-      this.game.events.off('upgrade-picked', this.onUpgradePicked, this);
-      this.setTimeScale(1);
-    });
-    this.input.keyboard!.on('keydown-M', () => {
-      audio.muted = !audio.muted;
-      this.save.settings.muted = audio.muted;
-      writeSave(this.save);
-      spawnDamageNumber(this, this.player.x, this.player.y - 70, audio.muted ? 'SOUND OFF' : 'SOUND ON', '#aab', 16);
-    });
-    this.player.on('attack', (step: number, counter: boolean) => {
-      audio.play('swing', counter ? 0.8 : 1 + step * 0.1);
-      const f = this.player.facing;
-      slashArc(this, this.player.x + f * 6, this.player.y - 2, f, ATTACK_STEPS[step].range * 0.78, step, counter ? 0xff8844 : step === ATTACK_STEPS.length - 1 ? 0xffffff : 0xffee88);
-    });
-
-    this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT - 8, 'A/D Move   Space Jump   J Attack x3   Shift Dodge / RUSH   M Sound', { fontFamily: 'monospace', fontSize: '13px', color: '#9a96c0' })
-      .setOrigin(0.5, 1)
-      .setScrollFactor(0)
-      .setDepth(100);
-
-    // Stage script. Dev shortcut: ?start=upgrade|boss skips ahead.
-    const steps = buildStage(this.run.stage, this.run.route);
-    const startParam = new URLSearchParams(location.search).get('start');
-    const startIndex = startParam === 'boss' ? steps.length - 1 : startParam === 'upgrade' ? steps.findIndex((s) => s.type === 'upgrade') : 0;
-    this.runner = new StageRunner(steps, startIndex);
-    this.phase = 'between';
-    this.advanceOnNext = false;
-    this.pendingDelay = 700;
-    this.banner(this.run.route === 'standard' ? `STAGE ${this.run.stage}` : `STAGE ${this.run.stage}  ${this.route.name}`, '#44ffee');
   }
+
+  private buildRoomContents(): void {
+    const plan = this.plan;
+    this.crates = plan.crates.map((x) => new Crate(this, x));
+    if (plan.station) {
+      this.station = new Station(this, plan.station.kind, plan.station.x);
+      if (plan.station.kind === 'merchant') this.shopStock = this.makeShopStock();
+    }
+    // Weak mobs standing around between fights
+    for (const f of plan.fodder) {
+      this.spawner.spawnGroups(f.groups, (i) => f.x + (i - 3) * 38 + Phaser.Math.Between(-10, 10), { hpMult: this.hpMult, dmgMult: this.dmgMult, aggroRange: 560 });
+    }
+    // Exit portal at the end of every room
+    this.portal = this.add.image(plan.exitX, GROUND_Y - 75, 'portal').setDepth(1).setAlpha(0.18);
+    this.portalHint = this.add
+      .text(plan.exitX, GROUND_Y - 170, 'NEXT ▶', { fontFamily: 'monospace', fontSize: '16px', fontStyle: 'bold', color: '#7af0ff', stroke: '#000', strokeThickness: 4 })
+      .setOrigin(0.5)
+      .setDepth(60)
+      .setVisible(false);
+    this.tweens.add({ targets: this.portal, scaleX: 1.08, scaleY: 1.04, duration: 700, yoyo: true, repeat: -1 });
+  }
+
+  // ---- Stats ------------------------------------------------------------
+
+  private refreshStats(): void {
+    const st = applyRelics(statsFrom(this.run.owned), this.run.relics);
+    st.damageMult *= this.run.meta.damageMult;
+    st.xpMult *= this.run.meta.xpMult;
+    this.stats = st;
+    this.combo.windowBonusMs = st.comboBonusMs + this.diff.comboWindowDelta;
+    if (this.player) {
+      this.player.stats = st;
+      this.player.maxHp = this.maxHp();
+    }
+  }
+
+  private maxHp(): number {
+    return BASE_MAX_HP + this.run.meta.maxHp + this.stats.maxHpBonus + LEVEL_HP * (this.levelState.level - 1);
+  }
+
+  // ---- Frame loop -------------------------------------------------------
 
   update(_time: number, delta: number): void {
     const now = this.time.now;
-    if (this.pendingDelay !== null) {
-      this.nextAt = now + this.pendingDelay;
-      this.pendingDelay = null;
-    }
     this.setTimeScale(this.slowmo.scale(now));
 
     // Hit stop: freeze simulation. Key presses stay buffered (JustDown persists until read).
@@ -231,9 +345,13 @@ export class GameScene extends Phaser.Scene {
       this.physics.world.resume();
       this.physicsFrozen = false;
     }
-    if (this.phase === 'fighting') this.elapsedMs += delta;
+    if (this.runEnded) {
+      this.updateUI(now);
+      return;
+    }
+    if (this.state === 'explore' || this.state === 'locked') this.run.timeMs += delta;
 
-    if (!this.player.dead && !this.player.rushing && this.player.dashPressed()) this.handleDash(now);
+    this.handleInput(now);
     this.player.update();
 
     for (const e of this.spawner.enemies) {
@@ -248,9 +366,10 @@ export class GameScene extends Phaser.Scene {
           if (!e.active) continue;
         }
       }
+      if (this.player.skillDashing) this.skillStrike(e);
 
       // Telegraphed melee strikes: one chance to hurt the player per attack
-      if (e instanceof MeleeEnemy && this.phase !== 'ended') {
+      if (e instanceof MeleeEnemy && this.state !== 'over') {
         const box = e.attackBox;
         const pb = this.player.body as Phaser.Physics.Arcade.Body;
         if (box && rectsOverlap(box, { x: pb.x, y: pb.y, w: pb.width, h: pb.height })) {
@@ -259,73 +378,423 @@ export class GameScene extends Phaser.Scene {
         }
       }
       // The boss still hurts on contact
-      if (e.contactDamage > 0 && this.phase !== 'ended' && !e.disabled && now >= e.nextContactAt && this.physics.overlap(this.player, e)) {
-        if (this.damagePlayer(e.contactDamage, e.x)) e.nextContactAt = now + e.contactCooldown;
+      if (e.contactDamage > 0 && this.state !== 'over' && !e.disabled && now >= e.nextContactAt && this.physics.overlap(this.player, e)) {
+        if (this.damagePlayer(Math.round(e.contactDamage * this.dmgMult), e.x)) e.nextContactAt = now + e.contactCooldown;
       }
     }
 
+    this.breakCrates();
     this.updateMissiles(now, (delta / 1000) * this.timeScale);
     this.updateBossState();
-    this.updateFlow(now);
+    this.pickups.update((delta / 1000) * this.timeScale, now, 190 * this.stats.magnetMult);
+    this.updateRoomFlow(now);
+    this.updateOverlays();
     this.updateUI(now);
-    if (this.player.dead && !this.gameOverShown) this.showGameOver();
+    if (this.player.dead && !this.runEnded) this.onPlayerDeath();
   }
 
-  // ---- Stage flow -------------------------------------------------------
+  private handleInput(now: number): void {
+    const p = this.player;
+    if (p.dead || this.ultActive || this.state === 'busy' || this.state === 'over') return;
+    if (!p.rushing && !p.skillDashing && p.dashPressed()) this.handleDash(now);
+    if (!p.rushing && !p.skillDashing && p.skillPressed() && this.skillCd.ready(now)) this.castSkill(now);
+    if (p.ultPressed() && this.ult.ready) this.castUltimate();
+    if (p.interactPressed()) this.interact();
+  }
 
-  private updateFlow(now: number): void {
-    if (this.player.dead) return;
-    if (this.phase === 'between') {
-      if (now < this.nextAt) return;
-      if (this.advanceOnNext) this.runner.advance();
-      this.advanceOnNext = true;
-      this.beginStep();
-    } else if (this.phase === 'fighting') {
-      if (this.runner.current.type === 'wave' && this.spawner.aliveCount() === 0) {
-        this.phase = 'between';
-        this.pendingDelay = 600;
+  // ---- Room flow --------------------------------------------------------
+
+  private updateRoomFlow(now: number): void {
+    const p = this.player;
+    if (this.state === 'explore') {
+      if (this.run.roomType === 'boss') {
+        if (!this.boss && p.x >= BOSS_TRIGGER_X) this.startBossFight();
+      } else if (this.nextEncounter < this.plan.encounters.length && p.x >= this.plan.encounters[this.nextEncounter].x) {
+        this.startEncounter(this.plan.encounters[this.nextEncounter]);
       }
+    } else if (this.state === 'locked') {
+      if (this.run.roomType !== 'boss' && this.spawner.encounterAlive() === 0) this.endEncounter();
+    } else if (this.state === 'cleared') {
+      if (!this.overlayOpen && this.pendingLevelUps === 0 && !this.pendingRelicReward && Math.abs(p.x - this.plan.exitX) < 55) this.leaveRoom();
+    }
+
+    // "GO" arrow whenever the way is open and nothing is nearby
+    const nearby = this.spawner.enemies.some((e) => e.active && !e.dead && Math.abs(e.x - p.x) < 520);
+    const open = (this.state === 'explore' || this.state === 'cleared') && !nearby && p.x < this.plan.exitX - 120;
+    this.goArrow.setVisible(open && this.run.roomType !== 'boss').setX(GAME_WIDTH - 40 + Math.sin(now / 140) * 8);
+    this.portalHint.setVisible(this.state === 'cleared').setY(GROUND_Y - 170 + Math.sin(now / 160) * 4);
+  }
+
+  private startEncounter(enc: RoomPlan['encounters'][number]): void {
+    const region = encounterRegion(enc);
+    const min = Math.max(0, region.min);
+    const max = Math.min(this.plan.length, region.max);
+    this.lockScreen(min, max);
+    this.state = 'locked';
+    this.nextEncounter++;
+    this.banner(enc.label ?? 'FIGHT!', enc.label ? '#ff9933' : '#ff5566', 900);
+    audio.play('horde');
+    this.spawnWave(enc.spawns, min, max);
+  }
+
+  private lockScreen(min: number, max: number): void {
+    this.player.clampX = { min: min + 20, max: max - 20 };
+    this.cameras.main.setBounds(min, 0, max - min, GAME_HEIGHT);
+  }
+
+  private unlockScreen(): void {
+    this.player.clampX = { min: 20, max: this.plan.length - 20 };
+    this.cameras.main.setBounds(0, 0, this.plan.length, GAME_HEIGHT);
+  }
+
+  /** Enemies march in from both screen edges. */
+  private spawnWave(groups: SpawnGroup[], min: number, max: number): void {
+    const scaled = groups.map((g) => ({ ...g, count: Math.max(1, Math.round(g.count * this.diff.countMult)) }));
+    this.spawner.spawnGroups(
+      scaled,
+      (i) => (i % 2 === 0 ? min + 70 + Math.floor(i / 2) * 36 : max - 70 - Math.floor(i / 2) * 36),
+      { hpMult: this.hpMult, dmgMult: this.dmgMult, inEncounter: true },
+    );
+  }
+
+  private endEncounter(): void {
+    this.unlockScreen();
+    if (this.nextEncounter >= this.plan.encounters.length) this.roomCleared();
+    else {
+      this.state = 'explore';
+      this.banner('CLEAR!', '#7af0ff', 700);
+      this.pickups.vacuum = true;
+      this.time.delayedCall(1100, () => (this.pickups.vacuum = false));
     }
   }
 
-  private beginStep(): void {
-    const step = this.runner.current;
-    if (step.type === 'wave') {
-      const { n, total } = this.runner.waveProgress();
-      this.banner(step.label ?? `WAVE ${n}/${total}`, step.horde ? '#ff5566' : '#ffffff');
-      if (step.horde) audio.play('horde');
-      this.spawner.spawnWave(step.spawns.map((g) => ({ kind: g.kind, count: Math.max(1, Math.round(g.count * this.diff.countMult)) })));
-      this.phase = 'fighting';
-    } else if (step.type === 'upgrade') {
-      this.phase = 'upgrade';
-      this.game.events.once('upgrade-picked', this.onUpgradePicked, this);
-      const pool = [...BASE_UPGRADE_IDS, ...unlockedUpgrades(this.save)];
-      const choices = rollChoices(Math.random, 3, pool, this.run.lastOffered);
-      this.run.lastOffered = choices;
-      const synergies = choices.map((id) => completesSynergy(this.run.owned, id));
-      this.scene.launch('Upgrade', { choices, owned: this.run.owned, synergies });
-      this.scene.pause();
-    } else {
-      this.banner('WARNING', '#ff3344');
-      audio.play('horde');
-      const x = Phaser.Math.Clamp(this.player.x + 520, 200, WORLD_WIDTH - 100);
-      this.boss = new IronBeast(this, x, GROUND_Y - 55, bossHpScale(this.run.stage) * this.route.bossHpMult * this.diff.enemyHpMult);
-      this.spawner.add(this.boss);
-      this.wireBoss(this.boss);
-      this.phase = 'fighting';
+  private startBossFight(): void {
+    this.banner('WARNING', '#ff3344', 1400);
+    audio.play('horde');
+    this.lockScreen(0, this.plan.length);
+    this.state = 'locked';
+    this.boss = new IronBeast(this, this.plan.length - 260, GROUND_Y - 55, (1 + 0.7 * (this.run.progress.zone - 1)) * this.diff.enemyHpMult);
+    this.spawner.add(this.boss);
+    this.wireBoss(this.boss);
+  }
+
+  private roomCleared(): void {
+    this.state = 'cleared';
+    this.banner('ROOM CLEAR!', '#ffdd44', 1300);
+    audio.play('milestone');
+    const bonus = Math.round(10 * (1 + 0.35 * (this.run.progress.zone - 1)) * this.stats.goldMult);
+    this.run.gold += bonus;
+    spawnDamageNumber(this, this.player.x, this.player.y - 70, `+${bonus} G`, '#ffd633', 22);
+    // Suck every loose pickup to the player
+    this.pickups.vacuum = true;
+    this.time.delayedCall(2500, () => (this.pickups.vacuum = false));
+    this.openPortal(true);
+    if (this.run.roomType === 'elite' || this.run.roomType === 'boss') this.pendingRelicReward = true;
+  }
+
+  private openPortal(fanfare: boolean): void {
+    this.tweens.add({ targets: this.portal, alpha: 0.95, duration: 500 });
+    if (fanfare) ring(this, this.plan.exitX, GROUND_Y - 70, 0x7af0ff, 120);
+  }
+
+  /** Walks into the portal: save run state, then pick the next room (or end the run). */
+  private leaveRoom(): void {
+    this.state = 'busy';
+    this.syncRun();
+    const { progress } = this.run;
+    if (isFinalBoss(progress)) {
+      this.endRun(true);
+      return;
+    }
+    if (isBossRoom(progress)) {
+      // Zone cleared: a breather and a stronger foe in the next zone
+      this.run.progress = nextProgress(progress);
+      this.run.roomType = 'combat';
+      this.run.hp = Math.min(this.maxHp(), this.run.hp + Math.round(this.maxHp() * 0.35));
+      this.banner('ZONE CLEAR!', '#ffdd44', 1200);
+      this.time.delayedCall(1100, () => this.scene.restart({ run: this.run }));
+      return;
+    }
+    const opts = doorChoices(progress, Math.random);
+    if (opts.length === 1) {
+      this.run.progress = nextProgress(progress);
+      this.run.roomType = opts[0];
+      this.banner('BOSS AHEAD', '#ff3344', 900);
+      this.time.delayedCall(800, () => this.scene.restart({ run: this.run }));
+      return;
+    }
+    const left = ROOMS_PER_ZONE - 1 - (progress.room + 1);
+    this.openChoice(
+      {
+        title: 'CHOOSE YOUR PATH',
+        subtitle: `${left} room${left === 1 ? '' : 's'} until the boss`,
+        event: 'door-picked',
+        options: opts.map((t) => ({
+          id: t,
+          name: ROOM_INFO[t].name,
+          desc: ROOM_INFO[t].desc,
+          color: t === 'elite' ? 0xff9933 : t === 'combat' ? 0xff5566 : t === 'shop' ? 0xffd633 : t === 'rest' ? 0x44dd88 : 0xb06cff,
+        })),
+      },
+      (id) => {
+        this.run.progress = nextProgress(progress);
+        this.run.roomType = id as RoomType;
+        this.scene.restart({ run: this.run });
+      },
+    );
+  }
+
+  /** Copies live state back into the run so it survives the room change. */
+  private syncRun(): void {
+    const r = this.run;
+    r.hp = this.player.hp;
+    r.level = this.levelState.level;
+    r.xp = this.levelState.xp;
+    r.ult = this.ult.value;
+    r.maxCombo = Math.max(r.maxCombo, this.combo.max);
+    r.score += this.score.total;
+    this.score = new ScoreSystem(this.diff.scoreMult);
+  }
+
+  // ---- Overlays (level-ups, relics, shop...) ---------------------------
+
+  private updateOverlays(): void {
+    if (this.overlayOpen || this.ultActive || this.runEnded || this.state === 'busy' || this.state === 'over') return;
+    if (this.pendingLevelUps > 0) {
+      this.pendingLevelUps--;
+      this.openPerkChoice('LEVEL UP!', `Level ${this.levelState.level}`);
+    } else if (this.pendingRelicReward && this.state === 'cleared') {
+      this.pendingRelicReward = false;
+      this.openRelicChoice(this.run.roomType === 'boss' ? 'BOSS REWARD' : 'ELITE REWARD');
     }
   }
 
-  private onUpgradePicked(id: UpgradeId): void {
+  /** Pauses the game and shows a card picker; `cb` runs after the game resumes. */
+  private openChoice(data: ChoiceData, cb: (id: string) => void): void {
+    this.overlayOpen = true;
+    this.game.events.once(data.event, (id: string) => {
+      this.overlayOpen = false;
+      this.scene.resume();
+      this.time.delayedCall(40, () => cb(id));
+    });
+    this.scene.launch('Choice', data);
+    this.scene.pause();
+  }
+
+  private openPerkChoice(title: string, subtitle: string, onDone?: () => void): void {
+    const pool = [...BASE_UPGRADE_IDS, ...unlockedUpgrades(this.save)];
+    const choices = rollChoices(Math.random, 3, pool, this.run.lastOffered);
+    this.run.lastOffered = choices;
+    const options: ChoiceOption[] = choices.map((id) => {
+      const owned = this.run.owned.filter((o) => o === id).length;
+      const syn = completesSynergy(this.run.owned, id);
+      return {
+        id,
+        name: UPGRADES[id].name,
+        desc: UPGRADES[id].desc,
+        tag: syn ? `★ SYNERGY: ${syn.name}\n${syn.desc}` : owned > 0 ? `owned x${owned}` : 'NEW',
+        tagColor: syn ? '#ffdd44' : owned > 0 ? '#88ddff' : '#88ff88',
+        color: 0x44aaff,
+      };
+    });
+    audio.play('levelup');
+    this.openChoice({ title, subtitle, options, event: 'perk-picked' }, (id) => {
+      this.applyPerk(id as UpgradeId);
+      onDone?.();
+    });
+  }
+
+  private applyPerk(id: UpgradeId): void {
     this.run.owned.push(id);
-    this.stats = statsFrom(this.run.owned);
-    this.player.stats = this.stats;
-    this.combo.windowBonusMs = this.stats.comboBonusMs + this.diff.comboWindowDelta;
-    this.player.hp = Math.min(this.player.maxHp, this.player.hp + HEAL_ON_UPGRADE);
-    this.phase = 'between';
-    this.pendingDelay = 500;
-    this.scene.resume();
-    spawnDamageNumber(this, this.player.x, this.player.y - 50, `${UPGRADES[id].name} UP!`, '#ffdd44', 26);
+    this.refreshStats();
+    if (id === 'vitality') this.player.heal(20);
+    spawnDamageNumber(this, this.player.x, this.player.y - 60, `${UPGRADES[id].name} UP!`, '#ffdd44', 24);
+    const syn = activeSynergies(this.run.owned).find((s) => s.needs.includes(id) && s.needs.every((n) => this.run.owned.includes(n)));
+    if (syn && completesSynergy(this.run.owned.slice(0, -1), id)?.id === syn.id) this.banner(`SYNERGY: ${syn.name}`, '#ffdd44', 1400);
+  }
+
+  private openRelicChoice(title: string, onDone?: () => void): void {
+    const relics = rollRelics(Math.random, this.run.relics, 3);
+    if (relics.length === 0) {
+      this.run.gold += 100;
+      spawnDamageNumber(this, this.player.x, this.player.y - 60, '+100 G', '#ffd633', 22);
+      onDone?.();
+      return;
+    }
+    audio.play('chest');
+    this.openChoice(
+      {
+        title,
+        subtitle: 'Choose a relic',
+        event: 'relic-picked',
+        titleColor: '#ff9933',
+        options: relics.map((r) => ({ id: r, name: RELICS[r].name, desc: RELICS[r].desc, color: RELICS[r].color, tag: 'RELIC', tagColor: '#ff9933' })),
+      },
+      (id) => {
+        this.applyRelic(id as RelicId);
+        onDone?.();
+      },
+    );
+  }
+
+  private applyRelic(id: RelicId): void {
+    this.run.relics.push(id);
+    this.refreshStats();
+    this.banner(RELICS[id].name, '#ff9933', 1300);
+    ring(this, this.player.x, this.player.y, RELICS[id].color, 120);
+  }
+
+  // ---- Stations ---------------------------------------------------------
+
+  private interact(): void {
+    const st = this.station;
+    if (!st || !st.near(this.player.x) || this.overlayOpen) return;
+    if (st.kind === 'chest' && !st.used) {
+      st.markUsed();
+      burst(this, st.x, GROUND_Y - 30, 0xffd633, 24, 220);
+      this.openRelicChoice('TREASURE');
+    } else if (st.kind === 'campfire' && !st.used) {
+      this.openChoice(
+        {
+          title: 'CAMPFIRE',
+          subtitle: 'Warm your hands...',
+          event: 'camp-picked',
+          options: [
+            { id: 'rest', name: 'REST', desc: `Recover 50% of your max HP`, color: 0x44dd88 },
+            { id: 'train', name: 'TRAIN', desc: 'Pick a free perk', color: 0x44aaff },
+          ],
+        },
+        (id) => {
+          st.markUsed();
+          if (id === 'rest') {
+            const healed = this.player.heal(Math.round(this.maxHp() * 0.5));
+            audio.play('heal');
+            spawnDamageNumber(this, this.player.x, this.player.y - 60, `+${healed} HP`, '#44dd66', 24);
+          } else this.openPerkChoice('TRAINING', 'Choose a perk');
+        },
+      );
+    } else if (st.kind === 'merchant') this.openShop();
+  }
+
+  private makeShopStock(): Array<{ id: string; cost: number; sold: boolean }> {
+    const z = 1 + 0.2 * (this.run.progress.zone - 1);
+    return [
+      { id: 'potion', cost: Math.round(40 * z), sold: false },
+      { id: 'perk', cost: Math.round(75 * z), sold: false },
+      { id: 'relic', cost: Math.round(140 * z), sold: false },
+    ];
+  }
+
+  private openShop(): void {
+    const names: Record<string, { name: string; desc: string; color: number }> = {
+      potion: { name: 'HEALING DRAUGHT', desc: 'Recover 40% of your max HP', color: 0x44dd88 },
+      perk: { name: 'RANDOM PERK', desc: 'A perk of the merchant\'s choosing', color: 0x44aaff },
+      relic: { name: 'MYSTERY RELIC', desc: 'A random relic you do not own', color: 0xff9933 },
+    };
+    const relicsLeft = rollRelics(Math.random, this.run.relics, 1).length > 0;
+    const options: ChoiceOption[] = this.shopStock.map((s) => ({
+      id: s.id,
+      name: names[s.id].name,
+      desc: s.sold ? 'SOLD OUT' : names[s.id].desc,
+      cost: s.cost,
+      color: names[s.id].color,
+      disabled: s.sold || this.run.gold < s.cost || (s.id === 'relic' && !relicsLeft),
+    }));
+    options.push({ id: 'leave', name: 'LEAVE', desc: 'Done shopping', color: 0x777799 });
+    this.openChoice({ title: 'MERCHANT', subtitle: `You have ${this.run.gold} G`, options, event: 'shop-picked', escapeId: 'leave' }, (id) => {
+      if (id === 'leave') return;
+      const item = this.shopStock.find((s) => s.id === id)!;
+      this.run.gold -= item.cost;
+      item.sold = true;
+      if (id === 'potion') {
+        this.player.heal(Math.round(this.maxHp() * 0.4));
+        audio.play('heal');
+      } else if (id === 'perk') {
+        const pool = [...BASE_UPGRADE_IDS, ...unlockedUpgrades(this.save)];
+        this.applyPerk(rollChoices(Math.random, 1, pool)[0]);
+      } else {
+        const r = rollRelics(Math.random, this.run.relics, 1)[0];
+        if (r) this.applyRelic(r);
+      }
+      this.time.delayedCall(250, () => this.openShop());
+    });
+  }
+
+  // ---- Skills -----------------------------------------------------------
+
+  private castSkill(now: number): void {
+    const p = this.player;
+    const target = pickNearest(p, this.spawner.enemies.filter((e) => e.active && !e.dead), 480);
+    const dir: 1 | -1 = target ? (target.x >= p.x ? 1 : -1) : p.facing;
+    this.skillCd.use(now, this.stats.cooldownMult);
+    this.skillHit.clear();
+    audio.play('skill');
+    p.startSkillDash(dir, 250);
+    dust(this, p.x, p.y + 24, 8);
+  }
+
+  /** While RUSH SLASH is active, anything the player touches is cut. */
+  private skillStrike(e: Enemy): void {
+    if (this.skillHit.has(e)) return;
+    const pb = this.player.body as Phaser.Physics.Arcade.Body;
+    const eb = e.body as Phaser.Physics.Arcade.Body;
+    if (!rectsOverlap({ x: pb.x - 24, y: pb.y - 10, w: pb.width + 48, h: pb.height + 20 }, { x: eb.x, y: eb.y, w: eb.width, h: eb.height })) return;
+    this.skillHit.add(e);
+    this.hitEnemy(e, { baseDamage: 36, breakDamage: 26, knockback: 440, hitStopMs: 45, shake: 0.006, launch: true, step: 99, color: 0x7affff, sfx: 'hitHeavy' });
+  }
+
+  private castUltimate(): void {
+    if (!this.ult.consume()) return;
+    const now = this.time.now;
+    const p = this.player;
+    this.ultActive = true;
+    p.grantInvuln(3200);
+    audio.play('ult');
+    this.hitStop.trigger(now, 500);
+    punchZoom(this, 0.14, 1000);
+
+    const dark = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000010, 0.6).setScrollFactor(0).setDepth(90);
+    const title = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40, 'OVER BREAK', { fontFamily: 'monospace', fontSize: '84px', fontStyle: 'bold', color: '#ffe066', stroke: '#ff2266', strokeThickness: 10 })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(121)
+      .setScale(0.3);
+    this.tweens.add({ targets: title, scale: 1.1, duration: 280, ease: 'Back.easeOut' });
+
+    this.time.delayedCall(520, () => {
+      this.cameras.main.flash(120, 255, 255, 255);
+      const view = this.cameras.main.worldView;
+      const targets = this.spawner.enemies
+        .filter((e) => e.active && !e.dead && e.x > view.x - 60 && e.x < view.right + 60)
+        .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))
+        .slice(0, 16);
+      targets.forEach((e, i) => {
+        this.time.delayedCall(i * 75, () => {
+          if (!e.active || e.dead) return;
+          lightning(this, p.x, p.y - 40, e.x, e.y - 10, 0xffe066);
+          this.hitEnemy(e, { baseDamage: 80, breakDamage: 70, knockback: 620, hitStopMs: 30, shake: 0.008, launch: true, ultHit: true, step: 99, color: 0xffe066, sfx: 'hitHeavy' });
+          slashFx(this, e.x, e.y, 0xffffff, 120);
+        });
+      });
+      this.time.delayedCall(targets.length * 75 + 350, () => {
+        shockwave(this, p.x, p.y, 380, 0xffe066);
+        audio.play('boom');
+        this.cameras.main.shake(500, 0.014);
+        this.cameras.main.flash(200, 255, 255, 255);
+        dark.destroy();
+        title.destroy();
+        this.ultActive = false;
+      });
+    });
+    // Safety: never leave the player stuck in the cutscene
+    this.time.delayedCall(5000, () => {
+      if (this.ultActive) {
+        this.ultActive = false;
+        dark.destroy();
+        title.destroy();
+      }
+    });
   }
 
   // ---- Boss -------------------------------------------------------------
@@ -352,7 +821,7 @@ export class GameScene extends Phaser.Scene {
     burst(this, boss.x, GROUND_Y - 10, 0xff8844, 24, 220);
     this.cameras.main.shake(250, 0.012);
     const grounded = this.player.y > GROUND_Y - 110;
-    if (grounded && Math.abs(this.player.x - boss.x) < BOSS.slamRadius) this.damagePlayer(BOSS.slamDamage, boss.x);
+    if (grounded && Math.abs(this.player.x - boss.x) < BOSS.slamRadius) this.damagePlayer(Math.round(BOSS.slamDamage * this.dmgMult), boss.x);
   }
 
   private fireMissiles(boss: IronBeast): void {
@@ -372,7 +841,7 @@ export class GameScene extends Phaser.Scene {
       m.obj.x += m.vx * dt;
       m.obj.y += m.vy * dt;
       const hit = !this.player.dead && rectsOverlap({ x: m.obj.x - 9, y: m.obj.y - 4, w: 18, h: 8 }, pr);
-      const dead = now >= m.expireAt || m.obj.y > GROUND_Y || (hit && this.damagePlayer(BOSS.missileDamage, m.obj.x - Math.sign(m.vx)));
+      const dead = now >= m.expireAt || m.obj.y > GROUND_Y || (hit && this.damagePlayer(Math.round(BOSS.missileDamage * this.dmgMult), m.obj.x - Math.sign(m.vx)));
       if (dead) {
         burst(this, m.obj.x, m.obj.y, 0xff8844, 6, 60);
         m.obj.destroy();
@@ -388,19 +857,19 @@ export class GameScene extends Phaser.Scene {
     this.banner('ENRAGED!', '#ff3344');
     audio.play('horde');
     this.cameras.main.shake(300, 0.01);
-    this.spawner.spawnWave([{ kind: 'grunt', count: 4 }]);
+    this.spawner.spawnGroups([{ kind: 'grunt', count: 4, tier: 'fodder' }], (i) => (i % 2 ? 80 : this.plan.length - 80) + (i % 2 ? i * 30 : -i * 30), { hpMult: this.hpMult, dmgMult: this.dmgMult });
   }
 
   private onBossDefeated(boss: IronBeast): void {
     const now = this.time.now;
-    this.phase = 'ended';
     this.boss = null;
     const { x, y } = boss;
     boss.destroy();
     this.score.add(POINTS.boss, this.combo.current(now));
-    if (this.damageTaken === 0) this.score.addFlat(POINTS.noDamageBonus);
+    if (this.run.damageTaken === 0) this.score.addFlat(POINTS.noDamageBonus);
+    this.run.kills++;
 
-    // Wipe remaining adds, then a chain of explosions.
+    // Wipe the adds, then a chain of explosions and a mountain of loot
     for (const e of this.spawner.enemies) {
       if (e.active) {
         deathEffect(this, e.x, e.y);
@@ -409,6 +878,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.missiles.forEach((m) => m.obj.destroy());
     this.missiles = [];
+    this.pickups.spawnAll(dropsFor('boss', 'normal', this.run.progress.zone, Math.random, this.stats.goldMult), x, y - 30);
 
     this.hitStop.trigger(now, 250);
     this.slowmo.trigger(now, 2200, 0.25);
@@ -425,49 +895,26 @@ export class GameScene extends Phaser.Scene {
         audio.play('kill', 0.6 + (i % 3) * 0.2);
       });
     }
-    this.banner('BOSS DEFEATED', '#ffdd44', 3000);
-
-    this.time.delayedCall(3600, () => {
-      const timeSec = Math.round(this.elapsedMs / 1000);
-      this.run.totalScore += this.score.total;
-      const rec = this.recordProgress(this.run.stage);
-      const summary = {
-        stage: this.run.stage,
-        score: this.score.total,
-        maxCombo: this.combo.max,
-        damageTaken: this.damageTaken,
-        timeSec,
-        rank: calcRank({ score: this.score.total, maxCombo: this.combo.max, damageTaken: this.damageTaken, timeSec }),
-        bestBefore: rec.bestBefore,
-        newRecord: rec.newRecord,
-        unlocked: rec.unlocked,
-      };
-      this.scene.start('Result', { run: this.run, summary });
+    this.banner('BOSS DEFEATED', '#ffdd44', 2400);
+    this.time.delayedCall(2200, () => {
+      this.unlockScreen();
+      this.roomCleared();
     });
-  }
-
-  /** Folds this run into the save once (clear or game over) and applies any unlocks. */
-  private recordProgress(clearedStage: number, runScore = this.run.totalScore): { bestBefore: number; newRecord: boolean; unlocked: string[] } {
-    if (this.recorded) return { bestBefore: runScore, newRecord: false, unlocked: [] };
-    this.recorded = true;
-    const rec = recordRun(this.save, { difficulty: this.run.difficulty, runScore, maxCombo: this.combo.max, clearedStage });
-    const ev = evaluateUnlocks(rec.save);
-    this.save = ev.save;
-    writeSave(this.save);
-    return { bestBefore: rec.bestBefore, newRecord: rec.newRecord, unlocked: ev.newly.map((r) => r.label) };
   }
 
   // ---- Combat -----------------------------------------------------------
 
   /** Central place for the player taking damage. Returns true if it landed. */
   private damagePlayer(amount: number, fromX: number): boolean {
-    if (this.phase === 'ended') return false;
-    const dmg = Math.max(1, Math.round(amount * this.diff.enemyDmgMult * this.stats.damageTakenMult));
+    if (this.state === 'over' || this.ultActive) return false;
+    const dmg = Math.max(1, Math.round(amount * this.stats.damageTakenMult));
     if (!this.player.takeDamage(dmg, fromX)) return false;
-    this.damageTaken += dmg;
+    this.run.damageTaken += dmg;
+    this.ult.gain(ULT_GAIN.hurt, this.stats.ultGainMult);
     audio.play('hurt');
     spawnDamageNumber(this, this.player.x, this.player.y - 40, dmg, '#ff6666');
     this.cameras.main.shake(100, 0.004 + dmg * 0.0002);
+    if (hasRelic(this.run.relics, 'thorns')) this.aoeDamage(this.player.x, this.player.y, 150, 45, 40, 0xcccccc);
     return true;
   }
 
@@ -478,8 +925,9 @@ export class GameScene extends Phaser.Scene {
       spawnDamageNumber(this, this.player.x, this.player.y - 50, 'RUSH!', '#44ffee', 26);
       audio.play('rush');
       this.player.startRush(target, () => this.onRushArrive(target));
-    } else {
-      if (this.player.tryDodge()) audio.play('dodge');
+    } else if (this.player.tryDodge()) {
+      audio.play('dodge');
+      if (hasRelic(this.run.relics, 'quake')) this.aoeDamage(this.player.x, this.player.y, 130, 30, 30, 0xd9a066);
     }
   }
 
@@ -516,7 +964,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /** Shared hit pipeline: damage calc, upgrades, combo, score, feedback, break and kill handling. */
+  /** Shared hit pipeline: damage calc, perks, combo, score, feedback, break and kill handling. */
   private hitEnemy(e: Enemy, o: HitOptions): void {
     const now = this.time.now;
     if (e.blocksLightHit(this.player.x, o.step ?? 99, !!o.counter, !!o.rush)) {
@@ -525,7 +973,8 @@ export class GameScene extends Phaser.Scene {
     }
     const st = this.stats;
     const crit = Math.random() < st.critChance;
-    const base = o.baseDamage * st.damageMult * (o.rush ? st.rushMult : 1);
+    const levelMult = 1 + LEVEL_DMG * (this.levelState.level - 1);
+    const base = o.baseDamage * st.damageMult * levelMult * (o.rush ? st.rushMult : 1);
     let dmg = calcDamage(base, { comboHits: this.combo.current(now), broken: e.broken, counter: !!o.counter });
     if (crit) dmg *= 2;
     if (e.broken) dmg = Math.round(dmg * st.brokenDamageMult);
@@ -533,6 +982,7 @@ export class GameScene extends Phaser.Scene {
     const prevCombo = this.combo.current(now);
     const nextCombo = this.combo.add(now);
     this.score.add(POINTS.hit, nextCombo);
+    if (!o.ultHit) this.ult.gain(ULT_GAIN.hit, st.ultGainMult);
 
     spawnDamageNumber(this, e.x, e.y - 30, res.dealt, crit ? '#ff4455' : e.broken || res.justBroken ? '#ff9933' : '#ffee88', Math.min(44, (crit ? 26 : 18) + res.dealt * 0.4));
     if (crit) spawnDamageNumber(this, e.x, e.y - 60, 'CRITICAL!!', '#ff4455', 22);
@@ -564,7 +1014,58 @@ export class GameScene extends Phaser.Scene {
       ring(this, e.x, e.y, 0xffcc00, 90);
       this.score.add(POINTS.break, nextCombo);
     }
+    if (crit && hasRelic(this.run.relics, 'storm')) this.stormStrike(e);
     if (e.dead) this.killEnemy(e, now);
+  }
+
+  /** Damage that skips combo / block logic: used by relics. */
+  private directHit(e: Enemy, dmg: number, breakDmg: number, dir: number): void {
+    if (!e.active || e.dead) return;
+    const res = e.takeHit({ damage: dmg, breakDamage: breakDmg, knockbackX: dir * 240, knockbackY: -200 });
+    spawnDamageNumber(this, e.x, e.y - 30, res.dealt, '#9fe0ff', 20);
+    if (res.justBroken) spawnDamageNumber(this, e.x, e.y - 60, 'BREAK!!', '#ffcc00', 24);
+    if (e.dead) this.killEnemy(e, this.time.now);
+  }
+
+  private aoeDamage(x: number, y: number, radius: number, dmg: number, breakDmg: number, color: number): void {
+    shockwave(this, x, y, radius, color);
+    audio.play('boom');
+    for (const e of [...this.spawner.enemies]) {
+      if (!e.active || e.dead) continue;
+      if (Math.hypot(e.x - x, e.y - y) <= radius + 20) this.directHit(e, dmg, breakDmg, e.x >= x ? 1 : -1);
+    }
+  }
+
+  private stormStrike(from: Enemy): void {
+    const others = this.spawner.enemies
+      .filter((o) => o !== from && o.active && !o.dead && Math.abs(o.x - from.x) < 420)
+      .sort((a, b) => Math.abs(a.x - from.x) - Math.abs(b.x - from.x))
+      .slice(0, 2);
+    let px = from.x;
+    let py = from.y;
+    for (const o of others) {
+      lightning(this, px, py - 10, o.x, o.y - 10);
+      this.directHit(o, 35, 20, o.x >= px ? 1 : -1);
+      px = o.x;
+      py = o.y;
+    }
+    if (others.length) audio.play('skill', 1.6);
+  }
+
+  private breakCrates(): void {
+    if (this.crates.length === 0) return;
+    const hitting = this.player.attacking || this.player.skillDashing;
+    if (!hitting) return;
+    const box = this.player.skillDashing ? { x: this.player.x - 50, y: this.player.y - 40, w: 100, h: 80 } : this.player.hitbox;
+    for (const c of this.crates) {
+      if (c.broken || !rectsOverlap(box, c.rect)) continue;
+      c.break();
+      burst(this, c.x, GROUND_Y - 18, 0xd09a55, 12, 150);
+      audio.play('hit', 0.8);
+      this.cameras.main.shake(50, 0.002);
+      this.pickups.spawnAll(crateDrops(this.run.progress.zone, Math.random, this.stats.goldMult), c.x, GROUND_Y - 24);
+    }
+    this.crates = this.crates.filter((c) => !c.broken);
   }
 
   /** Light hit bounced off a guard's shield: no damage, no combo, but a satisfying clang. */
@@ -583,6 +1084,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Warning effects for an enemy's wind-up so attacks can be read and dodged. */
   private wireEnemy(e: Enemy): void {
+    dust(this, e.x, GROUND_Y, 5);
     e.on('windup', (kind: string, ms: number, dir: number) => {
       spawnDamageNumber(this, e.x, e.y - 46, '!', '#ff3344', 32);
       audio.play('warn');
@@ -600,21 +1102,42 @@ export class GameScene extends Phaser.Scene {
       this.onBossDefeated(e);
       return;
     }
+    const me = e as MeleeEnemy;
+    const tier: EnemyTier = me.tier ?? 'normal';
     deathEffect(this, e.x, e.y);
     audio.play('kill');
-    this.hitStop.trigger(now, 60);
+    this.hitStop.trigger(now, tier === 'elite' ? 130 : tier === 'fodder' ? 20 : 60);
+    if (tier === 'elite') {
+      this.cameras.main.shake(300, 0.01);
+      ring(this, e.x, e.y, 0xffd633, 140);
+    }
+    this.run.kills++;
+    this.roomKills++;
     const gained = this.score.add(e.points, this.combo.current(now));
-    spawnDamageNumber(this, e.x, e.y - 50, `+${gained}`, '#88ff88', 18);
+    if (tier !== 'fodder') spawnDamageNumber(this, e.x, e.y - 50, `+${gained}`, '#88ff88', 18);
+    this.ult.gain(tier === 'fodder' ? ULT_GAIN.kill * 0.3 : ULT_GAIN.kill, this.stats.ultGainMult);
+
+    // Loot shower
+    const kind = me.kind ?? 'grunt';
+    this.pickups.spawnAll(dropsFor(kind, tier, this.run.progress.zone, Math.random, this.stats.goldMult), e.x, e.y - 10);
+
     const mk = this.kills.record(now);
     if (mk.tierUp) this.onMultiKill(mk.count, mk.tier);
     const others = this.spawner.enemies.filter((o) => o !== e && o.active && !o.dead);
     const next = pickNearest(this.player, others, RUSH.range);
     if (next) this.rush.offer(next, now, RUSH.windowMs + this.stats.rushWindowBonusMs);
     if (this.stats.killHeal > 0 && this.player.hp < this.player.maxHp) {
-      this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.stats.killHeal);
-      spawnDamageNumber(this, this.player.x, this.player.y - 60, `+${this.stats.killHeal} HP`, '#44dd66', 16);
+      const healed = this.player.heal(this.stats.killHeal);
+      if (healed > 0) spawnDamageNumber(this, this.player.x, this.player.y - 60, `+${healed} HP`, '#44dd66', 16);
     }
+    const x = e.x;
+    const y = e.y;
     e.destroy();
+    if (hasRelic(this.run.relics, 'blast') && this.explosionDepth < 3) {
+      this.explosionDepth++;
+      this.aoeDamage(x, y, 130, 45, 25, 0xff7a33);
+      this.explosionDepth--;
+    }
   }
 
   /** Mass-kill payoff: slow motion, flash, zoom punch, banner and a gold shower. */
@@ -639,6 +1162,84 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 0, delay: 900, duration: 400, onComplete: () => t.destroy() });
     burst(this, this.player.x, this.player.y - 20, 0xffdd44, 30 + tier * 20, 320);
     ring(this, this.player.x, this.player.y, 0xffdd44, 160 + tier * 40);
+  }
+
+  // ---- Loot / XP --------------------------------------------------------
+
+  private onCollect(d: Drop): void {
+    if (d.type === 'gold') this.run.gold += d.value;
+    else if (d.type === 'xp') this.gainXp(d.value);
+    else {
+      const healed = this.player.heal(d.value);
+      if (healed > 0) spawnDamageNumber(this, this.player.x, this.player.y - 56, `+${healed}`, '#44dd66', 18);
+    }
+  }
+
+  private gainXp(amount: number): void {
+    const levels = addXp(this.levelState, amount * this.stats.xpMult);
+    if (levels <= 0) return;
+    this.pendingLevelUps += levels;
+    this.player.maxHp = this.maxHp();
+    this.player.heal(Math.round(this.player.maxHp * 0.08) + LEVEL_HP * levels);
+    ring(this, this.player.x, this.player.y, 0x7af0ff, 150);
+    burst(this, this.player.x, this.player.y, 0x7af0ff, 24, 260);
+    spawnDamageNumber(this, this.player.x, this.player.y - 70, 'LEVEL UP!', '#7af0ff', 30);
+  }
+
+  // ---- Death / end of run ----------------------------------------------
+
+  private onPlayerDeath(): void {
+    if (hasRelic(this.run.relics, 'phoenix') && !this.run.phoenixUsed) {
+      this.run.phoenixUsed = true;
+      this.player.hp = Math.round(this.maxHp() * 0.5);
+      this.player.grantInvuln(2500);
+      this.aoeDamage(this.player.x, this.player.y, 260, 80, 60, 0xff5566);
+      this.banner('PHOENIX!', '#ff5566', 1400);
+      audio.play('levelup');
+      this.cameras.main.flash(300, 255, 120, 120);
+      return;
+    }
+    this.syncRun();
+    this.endRun(false);
+  }
+
+  private endRun(victory: boolean): void {
+    if (this.runEnded) return;
+    this.runEnded = true;
+    this.state = 'over';
+    const r = this.run;
+    const roomsCleared = victory ? ZONES * ROOMS_PER_ZONE : roomsClearedBefore(r.progress);
+    const zonesCleared = victory ? ZONES : r.progress.zone - 1;
+    const shards = shardsEarned({ roomsCleared, zonesCleared, kills: r.kills, victory });
+
+    const rec = recordRun(this.save, { difficulty: r.difficulty, runScore: r.score, maxCombo: r.maxCombo, clearedStage: zonesCleared });
+    const ev = evaluateUnlocks(rec.save);
+    this.save = ev.save;
+    this.save.shards += shards;
+    writeSave(this.save);
+
+    const summary: RunSummary = {
+      victory,
+      zone: r.progress.zone,
+      room: r.progress.room,
+      level: this.levelState.level,
+      kills: r.kills,
+      gold: r.gold,
+      maxCombo: r.maxCombo,
+      score: r.score,
+      timeSec: Math.round(r.timeMs / 1000),
+      shards,
+      bestBefore: rec.bestBefore,
+      newRecord: rec.newRecord,
+      unlocked: ev.newly.map((u) => u.label),
+      relics: r.relics,
+      rooms: roomsCleared,
+    };
+    if (!victory) {
+      this.slowmo.trigger(this.time.now, 1500, 0.3);
+      this.banner('YOU FELL', '#ff4466', 1400);
+    }
+    this.time.delayedCall(victory ? 600 : 1700, () => this.scene.start('RunEnd', { summary, difficulty: r.difficulty }));
   }
 
   // ---- UI ---------------------------------------------------------------
@@ -673,36 +1274,37 @@ export class GameScene extends Phaser.Scene {
       const lift = Phaser.Math.Clamp((GROUND_Y - feetY) / 220, 0, 1);
       this.shadows.fillStyle(0x000000, 0.4 * (1 - lift * 0.6)).fillEllipse(a.x, GROUND_Y + 4, a.displayWidth * (1.1 - lift * 0.5), 9);
     }
-    this.hud.update();
-    this.scoreText.setText(`SCORE ${this.score.total.toLocaleString()}`);
+
+    const st = this.station;
+    if (st) {
+      const label = st.kind === 'chest' ? '[E] OPEN' : st.kind === 'campfire' ? '[E] REST' : '[E] SHOP';
+      st.setPrompt(!st.used && st.near(this.player.x) ? label : st.kind === 'merchant' && st.near(this.player.x) ? label : null, now);
+    }
+
+    const z = Math.min(this.run.progress.zone, ZONES);
+    this.hud.update(
+      {
+        hp: this.player.hp,
+        maxHp: this.player.maxHp,
+        level: this.levelState.level,
+        xp: this.levelState.xp,
+        xpNeed: xpToNext(this.levelState.level),
+        gold: this.run.gold,
+        zone: z,
+        roomLabel: `ZONE ${z}-${this.run.progress.room + 1}  ${ZONE_TINT[z - 1].name}`,
+        score: this.run.score + this.score.total,
+        skillProgress: this.skillCd.progress(now, this.stats.cooldownMult),
+        skillReady: this.skillCd.ready(now),
+        ult: this.ult.value,
+        ultMax: this.ult.max,
+        relics: this.run.relics,
+      },
+      now,
+    );
     this.comboDisplay.update(this.combo.current(now), this.combo.remainingRatio(now));
     this.enemyBars.update(this.spawner.enemies.filter((e) => e !== this.boss), now);
     this.bossBar.update(this.boss && this.boss.active ? this.boss : null, now);
     const t = this.rush.available(now) && this.rush.target?.active ? this.rush.target : null;
     this.rushMarker.update(t, now);
-  }
-
-  private showGameOver(): void {
-    this.gameOverShown = true;
-    const total = this.run.totalScore + this.score.total;
-    const rec = this.recordProgress(this.run.stage - 1, total);
-    const best = Math.max(rec.bestBefore, total);
-    this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, 'GAME OVER', { fontFamily: 'monospace', fontSize: '64px', fontStyle: 'bold', color: '#ff4466', stroke: '#000', strokeThickness: 8 })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(200);
-    this.add
-      .text(
-        GAME_WIDTH / 2,
-        GAME_HEIGHT / 2 + 50,
-        `STAGE ${this.run.stage}  SCORE ${total.toLocaleString()}  MAX COMBO ${this.combo.max}\n${rec.newRecord ? 'NEW RECORD!' : `BEST ${best.toLocaleString()} (${(best - total).toLocaleString()} TO GO)`}${rec.unlocked.length ? `\nUNLOCKED: ${rec.unlocked.join(', ')}` : ''}\n\nR: retry   T: title`,
-        { fontFamily: 'monospace', fontSize: '18px', color: '#fff', align: 'center' },
-      )
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(200);
-    this.input.keyboard!.once('keydown-R', () => this.scene.start('Game', { run: newRun(this.run.difficulty) }));
-    this.input.keyboard!.once('keydown-T', () => this.scene.start('Title'));
   }
 }

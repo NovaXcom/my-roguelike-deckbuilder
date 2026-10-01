@@ -2,7 +2,6 @@ import Phaser from 'phaser';
 import { GAME_WIDTH } from '../config';
 import { audio } from '../audio/AudioSystem';
 import { loadSave } from '../systems/SaveSystem';
-import { newRun } from '../systems/RunState';
 
 type Gfx = Phaser.GameObjects.Graphics;
 
@@ -78,6 +77,53 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0xffaa33).fillRect(14, 68, 6, 6).fillRect(28, 68, 6, 6).fillRect(42, 68, 6, 6);
     });
 
+    tex('coin', 12, 12, (g) => {
+      g.fillStyle(0xb07a00).fillCircle(6, 6, 6);
+      g.fillStyle(0xffd633).fillCircle(6, 6, 5);
+      g.fillStyle(0xfff0a0).fillRect(3, 3, 3, 3);
+    });
+    tex('gem', 10, 12, (g) => {
+      g.fillStyle(0x1a7ac0).fillTriangle(5, 0, 10, 6, 5, 12).fillTriangle(5, 0, 0, 6, 5, 12);
+      g.fillStyle(0x6fe3ff).fillTriangle(5, 1, 8, 6, 5, 10).fillStyle(0xe6fbff).fillRect(3, 4, 2, 3);
+    });
+    tex('heart', 14, 13, (g) => {
+      g.fillStyle(0x2cc060).fillCircle(4, 4, 4).fillCircle(10, 4, 4).fillTriangle(0, 6, 14, 6, 7, 13);
+      g.fillStyle(0xb8ffd0).fillRect(3, 2, 2, 2);
+    });
+    tex('crate', 36, 36, (g) => {
+      g.fillStyle(0x6b4423).fillRect(0, 0, 36, 36);
+      g.fillStyle(0xa8743a).fillRect(3, 3, 30, 30);
+      g.fillStyle(0x6b4423).fillRect(0, 16, 36, 4).fillRect(16, 0, 4, 36);
+      g.fillStyle(0xd09a55).fillRect(4, 4, 9, 3);
+    });
+    tex('chest', 52, 40, (g) => {
+      g.fillStyle(0x5a3512).fillRoundedRect(0, 12, 52, 28, 4);
+      g.fillStyle(0x8a5a22).fillRoundedRect(2, 14, 48, 24, 3);
+      g.fillStyle(0x6e4418).fillRoundedRect(0, 0, 52, 18, 8);
+      g.fillStyle(0xffd633).fillRect(22, 14, 8, 12).fillRect(0, 17, 52, 3);
+      g.fillStyle(0x3a2208).fillRect(24, 19, 4, 5);
+    });
+    tex('campfire', 44, 40, (g) => {
+      g.fillStyle(0x4a2c12).fillRect(2, 30, 40, 7).fillRect(8, 26, 28, 6);
+      g.fillStyle(0xff7a1a).fillTriangle(22, 2, 6, 28, 38, 28);
+      g.fillStyle(0xffc233).fillTriangle(22, 12, 12, 28, 32, 28);
+      g.fillStyle(0xfff3b0).fillTriangle(22, 20, 17, 28, 27, 28);
+    });
+    tex('merchant', 44, 60, (g) => {
+      g.fillStyle(0x4a2f6e).fillRoundedRect(4, 22, 36, 38, 8);
+      g.fillStyle(0x7a4fb0).fillRect(10, 30, 24, 4);
+      g.fillStyle(0xffd2a8).fillCircle(22, 16, 9);
+      g.fillStyle(0x2d1a4a).fillTriangle(4, 14, 40, 14, 22, -2).fillRect(2, 12, 40, 5);
+      g.fillStyle(0xffd633).fillRect(20, 6, 4, 4);
+      g.fillStyle(0xffd633).fillCircle(36, 44, 5).fillStyle(0xb07a00).fillCircle(36, 44, 3);
+    });
+    tex('portal', 90, 150, (g) => {
+      g.fillStyle(0x3cf0ff, 0.12).fillEllipse(45, 80, 90, 150);
+      g.fillStyle(0x3cf0ff, 0.2).fillEllipse(45, 80, 66, 124);
+      g.fillStyle(0xb06cff, 0.35).fillEllipse(45, 80, 42, 96);
+      g.fillStyle(0xffffff, 0.6).fillEllipse(45, 80, 14, 60);
+    });
+
     tex('spark', 8, 8, (g) => g.fillStyle(0xffffff).fillRect(0, 0, 8, 8));
 
     // --- Backdrop -------------------------------------------------------
@@ -101,14 +147,9 @@ export class BootScene extends Phaser.Scene {
     g.destroy();
 
     audio.muted = loadSave().settings.muted;
-    // Dev shortcuts: ?start=result previews the result screen; any other ?start= skips the title.
+    // Dev shortcuts: ?start=<room type> (combat|elite|treasure|rest|shop|boss) jumps straight into a run
     const start = new URLSearchParams(location.search).get('start');
-    if (start === 'result') {
-      this.scene.start('Result', {
-        run: newRun(),
-        summary: { stage: 1, score: 12345, maxCombo: 62, damageTaken: 20, timeSec: 130, rank: 'A', bestBefore: 15000, newRecord: false, unlocked: ['HARD MODE'] },
-      });
-    } else this.scene.start(start ? 'Game' : 'Title');
+    this.scene.start(start ? 'Game' : 'Title');
   }
 
   /** Tileable city silhouette. First and last buildings match so the tile wraps cleanly. */

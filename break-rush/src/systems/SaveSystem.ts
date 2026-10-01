@@ -1,4 +1,5 @@
 import { DIFFICULTY_ORDER, Difficulty, isDifficulty } from './Difficulty';
+import { META_IDS, MetaLevels, metaLevel } from './Meta';
 
 export interface SaveData {
   bestScore: Record<Difficulty, number>;
@@ -8,6 +9,10 @@ export interface SaveData {
   unlocked: string[];
   difficulty: Difficulty;
   settings: { muted: boolean };
+  /** Meta currency earned by every run. */
+  shards: number;
+  /** Permanent upgrade levels bought with shards. */
+  meta: MetaLevels;
 }
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
@@ -22,6 +27,8 @@ export function emptySave(): SaveData {
     unlocked: [],
     difficulty: 'normal',
     settings: { muted: false },
+    shards: 0,
+    meta: {},
   };
 }
 
@@ -43,6 +50,12 @@ export function sanitizeSave(raw: unknown): SaveData {
   if (isDifficulty(d.difficulty)) s.difficulty = d.difficulty;
   const st = (d.settings ?? {}) as Record<string, unknown>;
   s.settings.muted = st.muted === true;
+  s.shards = num(d.shards);
+  const meta = (d.meta ?? {}) as Record<string, unknown>;
+  for (const id of META_IDS) {
+    const lv = metaLevel({ [id]: Number(meta[id]) }, id);
+    if (lv > 0) s.meta[id] = lv;
+  }
   return s;
 }
 
@@ -91,6 +104,7 @@ export function recordRun(save: SaveData, r: RunRecord): { save: SaveData; bestB
     bestCombo: Math.max(save.bestCombo, r.maxCombo),
     clearedStage: Math.max(save.clearedStage, r.clearedStage),
     unlocked: [...save.unlocked],
+    meta: { ...save.meta },
   };
   return { save: next, bestBefore, newRecord };
 }

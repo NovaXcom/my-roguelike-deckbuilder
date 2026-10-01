@@ -1,4 +1,4 @@
-export type UpgradeId = 'power' | 'speed' | 'breaker' | 'combo' | 'rush' | 'critical' | 'vampire' | 'armor';
+export type UpgradeId = 'power' | 'speed' | 'breaker' | 'combo' | 'rush' | 'critical' | 'vampire' | 'armor' | 'vitality' | 'magnet' | 'fortune' | 'wisdom';
 
 export interface PlayerStats {
   damageMult: number;
@@ -15,11 +15,20 @@ export interface PlayerStats {
   rushWindowBonusMs: number;
   /** Extra damage multiplier against broken enemies. */
   brokenDamageMult: number;
+  /** Extra max HP from perks / relics / meta. */
+  maxHpBonus: number;
+  magnetMult: number;
+  goldMult: number;
+  xpMult: number;
+  ultGainMult: number;
+  /** < 1 = faster skill cooldowns. */
+  cooldownMult: number;
 }
 
 export const BASE_STATS: PlayerStats = {
   damageMult: 1, speedMult: 1, breakMult: 1, comboBonusMs: 0, rushMult: 1, critChance: 0,
   killHeal: 0, damageTakenMult: 1, rushWindowBonusMs: 0, brokenDamageMult: 1,
+  maxHpBonus: 0, magnetMult: 1, goldMult: 1, xpMult: 1, ultGainMult: 1, cooldownMult: 1,
 };
 
 export const UPGRADES: Record<UpgradeId, { name: string; desc: string }> = {
@@ -31,11 +40,15 @@ export const UPGRADES: Record<UpgradeId, { name: string; desc: string }> = {
   critical: { name: 'CRITICAL', desc: 'Crit chance +10%' },
   vampire: { name: 'VAMPIRE', desc: 'Heal 2 HP per kill' },
   armor: { name: 'ARMOR', desc: 'Damage taken -20%' },
+  vitality: { name: 'VITALITY', desc: 'Max HP +20 (and heal 20)' },
+  magnet: { name: 'MAGNET', desc: 'Loot pull range +60%' },
+  fortune: { name: 'FORTUNE', desc: 'Gold found +25%' },
+  wisdom: { name: 'WISDOM', desc: 'XP gained +15%' },
 };
 
 export const UPGRADE_IDS = Object.keys(UPGRADES) as UpgradeId[];
 /** Always available. The rest must be unlocked first. */
-export const BASE_UPGRADE_IDS: UpgradeId[] = ['power', 'speed', 'breaker', 'combo', 'rush', 'critical'];
+export const BASE_UPGRADE_IDS: UpgradeId[] = ['power', 'speed', 'breaker', 'combo', 'rush', 'critical', 'vitality', 'magnet', 'fortune', 'wisdom'];
 
 /** Combo time bonus is capped so the full window stays at 5s (spec). */
 export const MAX_COMBO_BONUS_MS = 2500;
@@ -76,6 +89,10 @@ export function statsFrom(owned: UpgradeId[]): PlayerStats {
     critChance: 0.1 * n('critical'),
     killHeal: 2 * n('vampire'),
     damageTakenMult: 1 - 0.2 * n('armor'),
+    maxHpBonus: 20 * n('vitality'),
+    magnetMult: 1 + 0.6 * n('magnet'),
+    goldMult: 1 + 0.25 * n('fortune'),
+    xpMult: 1 + 0.15 * n('wisdom'),
   };
   for (const s of activeSynergies(owned)) {
     if (s.id === 'blitz') {

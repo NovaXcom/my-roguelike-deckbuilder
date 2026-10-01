@@ -5,42 +5,51 @@ import { GuardEnemy } from '../enemies/GuardEnemy';
 import { Enemy } from '../enemies/Enemy';
 import { MeleeEnemy } from '../enemies/MeleeEnemy';
 import { AttackTokens } from '../combat/AttackTokens';
-import { EnemyKind, GROUND_Y, MAX_ATTACKERS, WORLD_WIDTH } from '../config';
-import { SpawnGroup } from './StageScript';
+import { EnemyKind, GROUND_Y, MAX_ATTACKERS } from '../config';
+import { TIER_HP_MULT } from './Loot';
+import { SpawnGroup } from './RoomPlan';
 
-const KINDS: Record<EnemyKind, new (scene: Phaser.Scene, x: number, y: number, hpMult: number) => MeleeEnemy> = {
-  grunt: Grunt,
-  rusher: Rusher,
-  guard: GuardEnemy,
-};
+type Ctor = new (scene: Phaser.Scene, x: number, y: number, hpMult: number, tier: 'fodder' | 'normal' | 'elite') => MeleeEnemy;
+const KINDS: Record<EnemyKind, Ctor> = { grunt: Grunt, rusher: Rusher, guard: GuardEnemy };
 
-/** Owns the enemy group and the shared attack slots. Waves are driven by the stage script. */
+export interface SpawnOpts {
+  /** HP / damage multipliers from difficulty and depth. */
+  hpMult: number;
+  dmgMult: number;
+  /** Part of the live locked fight. */
+  inEncounter?: boolean;
+  /** Enemies stay idle until the player is this close. */
+  aggroRange?: number;
+}
+
+/** Owns the enemy group and the shared attack slots. */
 export class EnemySpawner {
   readonly group: Phaser.GameObjects.Group;
   readonly tokens = new AttackTokens(MAX_ATTACKERS);
   /** Called for every enemy created here (to hook up effects). */
   onSpawn: (e: Enemy) => void = () => {};
 
-  constructor(private scene: Phaser.Scene, private playerRef: Phaser.GameObjects.Components.Transform, private hpMult = 1) {
+  constructor(private scene: Phaser.Scene) {
     this.group = scene.add.group({ runChildUpdate: false });
   }
 
-  /** Spawns a mixed wave on both sides of the player, close enough to be in the fight within a couple of seconds. */
-  spawnWave(groups: SpawnGroup[]): void {
-    const list: EnemyKind[] = Phaser.Utils.Array.Shuffle(groups.flatMap((g) => Array<EnemyKind>(g.count).fill(g.kind)));
-    list.forEach((kind, i) => {
-      let side: 1 | -1 = i % 2 === 0 ? 1 : -1;
-      const offset = 380 + Math.floor(i / 2) * 34 + Phaser.Math.Between(0, 20);
-      let x = this.playerRef.x + side * offset;
-      if (x < 40 || x > WORLD_WIDTH - 40) {
-        side = (side * -1) as 1 | -1; // no room on that side: come from the other
-        x = this.playerRef.x + side * offset;
-      }
-      x = Phaser.Math.Clamp(x, 40, WORLD_WIDTH - 40);
-      const e = new KINDS[kind](this.scene, x, GROUND_Y - 40, this.hpMult);
+  /** Spawns groups with `xAt(i)` choosing each enemy's x. Elites are bigger and tougher. */
+  spawnGroups(groups: SpawnGroup[], xAt: (i: number) => number, o: SpawnOpts): MeleeEnemy[] {
+    const list = Phaser.Utils.Array.Shuffle(groups.flatMap((g) => Array(g.count).fill(g) as SpawnGroup[]));
+    return list.map((g, i) => {
+      const tier = g.tier ?? 'normal';
+      const e = new KINDS[g.kind](this.scene, xAt(i), GROUND_Y - 50, o.hpMult * TIER_HP_MULT[tier], tier);
+      e.dmgMult = o.dmgMult;
       e.tokens = this.tokens;
+      e.inEncounter = !!o.inEncounter;
+      if (o.aggroRange !== undefined) e.aggroRange = o.aggroRange;
+      if (tier === 'elite') {
+        e.setScale(1.3);
+        e.setData('elite', true);
+      }
       this.group.add(e);
       this.onSpawn(e);
+      return e;
     });
   }
 
@@ -49,8 +58,17 @@ export class EnemySpawner {
     this.onSpawn(enemy);
   }
 
+  /** Enemies still alive that belong to the live fight. */
+  encounterAlive(): number {
+    return this.enemies.filter((e) => e.active && !e.dead && (e as MeleeEnemy).inEncounter).length;
+  }
+
   aliveCount(): number {
     return this.enemies.filter((e) => e.active && !e.dead).length;
+  }
+
+  clear(): void {
+    this.enemies.forEach((e) => e.destroy());
   }
 
   get enemies(): Enemy[] {

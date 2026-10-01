@@ -34,9 +34,9 @@ export interface EnemyStats {
 }
 
 export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
-  grunt: { maxHp: 90, maxBreak: 30, speed: 170, attackDamage: 10, points: 100, windupMs: 380, activeMs: 200, recoverMs: 500, cooldownMs: [400, 1100], startRangeMin: 0, startRangeMax: 80, engageDist: 280, lungeSpeed: 380 },
-  rusher: { maxHp: 70, maxBreak: 24, speed: 210, attackDamage: 16, points: 200, windupMs: 650, activeMs: 420, recoverMs: 850, cooldownMs: [1200, 2400], startRangeMin: 150, startRangeMax: 400, engageDist: 520, lungeSpeed: 740 },
-  guard: { maxHp: 140, maxBreak: 50, speed: 100, attackDamage: 14, points: 250, windupMs: 560, activeMs: 260, recoverMs: 700, cooldownMs: [1000, 2000], startRangeMin: 0, startRangeMax: 90, engageDist: 260, lungeSpeed: 220 },
+  grunt: { maxHp: 90, maxBreak: 30, speed: 170, attackDamage: 12, points: 100, windupMs: 380, activeMs: 200, recoverMs: 500, cooldownMs: [400, 1100], startRangeMin: 0, startRangeMax: 80, engageDist: 280, lungeSpeed: 380 },
+  rusher: { maxHp: 70, maxBreak: 24, speed: 210, attackDamage: 20, points: 200, windupMs: 650, activeMs: 420, recoverMs: 850, cooldownMs: [1200, 2400], startRangeMin: 150, startRangeMax: 400, engageDist: 520, lungeSpeed: 740 },
+  guard: { maxHp: 140, maxBreak: 50, speed: 100, attackDamage: 18, points: 250, windupMs: 560, activeMs: 260, recoverMs: 700, cooldownMs: [1000, 2000], startRangeMin: 0, startRangeMax: 90, engageDist: 260, lungeSpeed: 220 },
 };
 
 /** At most this many enemies may be attacking at once (the rest circle and wait). */
@@ -97,15 +97,15 @@ export const COMBO_MILESTONES = [10, 25, 50, 100];
 export const MULTIKILL = { windowMs: 1000, tiers: [3, 6, 10] };
 
 export const BOSS = {
-  maxHp: 2000,
-  maxBreak: 280,
+  maxHp: 1800,
+  maxBreak: 260,
   walkSpeed: 55,
   chargeSpeed: 520,
   slamRadius: 170,
-  contactDamage: 12,
-  chargeDamage: 22,
-  slamDamage: 20,
-  missileDamage: 10,
+  contactDamage: 5,
+  chargeDamage: 18,
+  slamDamage: 16,
+  missileDamage: 8,
   missileSpeed: 340,
   /** Boss HP at or below this fraction = enraged. */
   enrageAt: 0.5,

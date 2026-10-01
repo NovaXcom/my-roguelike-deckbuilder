@@ -8,13 +8,10 @@ import { HitStop } from '../src/combat/HitStop';
 import { RushSystem, pickNearest } from '../src/combat/RushSystem';
 import { COMBO, BREAK, RUSH, ATTACK_STEPS, CHAIN_WINDOW_MS, DODGE } from '../src/config';
 import { BossAI, isEnraged } from '../src/enemies/BossAI';
-import { StageRunner, buildStage, bossHpScale, waveTotal } from '../src/systems/StageScript';
 import { MAX_COMBO_BONUS_MS, BASE_UPGRADE_IDS, UPGRADE_IDS, activeSynergies, completesSynergy, rollChoices, statsFrom } from '../src/systems/UpgradeSystem';
 import { DIFFICULTIES, DIFFICULTY_ORDER } from '../src/systems/Difficulty';
 import { SAVE_KEY, emptySave, loadSave, recordRun, sanitizeSave, writeSave } from '../src/systems/SaveSystem';
 import { UNLOCK_RULES, evaluateUnlocks, isDifficultyUnlocked, unlockedUpgrades, usableDifficulty } from '../src/systems/Unlocks';
-import { ROUTES } from '../src/systems/StageScript';
-import { newRun, nextStage } from '../src/systems/RunState';
 import { ScoreSystem, calcRank, scoreMultiplier } from '../src/systems/ScoreSystem';
 import { MeleeBrain } from '../src/combat/MeleeBrain';
 import { AttackTokens } from '../src/combat/AttackTokens';
@@ -256,28 +253,6 @@ describe('ScoreSystem', () => {
   });
 });
 
-describe('StageScript', () => {
-  it('ends with the boss and has an upgrade step before it', () => {
-    const steps = buildStage(1);
-    expect(steps[steps.length - 1].type).toBe('boss');
-    expect(steps.findIndex((s) => s.type === 'upgrade')).toBeGreaterThan(0);
-  });
-  it('scales enemy counts and boss hp with the stage', () => {
-    const count = (n: number) => buildStage(n).reduce((a, s) => a + waveTotal(s), 0);
-    expect(count(2)).toBeGreaterThan(count(1));
-    expect(bossHpScale(3)).toBeGreaterThan(bossHpScale(1));
-  });
-  it('walks steps and reports wave progress', () => {
-    const r = new StageRunner(buildStage(1));
-    expect(r.waveProgress()).toEqual({ n: 1, total: 7 });
-    for (let i = 0; i < 4; i++) r.advance();
-    expect(r.current.type).toBe('upgrade');
-    expect(r.waveProgress().n).toBe(4);
-    const boss = new StageRunner(buildStage(1), 99);
-    expect(boss.current.type).toBe('boss');
-  });
-});
-
 describe('BossAI', () => {
   it('cycles idle -> windup -> attack -> recover -> idle', () => {
     const ai = new BossAI(() => 0, 0);
@@ -333,7 +308,7 @@ describe('upgrade rolling variety', () => {
     expect(seen.has('vampire')).toBe(true);
   });
   it('has all ids defined', () => {
-    expect(UPGRADE_IDS.length).toBe(8);
+    expect(UPGRADE_IDS.length).toBe(12);
   });
 });
 
@@ -476,30 +451,6 @@ describe('Unlocks', () => {
   });
 });
 
-describe('Routes and run state', () => {
-  it('swarm adds enemies, fortress removes some but adds an upgrade and a tougher boss', () => {
-    const waves = (r: 'standard' | 'swarm' | 'fortress') => buildStage(2, r).reduce((a, s) => a + waveTotal(s), 0);
-    expect(waves('swarm')).toBeGreaterThan(waves('standard'));
-    expect(waves('fortress')).toBeLessThan(waves('standard'));
-    const up = (r: 'standard' | 'fortress') => buildStage(2, r).filter((s) => s.type === 'upgrade').length;
-    expect(up('fortress')).toBe(up('standard') + 1);
-    const f = buildStage(2, 'fortress');
-    expect(f[f.length - 1].type).toBe('boss');
-    expect(f[f.length - 2].type).toBe('upgrade');
-    expect(ROUTES.fortress.bossHpMult).toBeGreaterThan(1);
-  });
-  it('carries owned upgrades and difficulty into the next stage without sharing arrays', () => {
-    const run = newRun('hard');
-    run.owned.push('power');
-    const next = nextStage(run, 'swarm');
-    expect(next.stage).toBe(2);
-    expect(next.difficulty).toBe('hard');
-    expect(next.route).toBe('swarm');
-    next.owned.push('speed');
-    expect(run.owned).toEqual(['power']);
-  });
-});
-
 describe('MeleeBrain', () => {
   const t = { windupMs: 400, activeMs: 200, recoverMs: 500, cooldownMs: [300, 300] as [number, number] };
   it('runs approach -> windup -> active -> recover -> approach with a cooldown', () => {
@@ -570,16 +521,5 @@ describe('Blocking', () => {
   it('works when facing left', () => {
     expect(isBlocked({ ...base, guardFacing: -1, attackerX: 0 })).toBe(true);
     expect(isBlocked({ ...base, guardFacing: -1, attackerX: 200 })).toBe(false);
-  });
-});
-
-describe('Stage enemy mix', () => {
-  it('introduces rushers and guards in the first stage and a big final horde', () => {
-    const waves = buildStage(1).filter((s) => s.type === 'wave') as Array<Extract<ReturnType<typeof buildStage>[number], { type: 'wave' }>>;
-    const kinds = new Set(waves.flatMap((w) => w.spawns.map((g) => g.kind)));
-    expect(kinds.has('rusher')).toBe(true);
-    expect(kinds.has('guard')).toBe(true);
-    expect(waves[0].spawns.every((g) => g.kind === 'grunt')).toBe(true);
-    expect(Math.max(...waves.map(waveTotal))).toBeGreaterThanOrEqual(12);
   });
 });

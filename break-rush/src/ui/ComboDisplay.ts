@@ -7,10 +7,10 @@ export class ComboDisplay {
   private bar: Phaser.GameObjects.Graphics;
   private last = 0;
 
-  constructor(private scene: Phaser.Scene) {
+  constructor(private scene: Phaser.Scene, topY = 56) {
     const style = { fontFamily: 'monospace', fontStyle: 'bold', stroke: '#000', strokeThickness: 6 };
-    this.num = scene.add.text(GAME_WIDTH - 24, 56, '', { ...style, fontSize: '48px' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
-    this.label = scene.add.text(GAME_WIDTH - 24, 56, 'HIT', { ...style, fontSize: '20px', strokeThickness: 4 }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+    this.num = scene.add.text(GAME_WIDTH - 24, topY, '', { ...style, fontSize: '48px' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+    this.label = scene.add.text(GAME_WIDTH - 24, topY, 'HIT', { ...style, fontSize: '20px', strokeThickness: 4 }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
     this.bar = scene.add.graphics().setScrollFactor(0).setDepth(100);
   }
 

@@ -123,3 +123,29 @@ export function slashArc(scene: Phaser.Scene, x: number, y: number, facing: 1 | 
     onComplete: () => g.destroy(),
   });
 }
+
+/** Expanding ground shockwave: ring plus a spray of sparks. Used by relics and the boss. */
+export function shockwave(scene: Phaser.Scene, x: number, y: number, radius: number, color: number): void {
+  ring(scene, x, y, color, radius);
+  burst(scene, x, y, color, 14, radius * 1.3);
+}
+
+/** Jagged lightning bolt between two points that fades quickly. */
+export function lightning(scene: Phaser.Scene, x1: number, y1: number, x2: number, y2: number, color = 0x9fe0ff): void {
+  const g = scene.add.graphics().setDepth(46);
+  const segs = 7;
+  g.lineStyle(6, color, 0.5);
+  const pts: Array<[number, number]> = [[x1, y1]];
+  for (let i = 1; i < segs; i++) pts.push([x1 + ((x2 - x1) * i) / segs + Phaser.Math.Between(-18, 18), y1 + ((y2 - y1) * i) / segs + Phaser.Math.Between(-22, 22)]);
+  pts.push([x2, y2]);
+  const draw = (w: number, c: number, a: number) => {
+    g.lineStyle(w, c, a);
+    g.beginPath();
+    g.moveTo(pts[0][0], pts[0][1]);
+    for (const [px, py] of pts.slice(1)) g.lineTo(px, py);
+    g.strokePath();
+  };
+  draw(7, color, 0.45);
+  draw(2, 0xffffff, 1);
+  scene.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
+}

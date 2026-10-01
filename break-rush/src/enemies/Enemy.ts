@@ -27,6 +27,11 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite implements Heal
   /** Score for a kill. */
   points = 100;
   nextContactAt = 0;
+  /** Whether the HP/break bars should be drawn (fodder only shows them once hurt). */
+  get showBars(): boolean {
+    return true;
+  }
+
   /** Set while winding up an attack: shows the red warning pulse. */
   protected telegraphing = false;
   private wasTelegraphing = false;

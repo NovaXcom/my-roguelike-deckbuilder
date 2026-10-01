@@ -1,35 +1,73 @@
 import { Difficulty } from './Difficulty';
-import { Route } from './StageScript';
+import { MetaBonuses, MetaLevels, metaBonuses } from './Meta';
+import { RELIC_IDS, RelicId } from './Relics';
+import { Progress, RoomType } from './RunMap';
 import { UpgradeId } from './UpgradeSystem';
 
-/** Data that survives between stages of one run. */
+export const BASE_MAX_HP = 100;
+
+/** Everything that carries from room to room within one run. */
 export interface RunState {
-  stage: number;
-  owned: UpgradeId[];
-  totalScore: number;
   difficulty: Difficulty;
-  route: Route;
-  /** Upgrades offered at the previous choice, avoided next time so offers vary. */
-  lastOffered: UpgradeId[];
-}
-
-export function newRun(difficulty: Difficulty = 'normal'): RunState {
-  return { stage: 1, owned: [], totalScore: 0, difficulty, route: 'standard', lastOffered: [] };
-}
-
-export function nextStage(run: RunState, route: Route): RunState {
-  return { ...run, stage: run.stage + 1, route, owned: [...run.owned], lastOffered: [...run.lastOffered] };
-}
-
-export interface StageSummary {
-  stage: number;
-  score: number;
+  progress: Progress;
+  roomType: RoomType;
+  hp: number;
+  gold: number;
+  level: number;
+  xp: number;
+  ult: number;
+  owned: UpgradeId[];
+  relics: RelicId[];
+  kills: number;
   maxCombo: number;
+  score: number;
   damageTaken: number;
+  timeMs: number;
+  /** Upgrades offered at the previous level-up, avoided next time so offers vary. */
+  lastOffered: UpgradeId[];
+  phoenixUsed: boolean;
+  meta: MetaBonuses;
+}
+
+export function newRun(difficulty: Difficulty = 'normal', metaLevels: MetaLevels = {}, rand: () => number = Math.random): RunState {
+  const meta = metaBonuses(metaLevels);
+  const relics: RelicId[] = meta.startRelic ? [RELIC_IDS[Math.floor(rand() * RELIC_IDS.length)]] : [];
+  return {
+    difficulty,
+    progress: { zone: 1, room: 0 },
+    roomType: 'combat',
+    hp: BASE_MAX_HP + meta.maxHp,
+    gold: meta.startGold,
+    level: 1,
+    xp: 0,
+    ult: meta.startUlt,
+    owned: [],
+    relics,
+    kills: 0,
+    maxCombo: 0,
+    score: 0,
+    damageTaken: 0,
+    timeMs: 0,
+    lastOffered: [],
+    phoenixUsed: false,
+    meta,
+  };
+}
+
+export interface RunSummary {
+  victory: boolean;
+  zone: number;
+  room: number;
+  level: number;
+  kills: number;
+  gold: number;
+  maxCombo: number;
+  score: number;
   timeSec: number;
-  rank: string;
-  /** Previous best for this difficulty, before this run total was recorded. */
+  shards: number;
   bestBefore: number;
   newRecord: boolean;
   unlocked: string[];
+  relics: RelicId[];
+  rooms: number;
 }

@@ -49,7 +49,7 @@ export class TitleScene extends Phaser.Scene {
     start.on('pointerdown', () => this.start());
 
     this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT - 50, 'A/D Move   Space Jump   J Attack   Shift Dodge / RUSH   ← → Difficulty   M Sound', { fontFamily: 'monospace', fontSize: '14px', color: '#889' })
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 50, 'A/D Move  Space Jump  J Attack  L Skill  I Ultimate  Shift Dodge  E Interact   ← → Difficulty   U Upgrades   M Sound', { fontFamily: 'monospace', fontSize: '14px', color: '#889' })
       .setOrigin(0.5);
     this.soundLabel = this.add.text(GAME_WIDTH - 20, 16, '', { fontFamily: 'monospace', fontSize: '14px', color: '#889' }).setOrigin(1, 0);
 
@@ -61,6 +61,7 @@ export class TitleScene extends Phaser.Scene {
     kb.on('keydown-RIGHT', () => this.move(1));
     kb.on('keydown-D', () => this.move(1));
     kb.on('keydown-ENTER', () => this.start());
+    kb.on('keydown-U', () => this.scene.start('Meta'));
     kb.on('keydown-SPACE', () => this.start());
     kb.on('keydown-M', () => {
       audio.muted = !audio.muted;
@@ -99,7 +100,7 @@ export class TitleScene extends Phaser.Scene {
     const locked = DIFFICULTY_ORDER.filter((d) => !isDifficultyUnlocked(s, d)).map((d) => `${DIFFICULTIES[d].name}: ${unlockHint(d)}`);
     this.stats.setText(
       `BEST SCORE ${s.bestScore[this.selected].toLocaleString()}    BEST COMBO ${s.bestCombo}    CLEARED STAGE ${s.clearedStage}\n` +
-        `UNLOCKS ${s.unlocked.length}/${UNLOCK_RULES.length}` +
+        `SHARDS ${s.shards}  (U: permanent upgrades)    UNLOCKS ${s.unlocked.length}/${UNLOCK_RULES.length}` +
         (locked.length ? `    (${locked[0]})` : upgradeUnlocks.some((r) => !s.unlocked.includes(r.id)) ? `    (${upgradeUnlocks.find((r) => !s.unlocked.includes(r.id))!.hint})` : ''),
     );
     this.soundLabel.setText(audio.muted ? 'SOUND: OFF  (M)' : 'SOUND: ON  (M)');
@@ -107,6 +108,6 @@ export class TitleScene extends Phaser.Scene {
 
   private start(): void {
     audio.unlock();
-    this.scene.start('Game', { run: newRun(this.selected) });
+    this.scene.start('Game', { run: newRun(this.selected, this.save.meta) });
   }
 }

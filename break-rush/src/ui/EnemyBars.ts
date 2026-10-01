@@ -14,7 +14,7 @@ export class EnemyBars {
     const w = 40;
     this.g.clear();
     for (const e of enemies) {
-      if (!e.active) continue;
+      if (!e.active || !e.showBars) continue;
       const x = e.x - w / 2;
       const y = e.y - e.displayHeight / 2 - 14;
       this.g.fillStyle(0x000000, 0.7).fillRect(x - 1, y - 1, w + 2, 11);
