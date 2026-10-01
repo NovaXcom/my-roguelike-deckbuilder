@@ -30,6 +30,8 @@ export interface SkillDef {
   chargeSelf?: boolean;
   /** 待機カード: CD/疲労-1・ガード+5・次のダメージスキル強化 */
   waitEffect?: boolean;
+  /** 融合で作られるカード(報酬・ショップには出ない) */
+  fusion?: boolean;
   /** 装備でカードが書き換わったとき、元のカードID(Lv・分岐は元のカードのものを使う) */
   base?: string;
   /** Lv3の分岐(2択)。Lv3に上げるとき選ぶ */

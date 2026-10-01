@@ -49,6 +49,33 @@ export const SKILLS: Record<string, SkillDef> = Object.fromEntries([
   sk({ id: 'guard_slash', base: 'slash', name: '護り斬り', kind: 'physical', element: 'none', cooldown: 0, damage: 8, breakPower: 8, guardSelf: 4,
     conds: [{ when: { kind: 'bleeding' }, then: { damageBonus: 4 }, label: '出血中の敵: ダメージ+4' }],
     text: '8ダメージ。ゲージ-8。ガード4。' }),
+  // --- 融合カード(2枚のカードを1枚にしたもの。報酬には出ない) ---
+  sk({ id: 'crush_slash', name: '砕斬', kind: 'physical', element: 'none', cooldown: 1, damage: 14, breakPower: 20, fusion: true,
+    text: '14ダメージ。ゲージ-20。（斬撃＋シールドバッシュ）' }),
+  sk({ id: 'twin_slash', name: '連斬', kind: 'physical', element: 'none', cooldown: 1, damage: 18, breakPower: 14, fusion: true,
+    conds: [{ when: { kind: 'bleeding' }, then: { damageBonus: 5 }, label: '出血中の敵: ダメージ+5' }],
+    text: '18ダメージ。ゲージ-14。（斬撃＋斬撃）' }),
+  sk({ id: 'bastion', name: '堅陣', kind: 'support', element: 'none', cooldown: 2, guardSelf: 12, guardAlly: 12, fusion: true,
+    text: '自分と味方にガード12。（守護の盾＋防御）' }),
+  sk({ id: 'oath', name: '鉄の誓い', kind: 'support', element: 'none', cooldown: 2, guardSelf: 16, taunt: true, fusion: true,
+    text: '自分にガード16。敵の攻撃を引きつける。疲労は挑発より短い。（挑発の構え＋防御）' }),
+  sk({ id: 'taunt_strike', name: '挑撃', kind: 'physical', element: 'none', cooldown: 3, damage: 8, breakPower: 14, guardSelf: 8, taunt: true, fusion: true,
+    text: '8ダメージ。ゲージ-14。ガード8＋挑発。（シールドバッシュ＋挑発の構え）' }),
+  sk({ id: 'steam_bolt', name: '蒸気弾', kind: 'magic', element: 'fire', cooldown: 1, damage: 14, fusion: true,
+    conds: [{ when: { kind: 'broken' }, then: { damageMult: 1.3 }, label: 'ブレイク中の敵: ダメージ×1.3' }],
+    text: '火属性14ダメージ。（ファイアボルト＋アイスランス）' }),
+  sk({ id: 'flare_thunder', name: '雷炎', kind: 'magic', element: 'thunder', cooldown: 2, damage: 17, breakPower: 12, inflict: 'burn', fusion: true,
+    text: '雷属性17ダメージ。ゲージ-12。敵を火傷にする。（ファイアボルト＋サンダー）' }),
+  sk({ id: 'frost_thunder', name: '凍雷', kind: 'magic', element: 'thunder', cooldown: 2, damage: 14, breakPower: 14, freezeAlways: true, fusion: true,
+    text: '雷属性14ダメージ。ゲージ-14。敵を必ず凍結する。（アイスランス＋サンダー）' }),
+  sk({ id: 'blaze', name: '業火弾', kind: 'magic', element: 'fire', cooldown: 1, damage: 21, inflict: 'burn', fusion: true,
+    text: '火属性21ダメージ。敵を火傷にする。（ファイアボルト＋ファイアボルト）' }),
+  sk({ id: 'thunderbolt', name: '雷霆', kind: 'magic', element: 'thunder', cooldown: 3, damage: 26, breakPower: 22, fusion: true,
+    text: '雷属性26ダメージ。ゲージ-22。（サンダー＋サンダー）' }),
+  sk({ id: 'ice_storm', name: '氷嵐', kind: 'magic', element: 'ice', cooldown: 2, damage: 16, aoe: 0.7, freezeAlways: true, fusion: true,
+    text: '【全体】氷16ダメージ。必ず凍結（×0.7）。（アイスランス＋アイスランス）' }),
+  sk({ id: 'mana_heal', name: '魔癒', kind: 'support', element: 'none', cooldown: 3, healAll: 10, chargeSelf: true, fusion: true,
+    text: '全員のHPを10回復。次のダメージスキル+30%。（ヒール＋魔力集中）' }),
   // --- 連携カード(2人共通。直前の手を参照する) ---
   sk({ id: 'chase', name: '追撃', kind: 'support', element: 'none', cooldown: 1, link: 'chase',
     text: '直前の攻撃と同じ敵に、そのダメージの50%を追加で与える。' }),
@@ -122,6 +149,28 @@ export function variantMap(effects: readonly EquipEffectId[]): Record<string, st
   const out: Record<string, string> = {};
   for (const e of effects) for (const [from, to] of Object.entries(CARD_VARIANTS[e] ?? {})) if (!out[from]) out[from] = to;
   return out;
+}
+
+/** 融合のレシピ(順不同)。同じカード2枚の融合は2枚持っているときだけ */
+export const FUSIONS: { a: string; b: string; result: string }[] = [
+  { a: 'slash', b: 'shield_bash', result: 'crush_slash' },
+  { a: 'slash', b: 'slash', result: 'twin_slash' },
+  { a: 'guardian', b: 'defend', result: 'bastion' },
+  { a: 'provoke', b: 'defend', result: 'oath' },
+  { a: 'shield_bash', b: 'provoke', result: 'taunt_strike' },
+  { a: 'firebolt', b: 'ice_lance', result: 'steam_bolt' },
+  { a: 'firebolt', b: 'thunder', result: 'flare_thunder' },
+  { a: 'ice_lance', b: 'thunder', result: 'frost_thunder' },
+  { a: 'firebolt', b: 'firebolt', result: 'blaze' },
+  { a: 'thunder', b: 'thunder', result: 'thunderbolt' },
+  { a: 'ice_lance', b: 'ice_lance', result: 'ice_storm' },
+  { a: 'heal', b: 'focus_mana', result: 'mana_heal' },
+];
+
+/** 2枚のカードの融合結果(レシピが無ければ null) */
+export function fusionResult(a: string, b: string): string | null {
+  const f = FUSIONS.find((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a));
+  return f ? f.result : null;
 }
 
 /** 連携デッキの初期カード(2人共通) */

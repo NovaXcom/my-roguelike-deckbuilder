@@ -1,7 +1,7 @@
 import {
   CHAIN_MULT, MAX_SKILL_LEVEL, alive, createBattle, skillUpgradeCost, startPlayerTurn, type BattleSetup, type BattleState, type EnemyScale,
 } from './battle';
-import { MEMBERS, PARTY_ORDER, SKILLS, START_LINK_DECK, variantMap } from './data';
+import { MEMBERS, PARTY_ORDER, SKILLS, START_LINK_DECK, fusionResult, variantMap } from './data';
 import {
   BUY_PRICE, SELL_VALUE, rollItem, type EquipItem, type EquipStats, type Slot,
 } from './equipment';
@@ -154,6 +154,40 @@ export function buyRemoval(run: RunState, member: number, cardId: string): boole
   removeCard(run, member, cardId);
   run.removals += 1;
   return true;
+}
+
+// ------------------------------------------------------------------ 融合
+export const FUSION_SHOP_COST = 60;
+
+/** この2枚(同じカードなら2枚持っているとき)を融合できるか。融合するとデッキが1枚減るので最小枚数を守る */
+export function canFuse(run: RunState, member: number, a: string, b: string): boolean {
+  const m = run.party[member];
+  if (!m || !fusionResult(a, b) || m.deck.length <= MIN_DECK) return false;
+  return a === b ? m.deck.filter((c) => c === a).length >= 2 : m.deck.includes(a) && m.deck.includes(b);
+}
+
+/** 2枚のカードを1枚に融合する(Lvは引き継がない)。成功すれば結果のカードID */
+export function fuseCards(run: RunState, member: number, a: string, b: string): string | null {
+  if (!canFuse(run, member, a, b)) return null;
+  const m = run.party[member];
+  m.deck.splice(m.deck.indexOf(a), 1);
+  m.deck.splice(m.deck.indexOf(b), 1);
+  const out = fusionResult(a, b)!;
+  m.deck.push(out);
+  return out;
+}
+
+/** ショップでの融合(有料) */
+export function buyFusion(run: RunState, member: number, a: string, b: string): string | null {
+  if (run.gold < FUSION_SHOP_COST || !canFuse(run, member, a, b)) return null;
+  run.gold -= FUSION_SHOP_COST;
+  return fuseCards(run, member, a, b);
+}
+
+/** このカードを融合できる相手の一覧(デッキに実際にあるもの) */
+export function fusionPartners(run: RunState, member: number, a: string): string[] {
+  const m = run.party[member];
+  return [...new Set(m.deck)].filter((b) => canFuse(run, member, a, b));
 }
 
 export const takeUid = (run: RunState): number => run.nextUid++;

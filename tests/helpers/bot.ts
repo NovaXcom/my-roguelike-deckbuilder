@@ -6,15 +6,15 @@ import type { EquipItem } from '../../src/core/equipment';
 import type { MapNode } from '../../src/core/map';
 import type { MetaState } from '../../src/core/meta';
 import {
-  availableNodes, bankRun, buyItem, buyPotion, canEquip, enterNode, equip, finishBattle, newRun, openChest,
-  priceOf, rest, sellItem, shopStock, startBattle, upgradeSkill, addCard, type RunState,
+  availableNodes, bankRun, memberMaxHp, buyItem, buyPotion, canEquip, enterNode, equip, finishBattle, newRun, openChest,
+  priceOf, rest, sellItem, shopStock, startBattle, upgradeSkill, addCard, fuseCards, canFuse, type RunState,
 } from '../../src/core/run';
 
 /** 1戦闘を単純な貪欲AIで最後まで進める（バランス確認・不変条件テスト用） */
 /** バランス確認用: 戦闘ごとの結果 */
 export const botLog: { row: number; type: string; ids: string[]; won: boolean; turns: number }[] = [];
 
-export const botOptions = { allowWait: true, alwaysWait: false, cardThreshold: 21 };
+export const botOptions = { allowWait: true, alwaysWait: false, cardThreshold: 21, fuse: false };
 
 export function autoBattle(run: RunState, node: MapNode): BattleState {
   const s = startBattle(run, node);
@@ -127,6 +127,15 @@ export function autoPickCard(run: RunState, cards?: string[]): void {
   if (val(best) >= botOptions.cardThreshold) addCard(run, best);
 }
 
+/** 融合: 優先順位の高いレシピから、デッキの質が上がるものを1つ行う */
+const FUSE_PRIORITY: [number, string, string][] = [
+  [1, 'firebolt', 'firebolt'], [0, 'slash', 'slash'], [1, 'ice_lance', 'ice_lance'], [1, 'thunder', 'thunder'],
+];
+export function autoFuse(run: RunState): boolean {
+  for (const [m, a, b] of FUSE_PRIORITY) if (canFuse(run, m, a, b)) return !!fuseCards(run, m, a, b);
+  return false;
+}
+
 export function autoRun(meta: MetaState, seed: number): RunState {
   const run = newRun(meta, seed);
   for (let step = 0; !run.finished && step < 60; step++) {
@@ -147,7 +156,8 @@ export function autoRun(meta: MetaState, seed: number): RunState {
       const r = openChest(run, node.type === 'cursed');
       if (r.item) autoEquip(run, r.item);
     } else if (node.type === 'rest') {
-      rest(run, 'heal');
+      const avgHp = run.party.reduce((a, m, i) => a + m.hp / memberMaxHp(run, i), 0) / run.party.length;
+      if (botOptions.fuse && avgHp >= 0.9 && autoFuse(run)) { /* 融合した */ } else rest(run, 'heal');
     } else if (node.type === 'shop') {
       const stock = shopStock(run, node.id);
       stock.items.forEach((it, idx) => {

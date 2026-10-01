@@ -60,9 +60,9 @@ describe('全体攻撃', () => {
     expect(sm.kills).toBe(true);
     expect(simulatePlan(s, [{ member: E, skillId: 'meteor' }]).state.phase).toBe('won');
   });
-  it('全体攻撃は装備スキルとレア報酬カードのみ(基本スキルには無い)', () => {
+  it('全体攻撃は装備スキル・レア報酬カード・融合カードのみ(基本スキルには無い)', () => {
     const aoeIds = Object.values(SKILLS).filter((x) => x.aoe).map((x) => x.id).sort();
-    expect(aoeIds).toEqual(['blizzard', 'cleave', 'frost_nova', 'meteor', 'thunderstorm', 'whirlwind']);
+    expect(aoeIds).toEqual(['blizzard', 'cleave', 'frost_nova', 'ice_storm', 'meteor', 'thunderstorm', 'whirlwind']);
     for (const id of ['slash', 'shield_bash', 'firebolt', 'ice_lance', 'thunder']) expect(SKILLS[id].aoe).toBeUndefined();
   });
 });

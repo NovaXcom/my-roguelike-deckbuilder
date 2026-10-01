@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { audio } from '../audio';
 import { BUY_PRICE } from '../core/equipment';
 import { SKILLS } from '../core/data';
-import { POTION_PRICE, buyCard, buyItem, buyPotion, cardPriceOf, removalCost, shopStock } from '../core/run';
+import { FUSION_SHOP_COST, POTION_PRICE, buyCard, buyItem, buyPotion, cardPriceOf, removalCost, shopStock } from '../core/run';
 import { game } from '../game';
 import { drawBackground, txt } from '../ui/art';
 import { itemCard, makeButton } from '../ui/widgets';
@@ -56,16 +56,19 @@ export class ShopScene extends Phaser.Scene {
 
     // カードの販売と削除
     stock.cards.forEach((id, i) => {
-      const x = 160 + i * 300;
+      const x = 140 + i * 280;
       if (!id) { txt(this, x, 596, '売り切れ', 18, '#5b6370').setOrigin(0.5); return; }
       const price = cardPriceOf(id);
-      makeButton(this, x, 596, 280, 56, `${SKILLS[id].name}(${SKILLS[id].reward?.owner === 'knight' ? 'ナイト' : SKILLS[id].reward?.owner === 'link' ? '連携' : '魔法'})\nカード購入  ${price} G`, () => {
+      makeButton(this, x, 596, 264, 56, `${SKILLS[id].name}(${SKILLS[id].reward?.owner === 'knight' ? 'ナイト' : SKILLS[id].reward?.owner === 'link' ? '連携' : '魔法'})\nカード購入  ${price} G`, () => {
         if (buyCard(run, nodeId, i)) { audio.play('coin'); this.scene.restart(); }
       }, { size: 16, color: 0x9a7bd8, enabled: run.gold >= price });
     });
-    makeButton(this, 780, 596, 260, 56, `カード削除  ${removalCost(run)} G\nデッキを薄くする`, () => {
+    makeButton(this, 690, 596, 230, 56, `カード削除  ${removalCost(run)} G\nデッキを薄くする`, () => {
       this.scene.start('Deck', { mode: 'buy-remove', returnTo: { scene: 'Shop' } });
     }, { size: 16, color: 0xe08a3c, enabled: run.gold >= removalCost(run) });
+    makeButton(this, 925, 596, 230, 56, `カード融合  ${FUSION_SHOP_COST} G\n2枚を強い1枚に`, () => {
+      this.scene.start('Deck', { mode: 'buy-fuse', returnTo: { scene: 'Shop' } });
+    }, { size: 16, color: 0x4aa3ff, enabled: run.gold >= FUSION_SHOP_COST });
     makeButton(this, 1140, 596, 200, 54, '店を出る', () => this.scene.start('Map'), { size: 20 });
   }
 }

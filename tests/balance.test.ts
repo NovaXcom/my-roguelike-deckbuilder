@@ -21,3 +21,21 @@ describe('バランス(Bot)', () => {
     expect(bossWon / Math.max(1, boss.length)).toBeGreaterThan(0.45);
   });
 });
+
+describe('融合(Bot)', () => {
+  it('融合は休憩(回復)を捨てる代償に見合う範囲で、極端に強くも弱くもない(-15pt〜+25pt)', async () => {
+    const { botOptions } = await import('./helpers/bot');
+    const rate = (fuse: boolean) => {
+      botOptions.fuse = fuse;
+      let w = 0;
+      for (let seed = 1; seed <= 60; seed++) if (autoRun(newMeta(), seed).finished === 'victory') w++;
+      return w / 60;
+    };
+    const base = rate(false);
+    const fused = rate(true);
+    botOptions.fuse = false;
+    console.log(`[balance] 融合: なし ${(base * 100).toFixed(0)}% / 休憩所で融合 ${(fused * 100).toFixed(0)}%`);
+    expect(fused - base).toBeLessThanOrEqual(0.25);
+    expect(fused - base).toBeGreaterThanOrEqual(-0.15);
+  });
+});
