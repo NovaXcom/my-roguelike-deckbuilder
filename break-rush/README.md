@@ -1,6 +1,6 @@
-# BREAK RUSH (Phase 2)
+# BREAK RUSH (Phase 3)
 
-TypeScript + Phaser 3 + Vite の2Dハイスピードアクション。現在は **Phase 2（戦闘の面白さ）** まで実装。
+TypeScript + Phaser 3 + Vite の2Dハイスピードアクション。現在は **Phase 3（気持ちよさ）** まで実装。
 
 ## 起動方法
 
@@ -30,6 +30,12 @@ npm test         # Vitest（戦闘ロジックの単体テスト）
 - **ヒットストップ / ノックバック / 画面揺れ / ダメージ数字**
 - **回避**: Shift で短時間無敵ダッシュ。直後(0.45秒以内)に J でカウンター（ダメージ2倍）
 - **RUSH**: 敵を倒すと近くの敵に `>>> RUSH` が出る。1.5秒以内に Shift で高速移動し自動追撃
+- **Phase 3**:
+  - パーティクル（加算合成の火花）、衝撃波リング、斬撃ライン、残像、ズームパンチ
+  - コンボ10/25/50/100でバナー+SE+画面揺れ。25以降はカウンターが震える
+  - 3/6/10体以上を1秒以内に倒す「N KILLS!」でスローモーション・フラッシュ・金色パーティクル
+  - 約12秒後・以後22秒ごとに「BREAK CHANCE!」: GRUNT 12体が一斉出現
+  - SE: WebAudio合成（音声ファイル不要）。最初のキー入力/クリックで AudioContext を開放
 
 ## 構成
 
@@ -38,6 +44,7 @@ npm test         # Vitest（戦闘ロジックの単体テスト）
 - `src/player/` プレイヤーと攻撃状態
 - `src/enemies/` `Enemy` 基底クラス + `Grunt`
 - `src/systems/` 敵スポーナー（後でウェーブ管理に置換）
-- `src/effects/` ダメージ数字・パーティクル
+- `src/effects/` ダメージ数字・パーティクル・リング等
+- `src/audio/` WebAudio 合成SE
 - `src/ui/` HUD
 - `src/scenes/` Boot（仮テクスチャ生成）/ Game

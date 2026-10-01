@@ -1,4 +1,4 @@
-import { COMBO } from '../config';
+import { COMBO, COMBO_MILESTONES } from '../config';
 
 export class ComboSystem {
   max = 0;
@@ -27,4 +27,11 @@ export class ComboSystem {
     this.hits = 0;
     this.expireAt = 0;
   }
+}
+
+/** Highest milestone passed when the combo goes prev -> next, or null. */
+export function milestoneCrossed(prev: number, next: number): number | null {
+  let hit: number | null = null;
+  for (const m of COMBO_MILESTONES) if (prev < m && next >= m) hit = m;
+  return hit;
 }

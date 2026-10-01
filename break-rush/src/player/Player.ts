@@ -155,6 +155,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Health {
       startAttack(this.attack, now, counter);
       const lunge = ATTACK_STEPS[this.attack.step].lunge * (counter ? 1.5 : 1);
       this.setVelocityX(this.facing * lunge);
+      this.emit('attack', this.attack.step, counter);
       this.moveLockUntil = now + 110;
     }
 

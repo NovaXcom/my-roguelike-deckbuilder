@@ -14,6 +14,20 @@ export class ComboDisplay {
     this.bar = scene.add.graphics().setScrollFactor(0).setDepth(100);
   }
 
+  /** Big centre-screen banner when a combo milestone is reached. */
+  milestone(hits: number): void {
+    const t = this.scene.add
+      .text(GAME_WIDTH / 2, 150, `${hits} HIT${hits >= 50 ? '!!' : '!'}`, {
+        fontFamily: 'monospace', fontStyle: 'bold', fontSize: `${48 + hits / 2}px`, color: hits >= 50 ? '#ff4455' : '#ffdd44', stroke: '#000', strokeThickness: 8,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(110)
+      .setScale(0.5);
+    this.scene.tweens.add({ targets: t, scale: 1.2, duration: 160, ease: 'Back.easeOut' });
+    this.scene.tweens.add({ targets: t, alpha: 0, y: 120, delay: 600, duration: 400, onComplete: () => t.destroy() });
+  }
+
   update(hits: number, ratio: number): void {
     const visible = hits > 0;
     this.num.setVisible(visible);
@@ -32,6 +46,9 @@ export class ComboDisplay {
       this.num.setScale(1.35);
       this.scene.tweens.add({ targets: this.num, scale: 1, duration: 140, ease: 'Back.easeOut' });
     }
+    // Shake the counter harder as the combo grows
+    const jitter = hits >= 25 ? Math.min(hits / 25, 4) : 0;
+    this.num.setX(GAME_WIDTH - 24 + (jitter ? Phaser.Math.FloatBetween(-jitter, jitter) : 0));
     this.last = hits;
     const w = 140;
     const y = this.label.y + 26;

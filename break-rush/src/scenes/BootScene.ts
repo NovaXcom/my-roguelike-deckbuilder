@@ -22,6 +22,8 @@ export class BootScene extends Phaser.Scene {
     g.fillStyle(0x23233a).fillRect(0, 0, 64, 64);
     g.lineStyle(1, 0x34345a).strokeRect(0, 0, 64, 64);
     g.generateTexture('ground', 64, 64);
+    g.fillStyle(0xffffff).fillRect(0, 0, 8, 8);
+    g.generateTexture('spark', 8, 8);
     g.destroy();
 
     this.scene.start('Game');

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ComboSystem } from '../src/combat/ComboSystem';
+import { ComboSystem, milestoneCrossed } from '../src/combat/ComboSystem';
 import { applyBreakDamage, breakRatio, createBreak, isBroken, updateBreak } from '../src/combat/BreakSystem';
 import { applyDamage, calcDamage, comboDamageMultiplier, rectsOverlap } from '../src/combat/DamageSystem';
+import { MassKillTracker, multiKillTier } from '../src/combat/MassKill';
+import { SlowMo } from '../src/combat/SlowMo';
 import { HitStop } from '../src/combat/HitStop';
 import { RushSystem, pickNearest } from '../src/combat/RushSystem';
 import { COMBO, BREAK, RUSH, ATTACK_STEPS, CHAIN_WINDOW_MS, DODGE } from '../src/config';
@@ -158,5 +160,47 @@ describe('RushSystem', () => {
     expect(pickNearest({ x: 0, y: 0 }, [b, a], 500)).toBe(a);
     expect(pickNearest({ x: 0, y: 0 }, [b, a], 50)).toBeNull();
     expect(pickNearest({ x: 0, y: 0 }, [], 500)).toBeNull();
+  });
+});
+
+describe('milestones', () => {
+  it('reports the highest milestone crossed', () => {
+    expect(milestoneCrossed(9, 10)).toBe(10);
+    expect(milestoneCrossed(10, 11)).toBeNull();
+    expect(milestoneCrossed(24, 25)).toBe(25);
+    expect(milestoneCrossed(0, 30)).toBe(25);
+  });
+});
+
+describe('MassKillTracker', () => {
+  it('maps counts to tiers', () => {
+    expect([0, 2, 3, 5, 6, 9, 10, 30].map(multiKillTier)).toEqual([0, 0, 1, 1, 2, 2, 3, 3]);
+  });
+  it('flags tier-ups only once per tier within the window', () => {
+    const k = new MassKillTracker();
+    const r = [0, 100, 200, 300, 400, 500].map((t) => k.record(t));
+    expect(r.map((x) => x.tierUp)).toEqual([false, false, true, false, false, true]);
+    expect(r[5].count).toBe(6);
+  });
+  it('resets after the window empties', () => {
+    const k = new MassKillTracker();
+    [0, 100, 200].forEach((t) => k.record(t));
+    const again = [5000, 5100, 5200].map((t) => k.record(t));
+    expect(again[2].tierUp).toBe(true);
+    expect(again[2].count).toBe(3);
+  });
+});
+
+describe('SlowMo', () => {
+  it('slows only inside the window and keeps the strongest scale', () => {
+    const s = new SlowMo();
+    expect(s.scale(0)).toBe(1);
+    s.trigger(0, 500, 0.4);
+    s.trigger(100, 500, 0.25);
+    expect(s.scale(300)).toBe(0.25);
+    expect(s.scale(599)).toBe(0.25);
+    expect(s.scale(600)).toBe(1);
+    s.trigger(1000, 100, 0.5);
+    expect(s.scale(1050)).toBe(0.5);
   });
 });

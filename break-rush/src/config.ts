@@ -68,3 +68,11 @@ export const RUSH = {
 };
 
 export const BREAK = { durationMs: 2500, damageMult: 2 };
+
+export const COMBO_MILESTONES = [10, 25, 50, 100];
+
+/** Kills inside windowMs chain into a multi-kill. tiers = kill counts that start tier 1, 2, 3. */
+export const MULTIKILL = { windowMs: 1000, tiers: [3, 6, 10] };
+
+/** Periodic "BREAK CHANCE": a large group of grunts appears at once. */
+export const HORDE = { firstMs: 12000, intervalMs: 22000, count: 12 };
