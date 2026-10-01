@@ -104,9 +104,9 @@ describe('装備の効果', () => {
     startPlayerTurn(s);
     const bare = createBattle('slime');
     startPlayerTurn(bare);
-    // 鉄の剣(攻撃+2): 斬撃 8→10。シールド軽減: floor(10*0.75)=7 (素は floor(8*0.75)=6)
-    expect(previewSkill(s, SKILLS.slash, 0).hp).toBe(7);
-    expect(previewSkill(bare, SKILLS.slash, 0).hp).toBe(6);
+    // 鉄の剣(攻撃+2): 斬撃 8→10。シールド軽減: floor(10*0.5625)=5 (素は floor(8*0.5625)=4)
+    expect(previewSkill(s, SKILLS.slash, 0).hp).toBe(5);
+    expect(previewSkill(bare, SKILLS.slash, 0).hp).toBe(4);
     useSkill(s, 0, 'provoke'); // ガード10 + 装備ガード1
     expect(s.party[0].guard).toBe(11);
   });

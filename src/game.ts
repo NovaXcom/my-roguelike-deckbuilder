@@ -1,5 +1,6 @@
 import { newMeta, parseMeta, type MetaState } from './core/meta';
 import { newRun, type RunState } from './core/run';
+import type { RunMods } from './core/types';
 
 const KEY = 'partyrogue.meta.v1';
 
@@ -22,7 +23,7 @@ export function saveMeta(): void {
   }
 }
 
-export function startRun(): RunState {
-  game.run = newRun(game.meta, (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0);
+export function startRun(mods: RunMods | null = null): RunState {
+  game.run = newRun(game.meta, (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0, mods);
   return game.run;
 }

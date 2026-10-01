@@ -57,8 +57,8 @@ describe('スキルとクールダウン', () => {
 describe('ダメージ計算', () => {
   it('シールド残存中は物理ダメージが軽減され、シールドゲージが減る', () => {
     const s = fresh();
-    useSkill(s, K, 'slash'); // 8 * 0.75 = 6
-    expect(s.enemy.hp).toBe(80 - 6);
+    useSkill(s, K, 'slash'); // 8 * 0.75(シールド) * 0.75(スライムは物理に強い) = 4
+    expect(s.enemy.hp).toBe(80 - 4);
     expect(s.enemy.shield).toBe(20 - 8);
   });
   it('弱点属性は1.5倍、耐性属性は0.5倍', () => {
@@ -97,7 +97,7 @@ describe('ブレイク＆チェイン', () => {
   it('チェイン時はシールド軽減が掛からず、物理攻撃ではチェインしない', () => {
     const s = fresh();
     s.enemy.broken = true; s.enemy.shield = 0;
-    expect(previewSkill(s, SKILLS.slash)).toMatchObject({ hp: 8, chain: false });
+    expect(previewSkill(s, SKILLS.slash)).toMatchObject({ hp: 6, chain: false });
     expect(previewSkill(s, SKILLS.thunder)).toMatchObject({ hp: 26, chain: true });
   });
   it('魔法が先だとブレイクさせてもチェインしない（順序が重要）', () => {

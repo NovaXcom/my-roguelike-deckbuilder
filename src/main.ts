@@ -9,6 +9,7 @@ import { PreloadScene } from './scenes/PreloadScene';
 import { RestScene } from './scenes/RestScene';
 import { RunEndScene } from './scenes/RunEndScene';
 import { ShopScene } from './scenes/ShopScene';
+import { SkillsScene } from './scenes/SkillsScene';
 import { TownScene } from './scenes/TownScene';
 import { H, TitleScene, W } from './scenes/TitleScene';
 import { audio, measureBgm, measureSfx, SFX_KINDS } from './audio';
@@ -29,7 +30,7 @@ const phaser = new Phaser.Game({
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: [
     PreloadScene, TitleScene, TownScene, PartyScene, MapScene, BattleScene, LootScene,
-    ChestScene, RestScene, ShopScene, GearScene, RunEndScene,
+    ChestScene, RestScene, ShopScene, GearScene, SkillsScene, RunEndScene,
   ],
 });
 

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { audio } from '../audio';
 import { SKILLS } from '../core/data';
-import { RARITY_COLOR, RARITY_LABEL, SELL_VALUE, statLines, type EquipItem, type EquipStats } from '../core/equipment';
+import { EFFECT_TEXT, RARITY_COLOR, RARITY_LABEL, SELL_VALUE, statLines, type EquipItem, type EquipStats } from '../core/equipment';
 import { canEquip, equip, sellItem, type Reward } from '../core/run';
 import { game } from '../game';
 import { drawBackground, txt } from '../ui/art';
@@ -19,6 +19,9 @@ export function diffText(cur: EquipItem | null, next: EquipItem): { text: string
   }
   if ((cur?.skill ?? null) !== (next.skill ?? null)) {
     parts.push(next.skill ? `スキル「${SKILLS[next.skill].name}」を習得` : '固有スキルを失う');
+  }
+  if ((cur?.effect ?? null) !== (next.effect ?? null)) {
+    parts.push(next.effect ? `固有効果「${EFFECT_TEXT[next.effect]}」` : '固有効果を失う');
   }
   return { text: parts.join('  /  ') || '変化なし' };
 }
@@ -51,6 +54,7 @@ export class LootScene extends Phaser.Scene {
     const parts = [];
     if (reward.gold) parts.push(`+${reward.gold} G`);
     if (reward.stones) parts.push(`+${reward.stones} 魔導石`);
+    if (reward.skillPoints) parts.push(`+${reward.skillPoints} スキルポイント`);
     txt(this, W / 2, 96, parts.join('     ') || '', 22, '#ffe066', { fontStyle: 'bold' }).setOrigin(0.5);
     txt(this, W / 2, 128, `所持: ${run.gold} G ／ 魔導石 ${run.stones}`, 14, '#7b8798').setOrigin(0.5);
 

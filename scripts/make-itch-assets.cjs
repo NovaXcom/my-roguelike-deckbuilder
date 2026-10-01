@@ -34,7 +34,7 @@ function loadPlaywright() {
   await shot('screenshot-2-town.png');
   await page.mouse.click(750, 668); await page.waitForTimeout(900);
   await shot('screenshot-3-party.png');
-  await page.mouse.click(640, 648); await page.waitForTimeout(900);
+  await page.mouse.click(640, 686); await page.waitForTimeout(900);
   await shot('screenshot-4-map.png');
   const n = await ev(() => window.__partyrogue.game.run.map.nodes.find((x) => x.row === 0));
   await page.mouse.click(330 + (n.col / 2) * 620, 640); await page.waitForTimeout(1500);

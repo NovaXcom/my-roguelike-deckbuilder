@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { RARITY_COLOR, RARITY_LABEL, SLOT_LABEL, statLines, type EquipItem } from '../core/equipment';
+import { EFFECT_TEXT, RARITY_COLOR, RARITY_LABEL, SLOT_LABEL, statLines, type EquipItem } from '../core/equipment';
 import { SKILLS } from '../core/data';
 import { audio } from '../audio';
 import { equipIconKey } from './assetMap';
@@ -107,6 +107,9 @@ export function itemCard(scene: Phaser.Scene, x: number, y: number, w: number, h
     const sy = top + 88 + off + lines.length * 24 + 10;
     c.add(txt(scene, 0, sy, `固有スキル\n${sk.name}`, 14, '#ffd166', { fontStyle: 'bold', align: 'center' }).setOrigin(0.5, 0));
     c.add(txt(scene, 0, sy + 44, sk.text, 12, '#b8c2d0', { align: 'center', wordWrap: { width: w - 24, useAdvancedWrap: true } }).setOrigin(0.5, 0));
+  }
+  if (item.effect) {
+    c.add(txt(scene, 0, top + h - 52, `◆${EFFECT_TEXT[item.effect]}`, 12, '#9ff0c0', { fontStyle: 'bold', align: 'center', wordWrap: { width: w - 20, useAdvancedWrap: true } }).setOrigin(0.5, 0));
   }
   return c;
 }

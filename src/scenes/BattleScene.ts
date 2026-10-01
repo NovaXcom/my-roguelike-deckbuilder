@@ -2,8 +2,8 @@ import Phaser from 'phaser';
 import { audio } from '../audio';
 import { bgmForScene, castCue, deathCue, enemyAttackCue, hurtCue, impactCues, type Cue } from '../audio/cues';
 import {
-  BattleEvent, BattleState, allActed, canUse, currentIntent, endPlayerTurn, intentValue, previewSkill,
-  resolveTarget, usePotion, useSkill,
+  BattleEvent, BattleState, allActed, canUse, canWait, currentIntent, effectiveSkill, endPlayerTurn, intentValue, isEnraged,
+  nextIntent, previewSkill, resolveTarget, usePotion, useSkill, wait,
 } from '../core/battle';
 import type { MapNode } from '../core/map';
 import { finishBattle, startBattle } from '../core/run';
@@ -27,12 +27,14 @@ const PANEL_W = 4 * 140 + 3 * 8; // パネル幅は固定。スキル数に応�
 const BTN_H = 196; // アイコン分だけ高く
 const BTN_Y = 610;
 const PANEL_X = [30, 666];
+const WAIT_TEXT = '行動を溜める: 自分のスキルCD-1 / ガード+5 / 次のダメージスキルが強化(威力×1.2・ゲージ-5)';
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
 /** 演出用の表示値。イベント再生に合わせて段階的に更新し、HPバー等を滑らかに見せる */
 interface Disp {
   enemyHp: number;
   enemyShield: number;
+  enemyGuard: number;
   broken: boolean;
   hp: number[];
   guard: number[];
@@ -54,6 +56,12 @@ interface SkillBtn {
 const EVENT_MS: Record<BattleEvent['type'], number> = {
   skill: 0, damage: 260, shield: 0, break: 600, chain: 1450, stunned: 550, recover: 500,
   guard: 250, heal: 300, taunt: 250, enemyAttack: 380, hurt: 450, down: 450,
+  reaction: 700, status: 350, dot: 450, wait: 300, enemyCharge: 650, enemyGuard: 600, canceled: 700, enemyHeal: 350,
+};
+
+const STATUS_TEXT: Record<'burn' | 'bleed' | 'freeze' | 'weaken' | 'charge' | 'focus', [string, string]> = {
+  burn: ['火傷!', '#ff8a4c'], bleed: ['出血!', '#e0455a'], freeze: ['凍結!', '#8fd8ff'],
+  weaken: ['弱体化!', '#c9a0ff'], charge: ['帯電!', '#ffe066'], focus: ['集中!', '#9cc7ff'],
 };
 
 export class BattleScene extends Phaser.Scene {
@@ -87,6 +95,9 @@ export class BattleScene extends Phaser.Scene {
   private intentGfx!: Phaser.GameObjects.Graphics;
   private intentValue!: Phaser.GameObjects.Text;
   private intentLabel!: Phaser.GameObjects.Text;
+  private intentHint!: Phaser.GameObjects.Text;
+  private enemyStatus!: Phaser.GameObjects.Text;
+  private waitBtns: Phaser.GameObjects.Container[] = [];
   private turnText!: Phaser.GameObjects.Text;
   private tags: Phaser.GameObjects.Text[] = [];
   private endBtn!: Phaser.GameObjects.Container;
@@ -107,6 +118,7 @@ export class BattleScene extends Phaser.Scene {
     this.hpTexts = [];
     this.guardTexts = [];
     this.tags = [];
+    this.waitBtns = [];
     this.resultShown = false;
     this.dragBtn = null;
     this.justDragged = false;
@@ -157,9 +169,23 @@ export class BattleScene extends Phaser.Scene {
     }
     this.tweens.add({ targets: this.stars, angle: 360, duration: 1400, repeat: -1 });
     this.stars.setVisible(false);
-    txt(this, ENEMY.x, ENEMY.y + 98, s.enemy.def.name, 18, '#e8dfd3').setOrigin(0.5);
+    const traitLines = s.enemy.def.traits?.text ?? [];
+    txt(this, ENEMY.x, ENEMY.y + 98, s.enemy.def.name + (traitLines.length ? ' ⓘ' : ''), 18, '#e8dfd3').setOrigin(0.5);
+    if (traitLines.length) {
+      // 敵の特性(攻略のヒント): ホバー(PC) / タップ(スマホ)で表示
+      const zone = this.add.zone(ENEMY.x, ENEMY.y - 90, 300, 330).setInteractive({ useHandCursor: true });
+      const showTraits = () => { if (!this.dragBtn) this.showTipText(`${s.enemy.def.name}の特性`, traitLines.join('\n')); };
+      zone.on('pointerover', showTraits);
+      zone.on('pointerout', () => { if (!this.armed) this.hideTip(); });
+      onTap(zone, () => {
+        showTraits();
+        this.time.delayedCall(3800, () => { if (!this.armed) this.hideTip(); });
+      });
+    }
     txt(this, ENEMY.x, ENEMY.y + 120,
       `弱点: ${ELEMENT_LABEL[s.enemy.def.weak]}　耐性: ${ELEMENT_LABEL[s.enemy.def.resist]}`, 14, '#f6c453').setOrigin(0.5);
+    this.enemyStatus = txt(this, ENEMY.x, ENEMY.y + 14, '', compact() ? 16 : 14, '#ffd9a0', { fontStyle: 'bold', stroke: '#000', strokeThickness: 4 })
+      .setOrigin(0.5).setDepth(6);
     this.bars = this.add.graphics().setDepth(5);
     this.enemyHpText = txt(this, ENEMY.x, ENEMY.y + 36, '', 14, '#fff', { fontStyle: 'bold' }).setOrigin(0.5).setDepth(6);
     this.shieldText = txt(this, ENEMY.x, ENEMY.y + 66, '', 13, '#3a2a00', { fontStyle: 'bold' }).setOrigin(0.5).setDepth(6);
@@ -168,10 +194,11 @@ export class BattleScene extends Phaser.Scene {
     this.intentGfx = this.add.graphics();
     this.intentValue = txt(this, 0, 36, '', 24, '#fff', { fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
     this.intentLabel = txt(this, 0, 68, '', 15, '#e8dfd3', { stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
+    this.intentHint = txt(this, 0, 92, '', 14, '#ffe066', { fontStyle: 'bold', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
     this.intentImg = this.add.image(0, 0, hasImg(this, 'icon_status_intent_attack') ? 'icon_status_intent_attack' : '__DEFAULT').setVisible(false);
     // 背の高い敵の頭に行動予告が被らないよう、敵の高さに合わせて位置を上げる
     const intentY = Math.max(66, ENEMY.y - (hasImg(this, spriteKey) ? (ENEMY_DISPLAY_H[s.enemy.def.id] ?? 200) : 110) - 72);
-    this.intentBox = this.add.container(ENEMY.x, hasImg(this, spriteKey) ? intentY : ENEMY.y - 245, [this.intentGfx, this.intentImg, this.intentValue, this.intentLabel]);
+    this.intentBox = this.add.container(ENEMY.x, hasImg(this, spriteKey) ? intentY : ENEMY.y - 245, [this.intentGfx, this.intentImg, this.intentValue, this.intentLabel, this.intentHint]);
     this.tweens.add({ targets: this.intentBox, y: this.intentBox.y - 10, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
 
     this.turnText = txt(this, W / 2, 24, '', 22, '#f6e3b4', { fontStyle: 'bold' }).setOrigin(0.5);
@@ -181,7 +208,8 @@ export class BattleScene extends Phaser.Scene {
       const px = PANEL_X[mi];
       const line = this.add.graphics();
       line.lineStyle(2, m.def.color, 0.8).lineBetween(px, 500, px + PANEL_W, 500);
-      this.tags.push(txt(this, px + PANEL_W + 20, 488, '', 14, '#9fb0c8').setOrigin(1, 0.5));
+      this.tags.push(txt(this, px + PANEL_W - 104, 488, '', 14, '#9fb0c8').setOrigin(1, 0.5));
+      this.buildWait(mi, px + PANEL_W - 48, 487);
       txt(this, px, 486, `${m.def.name}（${m.def.position}）`, 17, hex(m.def.color), { fontStyle: 'bold' }).setOrigin(0, 0.5);
       const gap = 6;
       const bw = (PANEL_W - gap * (m.skills.length - 1)) / m.skills.length;
@@ -208,7 +236,7 @@ export class BattleScene extends Phaser.Scene {
     this.arrow = this.add.graphics().setDepth(1500);
     // スキル詳細ツールチップ（コンパクト/タッチ時。小さな説明文の代わりに大きな文字で表示）
     const tipBg = this.add.graphics();
-    tipBg.fillStyle(0x14110f, 0.94).fillRoundedRect(-330, -46, 660, 92, 12).lineStyle(3, COLORS.energy, 1).strokeRoundedRect(-330, -46, 660, 92, 12);
+    tipBg.fillStyle(0x14110f, 0.94).fillRoundedRect(-330, -46, 660, 132, 12).lineStyle(3, COLORS.energy, 1).strokeRoundedRect(-330, -46, 660, 132, 12);
     this.tipTitle = txt(this, 0, -30, '', 22, '#ffffff', { fontStyle: 'bold' }).setOrigin(0.5, 0);
     this.tipBody = txt(this, 0, 2, '', 20, '#d8d0c4', { align: 'center', wordWrap: { width: 620, useAdvancedWrap: true } }).setOrigin(0.5, 0);
     this.tip = this.add.container(W / 2 - 40, 84, [tipBg, this.tipTitle, this.tipBody]).setDepth(1800).setVisible(false);
@@ -226,8 +254,52 @@ export class BattleScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------ 構築
-  private buildButton(member: number, skill: SkillDef, x: number, BTN_W: number): void {
+  /** 待機ボタン: 行動を溜める(CD-1・ガード+5・次のスキル強化) */
+  private buildWait(member: number, x: number, y: number): void {
+    const w = compact() ? 92 : 88;
+    const h = compact() ? 34 : 28;
+    const bg = this.add.graphics();
+    const label = txt(this, 0, 0, '待機', compact() ? 17 : 14, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
+    const c = this.add.container(x, y, [bg, label]).setSize(w, h);
+    const paint = (hover: boolean) => {
+      const ok = !this.busy && canWait(this.state, member);
+      bg.clear();
+      bg.fillStyle(ok ? (hover ? 0x3b4657 : 0x2d3748) : 0x1f2126, 1).fillRoundedRect(-w / 2, -h / 2, w, h, 8);
+      bg.lineStyle(2, ok ? 0x9cc7ff : 0x444a52, 1).strokeRoundedRect(-w / 2, -h / 2, w, h, 8);
+      c.setAlpha(ok ? 1 : 0.5);
+    };
+    c.setData('paint', paint);
+    c.setInteractive({ useHandCursor: true });
+    padHitArea(c, w, h);
+    c.on('pointerover', () => {
+      paint(true);
+      if (!this.busy && canWait(this.state, member)) this.showTipText('待機', WAIT_TEXT);
+    });
+    c.on('pointerout', () => { paint(false); if (!this.armed) this.hideTip(); });
+    onTap(c, () => {
+      if (this.busy || !canWait(this.state, member)) { audio.play('deny'); return; }
+      this.doWait(member);
+    });
+    this.waitBtns.push(c);
+    paint(false);
+  }
+
+  private doWait(member: number): void {
+    const ev = wait(this.state, member);
+    if (!ev) return;
+    this.disarm();
+    this.hideTip();
+    this.clearPreview();
+    audio.play('ui_select');
+    this.busy = true;
+    this.refreshButtons();
+    this.playSeq(ev);
+  }
+
+  private buildButton(member: number, baseSkill: SkillDef, x: number, BTN_W: number): void {
     const cmp = compact();
+    const level = this.state.party[member].levels[baseSkill.id] ?? 1;
+    const skill = effectiveSkill(baseSkill, level);
     const bg = this.add.graphics();
     const col = skill.element !== 'none' ? ELEMENT_COLOR[skill.element] : skill.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;
     const kindLabel = skill.kind === 'support' ? '補助' : skill.kind === 'physical' ? '物理' : ELEMENT_LABEL[skill.element] + '魔法';
@@ -243,16 +315,17 @@ export class BattleScene extends Phaser.Scene {
     const chip = this.add.graphics();
     chip.fillStyle(col, 1).fillRoundedRect(-BTN_W / 2 + 6, chipY, chipW, chipH, chipH / 2);
     const chipText = txt(this, -BTN_W / 2 + 6 + chipW / 2, chipY + chipH / 2, kindLabel, 11, '#111', { fontStyle: 'bold' }).setOrigin(0.5);
-    const cd = txt(this, BTN_W / 2 - 6, chipY + chipH / 2, `CD${skill.cooldown}`, 11, '#9fb0c8').setOrigin(1, 0.5);
+    const cd = txt(this, BTN_W / 2 - 6, chipY + chipH / 2, `${level > 1 ? `Lv${level} ` : ''}CD${skill.cooldown}`, 11, level > 1 ? '#ffe066' : '#9fb0c8').setOrigin(1, 0.5);
     // 説明: 通常は全文 / コンパクトは要点のみ（全文はタップ時にツールチップで表示）
-    const bodyText = cmp ? skillSummary(skill).join('\n') : skill.text;
+    const hasCond = !!skill.conds?.length;
+    const bodyText = cmp ? skillSummary(skill).join('\n') : (level > 1 ? skillSummary(skill).join(' / ') : skill.text) + (hasCond ? '\n◆条件で強化' : '');
     const body = txt(this, 0, chipY + chipH + 8, bodyText, cmp ? 16 : BTN_W < 130 ? 11 : 12, cmp ? '#ffd9a0' : '#e8dfd3', {
       align: cmp ? 'center' : 'left', fontStyle: cmp ? 'bold' : 'normal', wordWrap: { width: BTN_W - 14, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
     const status = txt(this, 0, BTN_H / 2 - 16, '', 13, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
     const c = this.add.container(x, BTN_Y, [bg, ...(icon ? [icon] : []), title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
     c.setInteractive({ useHandCursor: true });
-    const btn: SkillBtn = { member, skill, c, bg, status, w: BTN_W, hover: false };
+    const btn: SkillBtn = { member, skill: baseSkill, c, bg, status, w: BTN_W, hover: false };
     this.buttons.push(btn);
     this.input.setDraggable(c);
     c.on('pointerover', () => {
@@ -315,9 +388,17 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private showTip(b: SkillBtn, armedHint = false): void {
-    if (!compact()) return;
-    this.tipTitle.setText(b.skill.name + (armedHint ? '　─ もう一度タップで使用 / 敵へドラッグ' : ''));
-    this.tipBody.setText(b.skill.text);
+    const lv = this.state.party[b.member].levels[b.skill.id] ?? 1;
+    const eff = effectiveSkill(b.skill, lv);
+    const conds = (eff.conds ?? []).map((c) => `◆${c.label}`);
+    const body = lv > 1 ? skillSummary(eff).join(' / ') : b.skill.text;
+    this.showTipText(b.skill.name + (lv > 1 ? ` Lv${lv}` : '') + (armedHint ? '　─ もう一度タップで使用 / 敵へドラッグ' : ''), [body, ...conds].join('\n'));
+  }
+
+  private showTipText(title: string, body: string): void {
+    this.tip.setPosition(compact() ? W / 2 - 40 : 350, compact() ? 84 : 96);
+    this.tipTitle.setText(title);
+    this.tipBody.setText(body);
     this.tip.setVisible(true);
   }
 
@@ -337,7 +418,7 @@ export class BattleScene extends Phaser.Scene {
   private syncDisp(): void {
     const s = this.state;
     this.disp = {
-      enemyHp: s.enemy.hp, enemyShield: s.enemy.shield, broken: s.enemy.broken,
+      enemyHp: s.enemy.hp, enemyShield: s.enemy.shield, enemyGuard: s.enemy.guard, broken: s.enemy.broken,
       hp: s.party.map((m) => m.hp), guard: s.party.map((m) => m.guard),
     };
   }
@@ -374,8 +455,10 @@ export class BattleScene extends Phaser.Scene {
   private refreshButtons(): void {
     this.buttons.forEach((b) => this.paintBtn(b, b.hover));
     this.state.party.forEach((m, i) => {
-      this.tags[i].setText(!alive(m) ? '戦闘不能' : m.acted ? '行動済み' : '行動可能')
-        .setColor(!alive(m) ? '#ff7a7a' : m.acted ? '#7b8798' : '#7be495');
+      const buff = [m.focus ? '集中' : '', m.charged ? '帯電' : ''].filter(Boolean).join('・');
+      this.tags[i].setText((!alive(m) ? '戦闘不能' : m.acted ? '行動済み' : '行動可能') + (buff ? ` ${buff}` : ''))
+        .setColor(!alive(m) ? '#ff7a7a' : buff ? '#ffe066' : m.acted ? '#7b8798' : '#7be495');
+      (this.waitBtns[i]?.getData('paint') as ((h: boolean) => void) | undefined)?.(false);
     });
     this.paintEnd(false);
     this.refreshPotion();
@@ -403,10 +486,12 @@ export class BattleScene extends Phaser.Scene {
     const g = this.intentGfx;
     const s = this.state;
     g.clear();
+    this.intentHint.setText('');
     if (s.phase === 'won') { this.intentBox.setVisible(false); return; }
     this.intentBox.setVisible(true);
     this.intentImg.setVisible(false);
     const it = currentIntent(s);
+    const next = nextIntent(s);
     const ti = resolveTarget(s, it);
     const target = ti === -1 ? '全体' : s.party[ti].def.name;
     g.fillStyle(0x000000, 0.55).fillCircle(0, 0, 34);
@@ -414,14 +499,32 @@ export class BattleScene extends Phaser.Scene {
       g.lineStyle(3, 0xffe066, 1).strokeCircle(0, 0, 34);
       this.intentValue.setText('BREAK').setColor('#ffe066').setFontSize(20);
       this.intentLabel.setText('行動不能');
+      if (it.kind === 'heavy') this.intentHint.setText(`${it.name}を阻止!`).setColor('#7be495');
+      else if (it.kind === 'charge') this.intentHint.setText(`溜めと${next.name}を阻止!`).setColor('#7be495');
       return;
     }
-    g.lineStyle(3, 0xff5c5c, 1).strokeCircle(0, 0, 34);
-    const iconKey = it.target === 'all' ? 'icon_status_intent_attack_all' : 'icon_status_intent_attack';
-    if (hasImg(this, iconKey)) this.intentImg.setTexture(iconKey).setDisplaySize(50, 50).setVisible(true);
-    else drawSword(g, 0, 0, 52, 0xff8a8a);
-    this.intentValue.setText(String(intentValue(s, it))).setColor('#ff9a9a').setFontSize(24);
-    this.intentLabel.setText(`${it.name} → ${target}`);
+    const kind = it.kind ?? 'attack';
+    const ring = kind === 'heavy' ? 0xff2d2d : kind === 'charge' ? 0xffa23c : kind === 'guard' ? 0x6fa8ff : 0xff5c5c;
+    g.lineStyle(kind === 'heavy' ? 6 : 3, ring, 1).strokeCircle(0, 0, kind === 'heavy' ? 38 : 34);
+    if (kind === 'attack' || kind === 'heavy') {
+      const iconKey = it.target === 'all' ? 'icon_status_intent_attack_all' : 'icon_status_intent_attack';
+      if (hasImg(this, iconKey)) this.intentImg.setTexture(iconKey).setDisplaySize(50, 50).setVisible(true);
+      else drawSword(g, 0, 0, 52, 0xff8a8a);
+      this.intentValue.setText(String(intentValue(s, it))).setColor(kind === 'heavy' ? '#ff5c5c' : '#ff9a9a').setFontSize(kind === 'heavy' ? 28 : 24);
+      this.intentLabel.setText(`${kind === 'heavy' ? '【強攻撃】' : ''}${it.name} → ${target}`);
+      if (kind === 'heavy') this.intentHint.setText('ブレイクで阻止!').setColor('#ffe066');
+      else if (next.kind === 'heavy' || next.kind === 'charge') this.intentHint.setText(`次→${next.name}`).setColor('#ffb86b');
+    } else if (kind === 'charge') {
+      drawSword(g, 0, 0, 40, 0xffa23c);
+      this.intentValue.setText('溜め').setColor('#ffb86b').setFontSize(22);
+      this.intentLabel.setText(`${it.name} → 次は${next.name}`);
+      this.intentHint.setText('溜め中にブレイクで両方阻止').setColor('#ffe066');
+    } else {
+      drawShield(g, 0, 0, 40, 0x6fa8ff);
+      this.intentValue.setText(`+${it.guard ?? 0}`).setColor('#9cc7ff').setFontSize(24);
+      this.intentLabel.setText(`${it.name}(防御)`);
+      this.intentHint.setText(`次→${next.name}`).setColor('#ffb86b');
+    }
   }
 
   private drawBars(): void {
@@ -448,12 +551,30 @@ export class BattleScene extends Phaser.Scene {
     bar(ENEMY.x, ENEMY.y + 66, 210, 18, d.broken ? 1 : d.enemyShield / s.enemy.maxShield, d.broken ? 0xff5c5c : 0xf6c453);
     this.enemyHpText.setText(`${Math.max(0, d.enemyHp)}/${s.enemy.maxHp}`);
     this.shieldText.setText(d.broken ? 'BREAK!' : `シールド ${d.enemyShield}/${s.enemy.maxShield}`).setColor(d.broken ? '#fff' : '#3a2a00');
+    if (d.enemyGuard > 0) {
+      g.lineStyle(3, COLORS.block, 0.95).strokeRoundedRect(ENEMY.x - 107, ENEMY.y + 36 - 13, 214, 26, 7);
+    }
     this.enemyGfx.setAlpha(d.broken ? 0.75 : 1);
+    this.refreshEnemyStatus();
     this.stars.setVisible(d.broken);
   }
 
+  private refreshEnemyStatus(): void {
+    const e = this.state.enemy;
+    const d = this.disp;
+    const parts: string[] = [];
+    if (d.enemyGuard > 0) parts.push(`防御${d.enemyGuard}`);
+    if (e.burn) parts.push(`火傷${e.burn.dmg}×${e.burn.turns}`);
+    if (e.bleed) parts.push(`出血${e.bleed.dmg}×${e.bleed.turns}`);
+    if (e.frozen) parts.push('凍結');
+    if (e.weakened) parts.push('弱体');
+    if (isEnraged(e)) parts.push('激昂');
+    this.enemyStatus.setText(parts.join('  '));
+  }
+
   private refreshAll(): void {
-    this.turnText.setText(`第${this.node.row + 1}階層 ─ ターン ${this.state.turn}`);
+    const tag = this.node.type === 'elite' ? ' ─ エリート' : this.node.danger ? ' ─ 危険な戦闘' : '';
+    this.turnText.setText(`第${this.node.row + 1}階層 ─ ターン ${this.state.turn}${tag}`);
     this.drawBars();
     this.refreshButtons();
     this.refreshIntent();
@@ -475,8 +596,14 @@ export class BattleScene extends Phaser.Scene {
     else if (p.shield > 0) lines.push(`ゲージ-${p.shield}`);
     if (p.weak) lines.push('弱点');
     if (p.resist) lines.push('耐性');
+    if (p.absorbed > 0) lines.push(`防御が${p.absorbed}吸収`);
+    if (p.reaction) lines.push(`${p.reaction.name}!`);
+    if (p.focus) lines.push('集中');
+    if (p.charged) lines.push('帯電');
+    for (const c of p.conds) lines.push(`◆${c}`);
     this.preview.setText(lines.join('\n')).setColor(p.chain ? '#ff9a3c' : p.breaks ? '#ffe066' : '#ffffff').setAlpha(0.95);
     this.preview.setFontSize(p.chain ? 40 : 30);
+    if (lines.length > 4) this.preview.setFontSize(compact() ? 20 : 18);
   }
 
   private clearPreview(): void {
@@ -626,9 +753,11 @@ export class BattleScene extends Phaser.Scene {
       case 'damage': {
         if (e.chain) break; // チェインは cut-in 側で演出
         d.enemyHp -= e.amount;
+        d.enemyGuard -= e.absorbed;
         impactCues(e).forEach((c) => this.playCue(c));
         const col = e.element === 'none' ? '#ffdf6b' : hex(ELEMENT_COLOR[e.element]);
-        this.damagePopup(ENEMY.x, ENEMY.y - 140, e.amount, col, { weak: e.weak });
+        if (e.absorbed > 0) this.popup(ENEMY.x - 110, ENEMY.y - 110, `防御 -${e.absorbed}`, '#9cc7ff', 24);
+        if (e.amount > 0) this.damagePopup(ENEMY.x, ENEMY.y - 140, e.amount, col, { weak: e.weak });
         if (e.weak) this.popup(ENEMY.x + 100, ENEMY.y - 185, '弱点!', '#ff9a3c', 26);
         if (e.resist) this.popup(ENEMY.x + 100, ENEMY.y - 185, '耐性', '#9fb0c8', 24);
         this.impact(e.amount, ELEMENT_COLOR[e.element] || 0xffd166);
@@ -675,7 +804,7 @@ export class BattleScene extends Phaser.Scene {
         break;
       case 'recover':
         d.broken = false;
-        d.enemyShield = this.state.enemy.maxShield;
+        d.enemyShield = this.state.enemy.shield;
         this.popup(ENEMY.x, ENEMY.y - 110, 'シールド回復', '#f6c453', 22);
         break;
       case 'enemyAttack': {
@@ -711,6 +840,50 @@ export class BattleScene extends Phaser.Scene {
         if (HERO_SPRITE[this.state.party[e.member].def.id]?.down && hasImg(this, HERO_SPRITE[this.state.party[e.member].def.id]!.down)) this.heroPose(e.member, 'down');
         else this.tweens.add({ targets: this.heroes[e.member], alpha: 0.3, angle: -12, duration: 350 });
         this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 230, '戦闘不能', '#ff7a7a', 28);
+        break;
+      case 'reaction': {
+        const col = this.state.enemy.lastElement ? ELEMENT_COLOR[this.state.enemy.lastElement] : 0xffe066;
+        audio.play('hit_weak');
+        this.popup(ENEMY.x, ENEMY.y - 215, e.name + '!', '#ffffff', 44);
+        this.shockwave(ENEMY.x, ENEMY.y - 90, col);
+        this.sparks(ENEMY.x, ENEMY.y - 90, col, 24);
+        break;
+      }
+      case 'status': {
+        const [label, color] = STATUS_TEXT[e.kind];
+        const pos = e.kind === 'charge' || e.kind === 'focus' ? { x: HERO_POS[0].x, y: HERO_POS[0].y - 250 } : { x: ENEMY.x + 90, y: ENEMY.y - 170 };
+        this.popup(pos.x, pos.y, label, color, 28);
+        break;
+      }
+      case 'dot':
+        d.enemyHp -= e.amount;
+        this.popup(ENEMY.x, ENEMY.y - 130, `-${e.amount} ${e.kind === 'burn' ? '火傷' : '出血'}`, e.kind === 'burn' ? '#ff8a4c' : '#e0455a', 30);
+        this.sparks(ENEMY.x, ENEMY.y - 70, e.kind === 'burn' ? 0xff8a4c : 0xe0455a, 8);
+        break;
+      case 'wait':
+        audio.play('ui_select');
+        this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 230, '待機…', '#9cc7ff', 30);
+        break;
+      case 'enemyCharge':
+        audio.play('en_dragon_claw');
+        this.popup(ENEMY.x, ENEMY.y - 215, '力を溜めている…!', '#ffb86b', 34);
+        this.tweens.add({ targets: this.enemyGfx, scaleX: this.enemyBase * 1.12, scaleY: this.enemyBase * 1.12, duration: 220, yoyo: true });
+        this.shockwave(ENEMY.x, ENEMY.y - 90, 0xffa23c);
+        break;
+      case 'enemyGuard':
+        d.enemyGuard += e.amount;
+        audio.play('sup_guard');
+        this.popup(ENEMY.x, ENEMY.y - 215, `防御 +${e.amount}`, '#9cc7ff', 34);
+        this.shieldRing(ENEMY.x, ENEMY.y - 100, COLORS.block);
+        break;
+      case 'canceled':
+        audio.play('hit_resist');
+        this.popup(ENEMY.x, ENEMY.y - 215, `${e.intent.name} 阻止!`, '#7be495', 40);
+        break;
+      case 'enemyHeal':
+        d.enemyHp += e.amount;
+        audio.play('sup_heal');
+        this.popup(ENEMY.x, ENEMY.y - 130, `+${e.amount}`, '#7be495', 30);
         break;
       default:
         break;

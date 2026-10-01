@@ -1,5 +1,5 @@
 import {
-  allActed, canUse, endPlayerTurn, previewSkill, usePotion, useSkill, type BattleState,
+  allActed, canUse, canWait, currentIntent, endPlayerTurn, previewSkill, usePotion, useSkill, wait, type BattleState,
 } from '../../src/core/battle';
 import { SKILLS } from '../../src/core/data';
 import type { EquipItem } from '../../src/core/equipment';
@@ -7,7 +7,7 @@ import type { MapNode } from '../../src/core/map';
 import type { MetaState } from '../../src/core/meta';
 import {
   availableNodes, bankRun, buyItem, buyPotion, canEquip, enterNode, equip, finishBattle, newRun, openChest,
-  priceOf, rest, sellItem, shopStock, startBattle, type RunState,
+  priceOf, rest, sellItem, shopStock, startBattle, upgradeSkill, type RunState,
 } from '../../src/core/run';
 
 /** 1戦闘を単純な貪欲AIで最後まで進める（バランス確認・不変条件テスト用） */
@@ -23,13 +23,19 @@ export function autoBattle(run: RunState, node: MapNode): BattleState {
         if (!canUse(s, mi, id)) continue;
         const sk = SKILLS[id];
         const p = previewSkill(s, sk, mi);
-        let score = p.hp + p.shield * 0.8 + (p.breaks ? 15 : 0) + (p.chain ? 20 : 0);
+        let score = p.hp - p.absorbed * 0.5 + p.shield * 0.8 + (p.breaks ? 15 : 0) + (p.chain ? 20 : 0);
+        score += (p.reaction ? 10 : 0) + p.conds.length * 4;
+        // 強攻撃・溜めの前にはブレイクを狙う
+        const it = currentIntent(s);
+        if (p.breaks && (it.kind === 'heavy' || it.kind === 'charge')) score += 25;
         if (sk.healAll) score += avg < 0.6 ? 30 : 0;
         if (sk.guardSelf || sk.guardAlly) score += 4;
         if (sk.taunt) score += 3;
         if (score > bestScore) { bestScore = score; best = id; }
       }
-      if (best) useSkill(s, mi, best);
+      if (best && bestScore >= 6) useSkill(s, mi, best);
+      else if (canWait(s, mi)) wait(s, mi);
+      else if (best) useSkill(s, mi, best);
     });
     if (s.phase === 'player') endPlayerTurn(s);
     if (s.phase === 'player' && allActed(s) && guard > 250) break;
@@ -53,20 +59,34 @@ export function autoEquip(run: RunState, item: EquipItem): void {
   else sellItem(run, item);
 }
 
+/** スキルポイントを、使い慣れた基本スキルから順に強化 */
+export function autoSpendSkillPoints(run: RunState): void {
+  const order = ['slash', 'shield_bash', 'firebolt', 'thunder', 'ice_lance'];
+  for (let guard = 0; guard < 30 && run.skillPoints > 0; guard++) {
+    let any = false;
+    run.party.forEach((_, mi) => {
+      for (const id of order) if (upgradeSkill(run, mi, id)) { any = true; return; }
+    });
+    if (!any) break;
+  }
+}
+
 export function autoRun(meta: MetaState, seed: number): RunState {
   const run = newRun(meta, seed);
   for (let step = 0; !run.finished && step < 60; step++) {
     const nodes = availableNodes(run);
     const pick = (t: string) => nodes.find((n) => n.type === t);
     const low = run.party.some((m) => m.hp < 40);
-    const node = (low ? pick('rest') : undefined) ?? pick('chest') ?? pick('shop') ?? pick('rest') ?? pick('battle') ?? nodes[0];
+    const safeBattle = nodes.find((n) => n.type === 'battle' && !n.danger);
+    const node = (low ? pick('rest') : undefined) ?? pick('chest') ?? pick('shop') ?? pick('rest') ?? safeBattle ?? pick('battle') ?? pick('elite') ?? nodes[0];
     enterNode(run, node.id);
-    if (node.type === 'battle' || node.type === 'boss') {
+    if (node.type === 'battle' || node.type === 'boss' || node.type === 'elite') {
       const s = autoBattle(run, node);
       const r = finishBattle(run, s, node);
       if (r.item) autoEquip(run, r.item);
-    } else if (node.type === 'chest') {
-      const r = openChest(run);
+      autoSpendSkillPoints(run);
+    } else if (node.type === 'chest' || node.type === 'cursed') {
+      const r = openChest(run, node.type === 'cursed');
       if (r.item) autoEquip(run, r.item);
     } else if (node.type === 'rest') {
       rest(run, 'heal');

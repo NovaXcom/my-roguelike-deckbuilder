@@ -4,12 +4,15 @@ import { ELEMENT_COLOR, ELEMENT_LABEL, MEMBERS, PARTY_ORDER, SKILLS } from '../c
 import { RARITY_LABEL, statLines } from '../core/equipment';
 import { memberMaxHp, memberSkills } from '../core/run';
 import { startRun } from '../game';
+import { rollModChoices } from '../core/mods';
+import { Rng } from '../core/rng';
+import type { RunMods } from '../core/types';
 import { drawBackground, drawHero, txt } from '../ui/art';
 import { HERO_SPRITE } from '../ui/assetMap';
 import { hasImg } from '../ui/assets';
 import { compact } from '../ui/device';
 import { skillSummary } from '../ui/skillText';
-import { hex, makeButton } from '../ui/widgets';
+import { hex, makeButton, onTap, padHitArea } from '../ui/widgets';
 import { H, W } from './TitleScene';
 
 /** 出撃前のパーティ確認。ここで新しい挑戦(ラン)を生成し、初期装備とスキルを確認する。 */
@@ -28,8 +31,8 @@ export class PartyScene extends Phaser.Scene {
       const m = MEMBERS[id];
       const px = 40 + i * 620;
       const g = this.add.graphics();
-      g.fillStyle(0x2d3748, 0.9).fillRoundedRect(px, 110, 580, 480, 16);
-      g.lineStyle(3, m.color, 1).strokeRoundedRect(px, 110, 580, 480, 16);
+      g.fillStyle(0x2d3748, 0.9).fillRoundedRect(px, 106, 580, 474, 16);
+      g.lineStyle(3, m.color, 1).strokeRoundedRect(px, 106, 580, 474, 16);
       // 立ち絵: 騎士はスプライト、エレメンタリストは胸像（戦闘用の立ち絵が無いため）。無ければ図形描画
       const sprite = HERO_SPRITE[id];
       if (sprite && hasImg(this, sprite.idle)) {
@@ -62,7 +65,33 @@ export class PartyScene extends Phaser.Scene {
       });
     });
 
-    makeButton(this, W / 2, 648, 300, 60, '出撃!', () => { audio.play('ui_click'); this.scene.start('Map'); }, { size: 30 });
-    makeButton(this, 120, 668, 190, 44, '← 拠点へ', () => this.scene.start('Town'), { size: 16, color: 0x7b8798 });
+    // 今回の旅: 3択(または条件なし)。長所と短所がセットで、ビルドの方向性を決める
+    txt(this, W / 2, 597, '今回の旅（任意で1つ選択 ─ もう一度押すと解除）', 14, '#9fb0c8').setOrigin(0.5);
+    const choices = rollModChoices(new Rng((Date.now() & 0xffff) + 1));
+    const cards: { mod: RunMods; paint: () => void }[] = [];
+    const select = (mod: RunMods | null) => {
+      run.mods = mod;
+      audio.play('ui_select');
+      cards.forEach((c) => c.paint());
+    };
+    choices.forEach((mod, k) => {
+      const x = W / 2 + (k - 1) * 380;
+      const g = this.add.graphics();
+      const c = this.add.container(x, 626, [g,
+        txt(this, 0, -16, mod.name, 17, '#fff', { fontStyle: 'bold' }).setOrigin(0.5),
+        txt(this, 0, 8, mod.text, 12, '#d8d0c4', { align: 'center', wordWrap: { width: 350, useAdvancedWrap: true } }).setOrigin(0.5, 0)]);
+      padHitArea(c, 360, 56);
+      const paint = () => {
+        const on = run.mods?.id === mod.id;
+        g.clear();
+        g.fillStyle(on ? 0x3f5578 : 0x2d3748, 1).fillRoundedRect(-180, -28, 360, 56, 10);
+        g.lineStyle(on ? 4 : 2, on ? 0xffe066 : 0x6b7686, 1).strokeRoundedRect(-180, -28, 360, 56, 10);
+      };
+      paint();
+      cards.push({ mod, paint });
+      onTap(c, () => select(run.mods?.id === mod.id ? null : mod));
+    });
+    makeButton(this, W / 2, 686, 300, 48, '出撃!', () => { audio.play('ui_click'); this.scene.start('Map'); }, { size: 28 });
+    makeButton(this, 120, 686, 190, 40, '← 拠点へ', () => this.scene.start('Town'), { size: 16, color: 0x7b8798 });
   }
 }

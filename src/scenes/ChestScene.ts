@@ -17,7 +17,12 @@ export class ChestScene extends Phaser.Scene {
     const run = game.run;
     if (!run) { this.scene.start('Town'); return; }
     drawBackground(this, W, H);
-    txt(this, W / 2, 80, '宝箱を発見した!', 40, '#f6e3b4', { fontStyle: 'bold', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5);
+    const cursed = run.current !== null && run.map.nodes[run.current].type === 'cursed';
+    txt(this, W / 2, 70, cursed ? '呪われた宝箱' : '宝箱を発見した!', 40, cursed ? '#d9a0ff' : '#f6e3b4', { fontStyle: 'bold', stroke: '#000', strokeThickness: 6 }).setOrigin(0.5);
+    if (cursed) {
+      txt(this, W / 2, 118, '強力な装備(Rare以上・Legendary高確率)と魔導石が手に入るが、パーティの最大HPが10%減る(呪い)', 16, '#d9a0ff').setOrigin(0.5);
+      this.add.rectangle(W / 2, H / 2, W, H, 0x4a1a6a, 0.18).setDepth(-80);
+    }
 
     // 宝箱: 画像があれば画像(閉→開で差し替え)、無ければ図形描画
     const useImg = hasImg(this, 'prop_chest_closed') && hasImg(this, 'prop_chest_open');
@@ -44,12 +49,12 @@ export class ChestScene extends Phaser.Scene {
     }
 
     let opened = false;
-    const btn = makeButton(this, W / 2, 600, 260, 60, '開ける', () => {
+    const btn = makeButton(this, W / 2, cursed ? 596 : 600, cursed ? 360 : 260, 60, cursed ? '開ける(最大HP-10%)' : '開ける', () => {
       if (opened) return;
       opened = true;
       btn.setEnabled(false);
       audio.play('chest_open');
-      const reward = openChest(run);
+      const reward = openChest(run, cursed);
       if (chestImg) {
         chestImg.setTexture('prop_chest_open').setDisplaySize(290, 268);
         this.tweens.add({ targets: chestImg, scale: chestImg.scale * 1.06, duration: 160, yoyo: true });
@@ -64,6 +69,7 @@ export class ChestScene extends Phaser.Scene {
         this.tweens.add({ targets: s, x: W / 2 + Math.cos(a) * d, y: 330 + Math.sin(a) * d, alpha: 0, duration: 700, onComplete: () => s.destroy() });
       }
       this.time.delayedCall(900, () => this.scene.start('Loot', { title: '宝箱の中身', reward, returnTo: { scene: 'Map' } }));
-    }, { size: 26 });
+    }, { size: cursed ? 22 : 26 });
+    if (cursed) makeButton(this, W / 2, 668, 260, 44, '立ち去る', () => { if (!opened) this.scene.start('Map'); }, { size: 18, color: 0x7b8798 });
   }
 }

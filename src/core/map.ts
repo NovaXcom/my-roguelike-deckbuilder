@@ -1,12 +1,14 @@
 import type { Rng } from './rng';
 
-export type NodeType = 'battle' | 'chest' | 'rest' | 'shop' | 'boss';
+export type NodeType = 'battle' | 'elite' | 'chest' | 'cursed' | 'rest' | 'shop' | 'boss';
 
 export interface MapNode {
   id: number;
   row: number;
   col: number;
   type: NodeType;
+  /** 危険な戦闘: 敵が強化される代わりに報酬が2倍 */
+  danger?: boolean;
   /** 次の階層で選択可能なノードID */
   next: number[];
 }
@@ -18,7 +20,7 @@ export interface DungeonMap {
 }
 
 export const NODE_LABEL: Record<NodeType, string> = {
-  battle: '戦闘', chest: '宝箱', rest: '休憩所', shop: 'ショップ', boss: 'ボス',
+  battle: '戦闘', elite: 'エリート', chest: '宝箱', cursed: '呪われた宝箱', rest: '休憩所', shop: 'ショップ', boss: 'ボス',
 };
 
 /**
@@ -71,7 +73,13 @@ export function generateMap(rng: Rng, floors = 8, cols = 3): DungeonMap {
     if (n.type === 'boss') continue;
     if (n.row === 0) n.type = 'battle';
     else if (n.row === bossRow - 1) n.type = 'rest';
-    else n.type = rng.weighted<NodeType>({ battle: 50, chest: 18, rest: 16, shop: 16, boss: 0 });
+    else {
+      const heavy = n.row >= 3;
+      n.type = rng.weighted<NodeType>({
+        battle: 44, elite: heavy ? 12 : 0, chest: 14, cursed: n.row >= 2 ? 6 : 0, rest: 14, shop: 14, boss: 0,
+      });
+      if (n.type === 'battle' && n.row >= 2 && rng.next() < 0.22) n.danger = true;
+    }
   }
   // 全体で最低1つずつ宝箱とショップを確保（中間階層から選ぶ）
   const mid = nodes.filter((n) => n.row >= 1 && n.row <= bossRow - 2);

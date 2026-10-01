@@ -81,7 +81,7 @@ const serve = (root, port, prefix, log) => new Promise((res) => {
     await tap(640, 500); flow.push(await scene());
     const audioAfter = await frame.evaluate(() => window.__partyrogue.audio.status());
     await tap(750, 668); flow.push(await scene());
-    await tap(640, 648); flow.push(await scene());
+    await tap(640, 686); flow.push(await scene());
     const n = await frame.evaluate(() => window.__partyrogue.game.run.map.nodes.find((x) => x.row === 0));
     await tap(330 + (n.col / 2) * 620, 640); await page.waitForTimeout(800); flow.push(await scene());
     const acted = await frame.evaluate(() => window.__partyrogue.phaser.scene.getScene('Battle').state.party.map((m) => m.acted));

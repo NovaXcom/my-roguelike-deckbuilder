@@ -48,7 +48,7 @@ function loadPlaywright() {
   await page.mouse.click(640, 500); await page.waitForTimeout(700); steps.push(['Town', await scene()]);
   const audioAfter = await page.evaluate(() => window.__partyrogue.audio.status());
   await page.mouse.click(750, 668); await page.waitForTimeout(700); steps.push(['Party', await scene()]);
-  await page.mouse.click(640, 648); await page.waitForTimeout(800); steps.push(['Map', await scene()]);
+  await page.mouse.click(640, 686); await page.waitForTimeout(800); steps.push(['Map', await scene()]);
   const n = await page.evaluate(() => window.__partyrogue.game.run.map.nodes.find((x) => x.row === 0));
   await page.mouse.click(330 + (n.col / 2) * 620, 640); await page.waitForTimeout(1500); steps.push(['Battle', await scene()]);
   for (const [want, got] of steps.slice(1)) if (got !== want) fail.push(`画面遷移が想定と違う: 期待 ${want} / 実際 ${got}`);

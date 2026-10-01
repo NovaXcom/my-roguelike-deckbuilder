@@ -11,10 +11,15 @@ import { makeButton, onTap, padHitArea, panel } from '../ui/widgets';
 import { H, W } from './TitleScene';
 
 const NODE_COLOR: Record<NodeType, number> = {
-  battle: 0xd64545, chest: 0xf6c453, rest: 0x6fcf97, shop: 0x5aa9ff, boss: 0xb06be0,
+  battle: 0xd64545, elite: 0xff7a1a, chest: 0xf6c453, cursed: 0x8e44ad, rest: 0x6fcf97, shop: 0x5aa9ff, boss: 0xb06be0,
 };
-const NODE_GLYPH: Record<NodeType, string> = { battle: '戦', chest: '宝', rest: '休', shop: '店', boss: '王' };
-const NODE_SCENE: Record<NodeType, string> = { battle: 'Battle', boss: 'Battle', chest: 'Chest', rest: 'Rest', shop: 'Shop' };
+const NODE_GLYPH: Record<NodeType, string> = { battle: '戦', elite: '強', chest: '宝', cursed: '呪', rest: '休', shop: '店', boss: '王' };
+const NODE_SCENE: Record<NodeType, string> = {
+  battle: 'Battle', elite: 'Battle', boss: 'Battle', chest: 'Chest', cursed: 'Chest', rest: 'Rest', shop: 'Shop',
+};
+const NODE_HINT: Partial<Record<NodeType, string>> = {
+  elite: '強敵・確定Rare以上', cursed: '強い装備/最大HP-10%',
+};
 
 const ROW_H = 62;
 const BASE_Y = 640;
@@ -67,10 +72,15 @@ export class MapScene extends Phaser.Scene {
         c.add([g, txt(this, 0, 0, isVisited && n.id !== run.current ? '✓' : NODE_GLYPH[n.type], n.type === 'boss' ? 28 : 20, '#ffffff', { fontStyle: 'bold' })
           .setOrigin(0.5).setAlpha(isAvail || isVisited ? 1 : 0.5)]);
       }
+      if (n.danger && !isVisited) {
+        const warn = this.add.graphics();
+        warn.lineStyle(4, 0xff2d2d, 1).strokeCircle(0, 0, r + 6);
+        c.add([warn, txt(this, r - 2, -r + 2, '!', 18, '#ff2d2d', { fontStyle: 'bold', stroke: '#fff', strokeThickness: 3 }).setOrigin(0.5)]);
+      }
       if (isAvail) {
         this.tweens.add({ targets: c, scale: 1.14, duration: 650, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
         padHitArea(c, r * 2 + 10, r * 2 + 10);
-        const label = txt(this, x, y + r + 12, NODE_LABEL[n.type], 13, '#ffe066', { stroke: '#000', strokeThickness: 3 }).setOrigin(0.5);
+        const label = txt(this, x, y + r + 12, n.danger ? '危険な戦闘(報酬2倍)' : NODE_LABEL[n.type], 13, '#ffe066', { stroke: '#000', strokeThickness: 3 }).setOrigin(0.5);
         c.on('pointerover', () => label.setScale(1.15));
         c.on('pointerout', () => label.setScale(1));
         onTap(c, () => this.enter(n.id));
@@ -79,7 +89,7 @@ export class MapScene extends Phaser.Scene {
     if (!compact()) txt(this, 640, BASE_Y + 52, '▲ 進行方向', 13, '#5b6370').setOrigin(0.5);
 
     // --- HUD（左: パーティ状態 / 右: 操作） ---
-    panel(this, 16, 70, 250, 300, 0x4a5262);
+    panel(this, 16, 70, 250, 330, 0x4a5262);
     txt(this, 30, 82, `第 ${(run.current === null ? 0 : map.nodes[run.current].row) + 1} 階層 / ${map.rows}`, 16, '#f6e3b4', { fontStyle: 'bold' });
     const hudLine = (y: number, iconKey: string, label: string, color: string) => {
       const withIcon = hasImg(this, iconKey);
@@ -89,9 +99,10 @@ export class MapScene extends Phaser.Scene {
     hudLine(110, 'icon_status_gold', `ゴールド  ${run.gold} G`, '#ffe066');
     hudLine(136, 'icon_status_mana_stone', `魔導石  ${run.stones}`, '#7fe9ff');
     hudLine(162, 'icon_status_potion', `ポーション ×${run.potions}`, '#7be495');
+    txt(this, 30, 186, `スキルポイント  ${run.skillPoints} SP`, 16, '#ffd9a0');
     const bars = this.add.graphics();
     run.party.forEach((m, i) => {
-      const y = 214 + i * 68;
+      const y = 240 + i * 64;
       const max = memberMaxHp(run, i);
       txt(this, 30, y - 24, m.role === 'knight' ? 'ナイト' : 'エレメンタリスト', 14, '#e8dfd3', { fontStyle: 'bold' });
       bars.fillStyle(0x000000, 0.6).fillRoundedRect(28, y, 214, 20, 6);
@@ -99,7 +110,12 @@ export class MapScene extends Phaser.Scene {
       txt(this, 135, y + 10, `${m.hp}/${max}`, 13, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
     });
 
+    const journey = [run.mods ? `今回の旅: ${run.mods.name}` : '', run.curse ? `呪い ×${run.curse}(最大HP-${run.curse * 10}%)` : ''].filter(Boolean).join('\n');
+    if (journey) txt(this, 30, 348, journey, 13, '#ffb86b', { wordWrap: { width: 220, useAdvancedWrap: true } });
     makeButton(this, 141, 410, 220, 44, '装備を確認', () => this.scene.start('Gear'), { size: 18 });
+    makeButton(this, 141, 522, 220, 44, `スキル強化  ${run.skillPoints}SP`, () => this.scene.start('Skills'), {
+      size: 18, color: 0xffd166, enabled: true,
+    });
     const pot = makeButton(this, 141, 466, 220, 44, `ポーション使用 ×${run.potions}`, () => {
       if (usePotionOnMap(run)) { audio.play('sup_heal'); this.scene.restart(); }
     }, { size: 18, color: 0x6fcf97, enabled: run.potions > 0 && run.party.some((m, i) => m.hp < memberMaxHp(run, i)) });
@@ -107,15 +123,17 @@ export class MapScene extends Phaser.Scene {
     makeButton(this, 141, 660, 220, 40, '挑戦を諦める', () => { run.finished = 'defeat'; this.scene.start('RunEnd'); }, { size: 14, color: 0x7b8798 });
 
     // 凡例
-    (['battle', 'chest', 'rest', 'shop', 'boss'] as NodeType[]).forEach((t, i) => {
-      const y = 100 + i * 30;
+    (['battle', 'elite', 'chest', 'cursed', 'rest', 'shop', 'boss'] as NodeType[]).forEach((t, i) => {
+      const y = 100 + i * 40;
       if (hasImg(this, nodeIconKey(t))) {
         this.add.image(1052, y, nodeIconKey(t)).setDisplaySize(28, 28);
         txt(this, 1074, y, NODE_LABEL[t], 14, '#d8d0c4').setOrigin(0, 0.5);
+        if (NODE_HINT[t]) txt(this, 1074, y + 14, NODE_HINT[t]!, 11, '#9fb0c8').setOrigin(0, 0.5);
       } else {
         const g = this.add.graphics();
         g.fillStyle(NODE_COLOR[t], 1).fillCircle(1050, y, 10);
         txt(this, 1070, y, `${NODE_GLYPH[t]}：${NODE_LABEL[t]}`, 14, '#d8d0c4').setOrigin(0, 0.5);
+        if (NODE_HINT[t]) txt(this, 1070, y + 14, NODE_HINT[t]!, 11, '#9fb0c8').setOrigin(0, 0.5);
       }
     });
   }
@@ -124,7 +142,7 @@ export class MapScene extends Phaser.Scene {
     const run = game.run!;
     const node = enterNode(run, id);
     if (!node) return;
-    audio.play(node.type === 'battle' || node.type === 'boss' ? 'map_battle' : 'ui_click');
+    audio.play(node.type === 'battle' || node.type === 'boss' || node.type === 'elite' ? 'map_battle' : 'ui_click');
     this.scene.start(NODE_SCENE[node.type]);
   }
 }

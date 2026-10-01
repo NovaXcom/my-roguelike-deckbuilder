@@ -135,7 +135,7 @@ describe('全体攻撃', () => {
   it('全体攻撃は両者にダメージ、ヘイトの影響を受けない', () => {
     const s = createBattle('golem');
     startPlayerTurn(s);
-    s.enemy.patternIndex = 1; // 地響き(全体9)
+    s.enemy.patternIndex = 2; // 地響き(全体9)
     expect(resolveTarget(s, currentIntent(s))).toBe(-1);
     s.party[0].taunt = true;
     s.party[1].guard = 4;

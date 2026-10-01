@@ -1,5 +1,5 @@
 import {
-  CHAIN_MULT, alive, createBattle, startPlayerTurn, type BattleSetup, type BattleState, type EnemyScale,
+  CHAIN_MULT, MAX_SKILL_LEVEL, alive, createBattle, skillUpgradeCost, startPlayerTurn, type BattleSetup, type BattleState, type EnemyScale,
 } from './battle';
 import { MEMBERS, PARTY_ORDER } from './data';
 import {
@@ -8,12 +8,14 @@ import {
 import { generateMap, startNodes, type DungeonMap, type MapNode } from './map';
 import { passivesFor, startingGear, startingPotions, type MetaState, type PassiveMods } from './meta';
 import { Rng } from './rng';
-import type { Role } from './types';
+import type { EquipEffectId, Role, RunMods } from './types';
 
 export interface RunMember {
   role: Role;
   hp: number;
   gear: Record<Slot, EquipItem | null>;
+  /** スキルごとのLv(未設定=1) */
+  levels: Record<string, number>;
 }
 
 export interface ShopStock {
@@ -42,9 +44,15 @@ export interface RunState {
   shops: Record<number, ShopStock>;
   finished: null | 'victory' | 'defeat';
   banked: boolean;
+  /** スキルポイント(戦闘勝利で獲得、スキル強化に使う) */
+  skillPoints: number;
+  /** 呪い(呪われた宝箱を開けた数): 最大HP-10%/個 */
+  curse: number;
+  /** 今回の旅(特殊条件) */
+  mods: RunMods | null;
 }
 
-export function newRun(meta: MetaState, seed: number): RunState {
+export function newRun(meta: MetaState, seed: number, mods: RunMods | null = null): RunState {
   const rng = new Rng(seed);
   let uid = 1;
   const nextUid = () => uid++;
@@ -55,7 +63,7 @@ export function newRun(meta: MetaState, seed: number): RunState {
     visited: [],
     party: PARTY_ORDER.map((role) => {
       const g = startingGear(role, meta.smith, nextUid);
-      return { role, hp: 1, gear: { weapon: g.weapon, armor: g.armor, accessory: null } };
+      return { role, hp: 1, gear: { weapon: g.weapon, armor: g.armor, accessory: null }, levels: {} };
     }),
     gold: 30,
     stones: 0,
@@ -66,6 +74,9 @@ export function newRun(meta: MetaState, seed: number): RunState {
     shops: {},
     finished: null,
     banked: false,
+    skillPoints: 0,
+    curse: 0,
+    mods,
   };
   run.nextUid = uid;
   run.party.forEach((_, i) => { run.party[i].hp = memberMaxHp(run, i); });
@@ -85,7 +96,29 @@ export function gearStats(m: RunMember): EquipStats {
 }
 
 export function memberMaxHp(run: RunState, i: number): number {
-  return MEMBERS[run.party[i].role].maxHp + run.passives.hp + run.bonusHp + gearStats(run.party[i]).hp;
+  const raw = MEMBERS[run.party[i].role].maxHp + run.passives.hp + run.bonusHp + gearStats(run.party[i]).hp;
+  return Math.max(1, Math.round(raw * (1 - CURSE_RATIO * run.curse)));
+}
+
+export const CURSE_RATIO = 0.1;
+
+export function memberEffects(run: RunState, i: number): EquipEffectId[] {
+  const out: EquipEffectId[] = [];
+  for (const it of Object.values(run.party[i].gear)) if (it?.effect && !out.includes(it.effect)) out.push(it.effect);
+  return out;
+}
+
+export const skillLevel = (run: RunState, i: number, skillId: string): number => run.party[i].levels[skillId] ?? 1;
+
+/** スキルを強化する(Lv1→2:1pt / Lv2→3:2pt)。成功すればtrue */
+export function upgradeSkill(run: RunState, i: number, skillId: string): boolean {
+  const lv = skillLevel(run, i, skillId);
+  if (lv >= MAX_SKILL_LEVEL || !memberSkills(run, i).includes(skillId)) return false;
+  const cost = skillUpgradeCost(lv);
+  if (run.skillPoints < cost) return false;
+  run.skillPoints -= cost;
+  run.party[i].levels[skillId] = lv + 1;
+  return true;
 }
 
 export function memberSkills(run: RunState, i: number): string[] {
@@ -108,8 +141,11 @@ export function buildSetup(run: RunState): BattleSetup {
         breakBonus: g.breakBonus + run.passives.breakBonus,
         openingGuard: m.role === 'knight' ? run.passives.knightOpeningGuard : 0,
         skills: memberSkills(run, i),
+        levels: { ...m.levels },
+        effects: memberEffects(run, i),
       };
     }),
+    mods: run.mods,
   };
 }
 
@@ -130,20 +166,29 @@ export function enterNode(run: RunState, id: number): MapNode | null {
 
 export function pickEnemy(run: RunState, node: MapNode): string {
   if (node.type === 'boss') return 'dragon';
+  if (node.type === 'elite') return run.rng.pick(['skeleton', 'golem']);
   if (node.row <= 2) return run.rng.pick(['slime', 'bat']);
   if (node.row <= 5) return run.rng.pick(['bat', 'skeleton', 'slime']);
   return run.rng.pick(['skeleton', 'golem']);
 }
 
 /** 階層が深いほど敵のHP・攻撃力が上がる */
-export function enemyScale(node: MapNode): EnemyScale {
-  if (node.type === 'boss') return { hp: 1.9, atk: 1.8 };
-  return { hp: 1 + 0.26 * node.row, atk: 1 + 0.2 * node.row };
+export function enemyScale(node: MapNode, mods: RunMods | null = null): EnemyScale {
+  let hp: number;
+  let atk: number;
+  if (node.type === 'boss') { hp = 1.9; atk = 1.8; }
+  else {
+    hp = 1 + 0.35 * node.row;
+    atk = 1 + 0.28 * node.row;
+    if (node.type === 'elite') { hp *= 1.35; atk *= 1.2; }
+    if (node.danger) { hp *= 1.3; atk *= 1.3; }
+  }
+  return { hp: hp * (mods?.enemyHpMult ?? 1), atk: atk * (mods?.enemyAtkMult ?? 1) };
 }
 
 /** ノードの戦闘を開始（敵の抽選・装備補正・階層補正込み。プレイヤーターン1開始済み） */
 export function startBattle(run: RunState, node: MapNode): BattleState {
-  const s = createBattle(pickEnemy(run, node), buildSetup(run), enemyScale(node));
+  const s = createBattle(pickEnemy(run, node), buildSetup(run), enemyScale(node, run.mods));
   startPlayerTurn(s);
   return s;
 }
@@ -153,6 +198,7 @@ export interface Reward {
   gold: number;
   stones: number;
   item: EquipItem | null;
+  skillPoints: number;
 }
 
 /** 戦闘終了を反映: HP持ち越し(戦闘不能者は復活)、報酬付与、ボス撃破/全滅でラン終了 */
@@ -161,18 +207,26 @@ export function finishBattle(run: RunState, s: BattleState, node: MapNode): Rewa
     const b = s.party[i];
     m.hp = alive(b) ? b.hp : Math.max(1, Math.round(memberMaxHp(run, i) * REVIVE_RATIO));
   });
-  const none: Reward = { gold: 0, stones: 0, item: null };
+  const none: Reward = { gold: 0, stones: 0, item: null, skillPoints: 0 };
   if (s.phase === 'lost') {
     run.finished = 'defeat';
     return none;
   }
   const boss = node.type === 'boss';
+  const elite = node.type === 'elite';
+  const mult = (node.danger ? 2 : 1) * (elite ? 1.5 : 1);
   const r = run.rng;
+  const guaranteed = boss || elite || !!node.danger;
   const reward: Reward = {
-    gold: r.range(12, 22) + node.row * 2 + (boss ? 50 : 0),
-    stones: 3 + node.row + (boss ? 40 : 0),
-    item: boss ? rollItem(r, 'boss', takeUid(run)) : r.next() < 0.55 ? rollItem(r, 'battle', takeUid(run)) : null,
+    gold: Math.round((r.range(12, 22) + node.row * 2 + (boss ? 50 : 0)) * mult * (run.mods?.goldMult ?? 1)),
+    stones: Math.round((3 + node.row + (boss ? 40 : 0)) * mult),
+    item: boss ? rollItem(r, 'boss', takeUid(run))
+      : elite ? rollItem(r, 'elite', takeUid(run))
+      : guaranteed ? rollItem(r, 'chest', takeUid(run))
+      : r.next() < 0.55 ? rollItem(r, 'battle', takeUid(run)) : null,
+    skillPoints: boss ? 0 : elite ? 2 : 1,
   };
+  run.skillPoints += reward.skillPoints;
   run.gold += reward.gold;
   run.stones += reward.stones;
   if (boss) {
@@ -182,11 +236,23 @@ export function finishBattle(run: RunState, s: BattleState, node: MapNode): Rewa
   return reward;
 }
 
-export function openChest(run: RunState): Reward {
-  const reward: Reward = { gold: run.rng.range(20, 40), stones: 5, item: rollItem(run.rng, 'chest', takeUid(run)) };
+export function openChest(run: RunState, cursed = false): Reward {
+  const reward: Reward = {
+    gold: Math.round(run.rng.range(20, 40) * (run.mods?.goldMult ?? 1)),
+    stones: cursed ? 12 : 5,
+    item: rollItem(run.rng, cursed ? 'cursed' : 'chest', takeUid(run)),
+    skillPoints: 0,
+  };
+  if (cursed) curseParty(run);
   run.gold += reward.gold;
   run.stones += reward.stones;
   return reward;
+}
+
+/** 呪い: 最大HPが10%減る(現在HPも上限まで切り詰める) */
+export function curseParty(run: RunState): void {
+  run.curse += 1;
+  run.party.forEach((m, i) => { m.hp = Math.min(m.hp, memberMaxHp(run, i)); });
 }
 
 // ------------------------------------------------------------------ 装備
