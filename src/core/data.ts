@@ -112,7 +112,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     weak: 'thunder',
     resist: 'none',
     color: 0xd9d4c5,
-    traits: { text: ['溜めてからの「大振り」が最大の脅威', 'ブレイクさせれば大振りを阻止できる'] },
+    traits: { rally: 0.25, text: ['溜めてからの「大振り」が最大の脅威', 'ブレイクさせれば大振りを阻止できる', '仲間が倒れると攻撃力+25%(奮起)'] },
     pattern: [
       { name: '斬りつけ', value: 10, target: 'front' },
       { name: '弓射', value: 9, target: 'back' },
@@ -128,7 +128,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     weak: 'ice',
     resist: 'fire',
     color: 0x8d8a82,
-    traits: { shieldedMult: 0.5, text: ['岩の装甲: シールド中の被ダメージ半減', '構えで防御を固める（防御値はダメージを先に吸収）'] },
+    traits: { shieldedMult: 0.5, protects: 0.75, text: ['岩の装甲: シールド中の被ダメージ半減', '守護: 健在な間、仲間の被ダメージ-25%(ブレイクで解除)', '構えは仲間にも防御を分ける'] },
     pattern: [
       { name: '岩拳', value: 14, target: 'front' },
       { name: '岩の構え', value: 0, target: 'front', kind: 'guard', guard: 22 },

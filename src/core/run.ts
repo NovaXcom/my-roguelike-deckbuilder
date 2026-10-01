@@ -164,6 +164,17 @@ export function enterNode(run: RunState, id: number): MapNode | null {
   return node;
 }
 
+/** 敵の編成(1〜3体)。組み合わせに意味を持たせる(守護役+攻撃役、後衛狙い+防御役、溜め攻撃+妨害) */
+export function pickEncounter(run: RunState, node: MapNode): string[] {
+  const r = run.rng;
+  if (node.type === 'boss') return ['dragon'];
+  if (node.type === 'elite') return r.pick([['golem', 'skeleton'], ['golem', 'bat', 'skeleton'], ['skeleton', 'skeleton', 'bat']]);
+  if (node.row <= 1) return r.pick([['slime'], ['bat'], ['slime', 'slime']]);
+  if (node.row <= 3) return r.pick([['slime', 'bat'], ['bat', 'skeleton'], ['slime', 'slime', 'bat'], ['skeleton']]);
+  if (node.row <= 5) return r.pick([['golem', 'bat'], ['skeleton', 'bat'], ['golem', 'skeleton'], ['slime', 'bat', 'bat']]);
+  return r.pick([['golem', 'skeleton'], ['golem', 'bat', 'bat'], ['skeleton', 'skeleton', 'bat'], ['golem', 'bat', 'skeleton']]);
+}
+
 export function pickEnemy(run: RunState, node: MapNode): string {
   if (node.type === 'boss') return 'dragon';
   if (node.type === 'elite') return run.rng.pick(['skeleton', 'golem']);
@@ -173,7 +184,10 @@ export function pickEnemy(run: RunState, node: MapNode): string {
 }
 
 /** 階層が深いほど敵のHP・攻撃力が上がる */
-export function enemyScale(node: MapNode, mods: RunMods | null = null): EnemyScale {
+/** 編成の体数による1体あたりの補正(体数が多いほど1体は弱い) */
+export const GROUP_SCALE: Record<number, EnemyScale> = { 1: { hp: 1, atk: 1 }, 2: { hp: 0.45, atk: 0.42 }, 3: { hp: 0.3, atk: 0.32 } };
+
+export function enemyScale(node: MapNode, mods: RunMods | null = null, count = 1): EnemyScale {
   let hp: number;
   let atk: number;
   if (node.type === 'boss') { hp = 5.5; atk = 2.6; }
@@ -183,12 +197,14 @@ export function enemyScale(node: MapNode, mods: RunMods | null = null): EnemySca
     if (node.type === 'elite') { hp *= 1.35; atk *= 1.2; }
     if (node.danger) { hp *= 1.3; atk *= 1.3; }
   }
-  return { hp: hp * (mods?.enemyHpMult ?? 1), atk: atk * (mods?.enemyAtkMult ?? 1) };
+  const g = GROUP_SCALE[count] ?? GROUP_SCALE[1];
+  return { hp: hp * (mods?.enemyHpMult ?? 1) * g.hp, atk: atk * (mods?.enemyAtkMult ?? 1) * g.atk };
 }
 
 /** ノードの戦闘を開始（敵の抽選・装備補正・階層補正込み。プレイヤーターン1開始済み） */
 export function startBattle(run: RunState, node: MapNode): BattleState {
-  const s = createBattle(pickEnemy(run, node), buildSetup(run), enemyScale(node, run.mods));
+  const ids = pickEncounter(run, node);
+  const s = createBattle(ids, buildSetup(run), enemyScale(node, run.mods, ids.length));
   startPlayerTurn(s);
   return s;
 }
@@ -214,7 +230,7 @@ export function finishBattle(run: RunState, s: BattleState, node: MapNode): Rewa
   }
   const boss = node.type === 'boss';
   const elite = node.type === 'elite';
-  const mult = (node.danger ? 2 : 1) * (elite ? 1.5 : 1);
+  const mult = (node.danger ? 2 : 1) * (elite ? 1.5 : 1) * (1 + 0.2 * (s.enemies.length - 1));
   const r = run.rng;
   const guaranteed = boss || elite || !!node.danger;
   const reward: Reward = {

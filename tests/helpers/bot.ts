@@ -1,5 +1,5 @@
 import {
-  canUse, canWait, currentIntent, endPlayerTurn, previewSkill, skillCost, usePotion, useSkill, wait, type BattleState,
+  canUse, canWait, currentIntent, defaultTarget, livingEnemies, endPlayerTurn, previewSkill, skillCost, usePotion, useSkill, wait, type BattleState,
 } from '../../src/core/battle';
 import { SKILLS } from '../../src/core/data';
 import type { EquipItem } from '../../src/core/equipment';
@@ -19,30 +19,39 @@ export function autoBattle(run: RunState, node: MapNode): BattleState {
     const avg = s.party.reduce((a, m) => a + m.hp / m.maxHp, 0) / s.party.length;
     if (avg < 0.4 && run.potions > 0 && usePotion(s)) run.potions--;
     for (let n = 0; n < 6 && s.ap > 0 && s.phase === 'player'; n++) {
-      let best: { mi: number; id: string } | null = null;
+      let best: { mi: number; id: string; ti: number } | null = null;
       let bestScore = -1;
       s.party.forEach((m, mi) => {
         for (const id of m.skills) {
           if (!canUse(s, mi, id)) continue;
           const sk = SKILLS[id];
-          const p = previewSkill(s, sk, mi);
-          let score = p.hp - p.absorbed * 0.5 + p.shield * 0.8 + (p.breaks ? 15 : 0) + (p.chain ? 20 : 0);
-          score += (p.reaction ? 10 : 0) + p.conds.length * 4;
-          // 強攻撃・溜めの前にはブレイクを狙う
-          const it = currentIntent(s);
-          if (p.breaks && (it.kind === 'heavy' || it.kind === 'charge')) score += 25;
-          if (sk.healAll) score += avg < 0.6 ? 30 : 0;
-          if (sk.guardSelf || sk.guardAlly) score += 4;
-          if (sk.taunt) score += 3;
-          score -= (skillCost(sk) - 1) * 6; // 高コストは割高
-          if (score > bestScore) { bestScore = score; best = { mi, id }; }
+          const offensive = !!sk.damage || !!sk.breakPower;
+          const targets = offensive ? livingEnemies(s) : [defaultTarget(s)];
+          for (const ti of targets) {
+            const e = s.enemies[ti];
+            const p = previewSkill(s, sk, mi, ti);
+            let score = p.hp - p.absorbed * 0.5 + p.shield * 0.8 + (p.breaks ? 15 : 0) + (p.chain ? 20 : 0);
+            score += (p.reaction ? 10 : 0) + p.conds.length * 4;
+            const it = currentIntent(s, ti);
+            // 強攻撃・溜めの前にはブレイクを狙う / 倒せる敵・守護役を優先
+            if (p.breaks && (it.kind === 'heavy' || it.kind === 'charge')) score += 25;
+            if (p.hp - p.absorbed >= e.hp) score += 22;
+            if (p.breaks && e.def.traits?.protects) score += 10;
+            if (p.protectedBy) score -= 4;
+            if (sk.healAll) score += avg < 0.6 ? 30 : 0;
+            if (sk.guardSelf || sk.guardAlly) score += 4;
+            if (sk.taunt) score += 3;
+            score -= (skillCost(sk) - 1) * 6; // 高コストは割高
+            if (score > bestScore) { bestScore = score; best = { mi, id, ti }; }
+          }
         }
       });
+      const b = best as { mi: number; id: string; ti: number } | null;
       if (botOptions.alwaysWait && s.turn % 2 === 1 && canWait(s, 0)) { wait(s, 0); continue; }
-      if (best && (bestScore >= 6 || !botOptions.allowWait)) useSkill(s, (best as { mi: number }).mi, (best as { id: string }).id);
+      if (b && (bestScore >= 6 || !botOptions.allowWait)) useSkill(s, b.mi, b.id, b.ti);
       else if (canWait(s, 0)) wait(s, 0);
       else if (canWait(s, 1)) wait(s, 1);
-      else if (best) useSkill(s, (best as { mi: number }).mi, (best as { id: string }).id);
+      else if (b) useSkill(s, b.mi, b.id, b.ti);
       else break;
     }
     if (s.phase === 'player') endPlayerTurn(s);

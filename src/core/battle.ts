@@ -57,6 +57,9 @@ export type BattlePhase = 'player' | 'enemy' | 'won' | 'lost';
 
 export interface BattleState {
   party: MemberState[]; // [0]=前衛 [1]=後衛
+  /** 敵の編成(1〜3体)。倒れた敵も配列に残る(hp<=0) */
+  enemies: EnemyState[];
+  /** 先頭の敵(enemies[0]と同一オブジェクト。単体戦・旧コード互換用) */
   enemy: EnemyState;
   turn: number;
   /** 残り行動ポイント(1ターンに2人で使える行動の総数) */
@@ -98,26 +101,27 @@ export function defaultSetup(): BattleSetup {
 
 export type BattleEvent =
   | { type: 'skill'; member: number; skillId: string }
-  | { type: 'damage'; target: 'enemy'; amount: number; absorbed: number; element: SkillDef['element']; weak: boolean; resist: boolean; chain: boolean }
-  | { type: 'reaction'; id: ReactionId; name: string; amount: number }
-  | { type: 'status'; kind: 'burn' | 'bleed' | 'freeze' | 'weaken' | 'charge' | 'focus' }
-  | { type: 'dot'; kind: 'burn' | 'bleed'; amount: number }
+  | { type: 'damage'; enemy: number; amount: number; absorbed: number; element: SkillDef['element']; weak: boolean; resist: boolean; chain: boolean }
+  | { type: 'reaction'; enemy: number; id: ReactionId; name: string; amount: number }
+  | { type: 'status'; enemy?: number; kind: 'burn' | 'bleed' | 'freeze' | 'weaken' | 'charge' | 'focus' }
+  | { type: 'dot'; enemy: number; kind: 'burn' | 'bleed'; amount: number }
   | { type: 'wait'; member: number }
-  | { type: 'enemyCharge'; intent: EnemyIntent }
-  | { type: 'enemyGuard'; amount: number }
-  | { type: 'canceled'; intent: EnemyIntent }
-  | { type: 'enemyHeal'; amount: number }
+  | { type: 'enemyCharge'; enemy: number; intent: EnemyIntent }
+  | { type: 'enemyGuard'; enemy: number; amount: number }
+  | { type: 'canceled'; enemy: number; intent: EnemyIntent }
+  | { type: 'enemyHeal'; enemy: number; amount: number }
   | { type: 'hurt'; member: number; amount: number; blocked: number }
   | { type: 'guard'; member: number; amount: number }
   | { type: 'heal'; member: number; amount: number }
   | { type: 'taunt'; member: number }
-  | { type: 'shield'; amount: number }
-  | { type: 'break' }
-  | { type: 'chain'; element: SkillDef['element']; amount: number }
-  | { type: 'stunned' }
-  | { type: 'recover' }
+  | { type: 'shield'; enemy: number; amount: number }
+  | { type: 'break'; enemy: number }
+  | { type: 'chain'; enemy: number; element: SkillDef['element']; amount: number }
+  | { type: 'stunned'; enemy: number }
+  | { type: 'recover'; enemy: number }
+  | { type: 'enemyDown'; enemy: number }
   /** target=-1 は全体攻撃 */
-  | { type: 'enemyAttack'; intent: EnemyIntent; target: number }
+  | { type: 'enemyAttack'; enemy: number; intent: EnemyIntent; target: number }
   | { type: 'down'; member: number };
 
 export interface EnemyScale {
@@ -125,13 +129,24 @@ export interface EnemyScale {
   atk: number;
 }
 
-export function createBattle(
-  enemyId = 'slime',
-  setup: BattleSetup = defaultSetup(),
-  scale: EnemyScale = { hp: 1, atk: 1 },
-): BattleState {
+/** 敵1体分の初期状態 */
+export function makeEnemy(enemyId: string, scale: EnemyScale = { hp: 1, atk: 1 }): EnemyState {
   const def = ENEMIES[enemyId];
   const maxHp = Math.round(def.maxHp * scale.hp);
+  return {
+    def, hp: maxHp, maxHp, shield: def.maxShield, maxShield: def.maxShield, broken: false, patternIndex: 0, atkMult: scale.atk,
+    guard: 0, burn: null, bleed: null, frozen: false, weakened: false, lastElement: null,
+  };
+}
+
+/** enemyId は単体のID、または編成(IDの配列)。scale は全員共通、または敵ごと */
+export function createBattle(
+  enemyId: string | string[] = 'slime',
+  setup: BattleSetup = defaultSetup(),
+  scale: EnemyScale | EnemyScale[] = { hp: 1, atk: 1 },
+): BattleState {
+  const ids = Array.isArray(enemyId) ? enemyId : [enemyId];
+  const enemies = ids.map((id, i) => makeEnemy(id, Array.isArray(scale) ? scale[i] ?? scale[0] : scale));
   return {
     party: setup.members.map((m) => {
       const d = MEMBERS[m.role];
@@ -142,10 +157,8 @@ export function createBattle(
         levels: { ...(m.levels ?? {}) }, effects: [...(m.effects ?? [])], focus: false, charged: false,
       };
     }),
-    enemy: {
-      def, hp: maxHp, maxHp, shield: def.maxShield, maxShield: def.maxShield, broken: false, patternIndex: 0, atkMult: scale.atk,
-      guard: 0, burn: null, bleed: null, frozen: false, weakened: false, lastElement: null,
-    },
+    enemies,
+    enemy: enemies[0],
     turn: 0,
     ap: AP_MAX,
     apMax: AP_MAX,
@@ -157,14 +170,19 @@ export function createBattle(
 
 export const alive = (m: { hp: number }): boolean => m.hp > 0;
 
-export function currentIntent(s: BattleState): EnemyIntent {
-  const p = s.enemy.def.pattern;
-  return p[s.enemy.patternIndex % p.length];
+export const livingEnemies = (s: BattleState): number[] => s.enemies.map((e, i) => (e.hp > 0 ? i : -1)).filter((i) => i >= 0);
+/** 狙う敵の既定(先頭の生存者) */
+export const defaultTarget = (s: BattleState): number => Math.max(0, s.enemies.findIndex((e) => e.hp > 0));
+
+export function currentIntent(s: BattleState, ei = 0): EnemyIntent {
+  const e = s.enemies[ei];
+  const p = e.def.pattern;
+  return p[e.patternIndex % p.length];
 }
 
 /** 階層補正込みの実際の攻撃値（UI表示・ダメージ計算で共通） */
-export function intentValue(s: BattleState, intent: EnemyIntent = currentIntent(s)): number {
-  const e = s.enemy;
+export function intentValue(s: BattleState, intent: EnemyIntent = currentIntent(s), ei = 0): number {
+  const e = s.enemies[ei];
   const tr = e.def.traits?.enrage;
   let mult = e.atkMult;
   if (tr && e.hp <= e.maxHp * tr.below) mult *= tr.mult;
@@ -173,9 +191,20 @@ export function intentValue(s: BattleState, intent: EnemyIntent = currentIntent(
 }
 
 /** 次の次の行動（UIの「次→」表示用） */
-export function nextIntent(s: BattleState): EnemyIntent {
-  const p = s.enemy.def.pattern;
-  return p[(s.enemy.patternIndex + 1) % p.length];
+export function nextIntent(s: BattleState, ei = 0): EnemyIntent {
+  const e = s.enemies[ei];
+  const p = e.def.pattern;
+  return p[(e.patternIndex + 1) % p.length];
+}
+
+/** 「守護」持ちの味方が健在な間、他の敵が受けるダメージ倍率(守護役自身は対象外)。無ければ1 */
+export function protectionMult(s: BattleState, ei: number): number {
+  let m = 1;
+  s.enemies.forEach((o, i) => {
+    const pr = o.def.traits?.protects;
+    if (i !== ei && o.hp > 0 && !o.broken && pr) m = Math.min(m, pr);
+  });
+  return m;
 }
 
 export const isEnraged = (e: EnemyState): boolean => !!e.def.traits?.enrage && e.hp <= e.maxHp * e.def.traits.enrage.below;
@@ -231,10 +260,11 @@ export interface DamagePreview {
   burn: boolean;
   focus: boolean;
   charged: boolean;
+  /** 守護役に守られていて、ダメージが減っているか */
+  protectedBy: boolean;
 }
 
-function condMet(s: BattleState, c: SkillCond): boolean {
-  const e = s.enemy;
+function condMet(e: EnemyState, c: SkillCond): boolean {
   const w = c.when;
   switch (w.kind) {
     case 'shieldAtLeast': return !e.broken && e.shield >= w.n;
@@ -251,8 +281,8 @@ function skillFor(m: MemberState, skill: SkillDef): SkillDef {
 }
 
 /** スキルが現在の敵に与える影響（実行時と同一ロジック。UIのプレビューにも使う）。装備・Lv・条件・反応を含む。 */
-export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0): DamagePreview {
-  const e = s.enemy;
+export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0, ti = defaultTarget(s)): DamagePreview {
+  const e = s.enemies[ti];
   const m = s.party[member];
   const skill = skillFor(m, baseSkill);
   const weak = skill.element !== 'none' && e.def.weak === skill.element;
@@ -264,7 +294,7 @@ export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0): D
     { breakBonus: 0, damageBonus: 0, damageMult: 1, freeze: false };
   const conds: string[] = [];
   for (const c of skill.conds ?? []) {
-    if (!condMet(s, c)) continue;
+    if (!condMet(e, c)) continue;
     conds.push(c.label);
     bonus.breakBonus += c.then.breakBonus ?? 0;
     bonus.damageBonus += c.then.damageBonus ?? 0;
@@ -289,6 +319,7 @@ export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0): D
     if (charged) mult *= CHARGED_MULT;
     if (powered) mult *= GUARD_POWER_MULT;
     mult *= s.mods?.elementMult?.[skill.element] ?? 1;
+    mult *= protectionMult(s, ti);
     total = Math.max(1, Math.floor((skill.damage + m.power + bonus.damageBonus) * mult));
     if (chain) {
       reaction = reactionFor(e.lastElement, skill.element);
@@ -309,12 +340,12 @@ export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0): D
   return {
     hp: total, absorbed, shield, weak, resist, chain,
     breaks: !e.broken && e.shield > 0 && shield >= e.shield && shield > 0,
-    reaction, conds, freeze, burn, focus, charged,
+    reaction, conds, freeze, burn, focus, charged, protectedBy: protectionMult(s, ti) < 1,
   };
 }
 
 function checkEnd(s: BattleState): void {
-  if (s.enemy.hp <= 0) s.phase = 'won';
+  if (s.enemies.every((e) => e.hp <= 0)) s.phase = 'won';
   else if (s.party.every((m) => !alive(m))) s.phase = 'lost';
 }
 
@@ -329,18 +360,19 @@ function skillCooldown(s: BattleState, m: MemberState, skill: SkillDef): number 
   return cd;
 }
 
-export function useSkill(s: BattleState, member: number, skillId: string): BattleEvent[] | null {
+export function useSkill(s: BattleState, member: number, skillId: string, target?: number): BattleEvent[] | null {
   if (!canUse(s, member, skillId)) return null;
+  const ti = target !== undefined && s.enemies[target]?.hp > 0 ? target : defaultTarget(s);
   const base = SKILLS[skillId];
   const m = s.party[member];
   const skill = skillFor(m, base);
-  const p = previewSkill(s, base, member);
+  const p = previewSkill(s, base, member, ti);
   m.acted = true;
   m.used.push(skillId);
   s.ap -= skillCost(base);
   m.cooldowns[skillId] = skillCooldown(s, m, base);
   const ev: BattleEvent[] = [{ type: 'skill', member, skillId }];
-  const e = s.enemy;
+  const e = s.enemies[ti];
 
   if (skill.damage || skill.breakPower) {
     if (p.focus) m.focus = false;
@@ -349,22 +381,22 @@ export function useSkill(s: BattleState, member: number, skillId: string): Battl
       e.guard -= p.absorbed;
       const dealt = hpLoss(p);
       e.hp = Math.max(0, e.hp - dealt);
-      ev.push({ type: 'damage', target: 'enemy', amount: dealt, absorbed: p.absorbed, element: skill.element, weak: p.weak, resist: p.resist, chain: p.chain });
-      if (p.chain) ev.push({ type: 'chain', element: skill.element, amount: p.hp });
-      if (p.reaction) applyReaction(s, p.reaction, member, p.hp, ev);
+      ev.push({ type: 'damage', enemy: ti, amount: dealt, absorbed: p.absorbed, element: skill.element, weak: p.weak, resist: p.resist, chain: p.chain });
+      if (p.chain) ev.push({ type: 'chain', enemy: ti, element: skill.element, amount: p.hp });
+      if (p.reaction) applyReaction(s, e, ti, p.reaction, member, ev);
     }
     if (p.shield > 0) {
       e.shield -= p.shield;
-      ev.push({ type: 'shield', amount: p.shield });
+      ev.push({ type: 'shield', enemy: ti, amount: p.shield });
       if (e.shield <= 0) {
         e.broken = true;
-        ev.push({ type: 'break' });
-        onBreak(s, m, ev);
+        ev.push({ type: 'break', enemy: ti });
+        onBreak(s, e, ti, m, ev);
       }
     }
     if (skill.damage && e.hp > 0) {
-      if (p.burn) { e.burn = { ...ENEMY_BURN }; ev.push({ type: 'status', kind: 'burn' }); }
-      if (p.freeze && !e.frozen) { e.frozen = true; ev.push({ type: 'status', kind: 'freeze' }); }
+      if (p.burn) { e.burn = { ...ENEMY_BURN }; ev.push({ type: 'status', enemy: ti, kind: 'burn' }); }
+      if (p.freeze && !e.frozen) { e.frozen = true; ev.push({ type: 'status', enemy: ti, kind: 'freeze' }); }
       if (skill.element !== 'none') e.lastElement = skill.element;
     }
   }
@@ -388,22 +420,32 @@ export function useSkill(s: BattleState, member: number, skillId: string): Battl
     m.taunt = true;
     ev.push({ type: 'taunt', member });
   }
+  if (e.hp <= 0) onEnemyDown(s, ti, ev);
   checkEnd(s);
   return ev;
 }
 
-function applyReaction(s: BattleState, r: ReactionDef, member: number, _total: number, ev: BattleEvent[]): void {
-  const e = s.enemy;
+/** 敵が倒れた: 通知し、仲間が「奮起」持ちなら攻撃力が上がる */
+function onEnemyDown(s: BattleState, ei: number, ev: BattleEvent[]): void {
+  if (ev.some((x) => x.type === 'enemyDown' && x.enemy === ei)) return;
+  ev.push({ type: 'enemyDown', enemy: ei });
+  s.enemies.forEach((o, i) => {
+    const r = o.def.traits?.rally;
+    if (i !== ei && o.hp > 0 && r) o.atkMult *= 1 + r;
+  });
+}
+
+function applyReaction(s: BattleState, e: EnemyState, ei: number, r: ReactionDef, member: number, ev: BattleEvent[]): void {
   const k = s.party[member].effects.includes('storm_chain') ? 1.5 : 1;
-  ev.push({ type: 'reaction', id: r.id, name: r.name, amount: Math.round(r.dmg * k) });
+  ev.push({ type: 'reaction', enemy: ei, id: r.id, name: r.name, amount: Math.round(r.dmg * k) });
   switch (r.id) {
-    case 'steam': e.weakened = true; ev.push({ type: 'status', kind: 'weaken' }); break;
+    case 'steam': e.weakened = true; ev.push({ type: 'status', enemy: ei, kind: 'weaken' }); break;
     case 'shock':
       for (const o of s.party) if (alive(o)) o.charged = true;
       ev.push({ type: 'status', kind: 'charge' });
       break;
-    case 'overload': e.burn = { turns: 3, dmg: Math.round(5 * k) }; ev.push({ type: 'status', kind: 'burn' }); break;
-    case 'shatter': e.frozen = true; ev.push({ type: 'status', kind: 'freeze' }); break;
+    case 'overload': e.burn = { turns: 3, dmg: Math.round(5 * k) }; ev.push({ type: 'status', enemy: ei, kind: 'burn' }); break;
+    case 'shatter': e.frozen = true; ev.push({ type: 'status', enemy: ei, kind: 'freeze' }); break;
     case 'superconduct':
       for (const o of s.party) for (const id of Object.keys(o.cooldowns)) o.cooldowns[id] = Math.max(0, o.cooldowns[id] - 1);
       break;
@@ -411,10 +453,10 @@ function applyReaction(s: BattleState, r: ReactionDef, member: number, _total: n
   }
 }
 
-function onBreak(s: BattleState, m: MemberState, ev: BattleEvent[]): void {
+function onBreak(s: BattleState, e: EnemyState, ei: number, m: MemberState, ev: BattleEvent[]): void {
   if (m.effects.includes('bleed_on_break')) {
-    s.enemy.bleed = { ...ENEMY_BLEED };
-    ev.push({ type: 'status', kind: 'bleed' });
+    e.bleed = { ...ENEMY_BLEED };
+    ev.push({ type: 'status', enemy: ei, kind: 'bleed' });
   }
   if (m.effects.includes('break_guard')) {
     s.party.forEach((o, i) => { if (alive(o)) { o.guard += 8; ev.push({ type: 'guard', member: i, amount: 8 }); } });
@@ -489,48 +531,71 @@ export function endPlayerTurn(s: BattleState): BattleEvent[] {
   if (s.phase !== 'player') return [];
   s.phase = 'enemy';
   const ev: BattleEvent[] = [];
-  const e = s.enemy;
   // 継続ダメージ(ガード無視)
-  for (const kind of ['burn', 'bleed'] as const) {
-    const d = e[kind];
-    if (!d) continue;
-    e.hp = Math.max(0, e.hp - d.dmg);
-    ev.push({ type: 'dot', kind, amount: d.dmg });
-    d.turns -= 1;
-    if (d.turns <= 0) e[kind] = null;
-  }
-  if (e.hp <= 0) {
+  s.enemies.forEach((e, ei) => {
+    if (e.hp <= 0) return;
+    for (const kind of ['burn', 'bleed'] as const) {
+      const d = e[kind];
+      if (!d) continue;
+      e.hp = Math.max(0, e.hp - d.dmg);
+      ev.push({ type: 'dot', enemy: ei, kind, amount: d.dmg });
+      d.turns -= 1;
+      if (d.turns <= 0) e[kind] = null;
+    }
+    if (e.hp <= 0) onEnemyDown(s, ei, ev);
+  });
+  if (s.enemies.every((e) => e.hp <= 0)) {
     s.phase = 'won';
     return ev;
   }
-  const intent = currentIntent(s);
+  // 各敵が順に行動
+  s.enemies.forEach((e, ei) => {
+    if (e.hp <= 0 || s.party.every((m) => !alive(m))) return;
+    enemyAct(s, e, ei, ev);
+  });
+  checkEnd(s);
+  if (s.phase === 'enemy') startPlayerTurn(s);
+  return ev;
+}
+
+function enemyAct(s: BattleState, e: EnemyState, ei: number, ev: BattleEvent[]): void {
+  const intent = currentIntent(s, ei);
   if (e.broken) {
-    ev.push({ type: 'stunned' });
+    ev.push({ type: 'stunned', enemy: ei });
     // 強攻撃は阻止、溜めを止めれば続く強攻撃も消える。それ以外は先送り
     if (intent.kind === 'heavy') {
-      ev.push({ type: 'canceled', intent });
+      ev.push({ type: 'canceled', enemy: ei, intent });
       e.patternIndex += 1;
     } else if (intent.kind === 'charge') {
-      ev.push({ type: 'canceled', intent });
+      ev.push({ type: 'canceled', enemy: ei, intent });
       e.patternIndex += 2;
     }
     e.broken = false;
     e.shield = e.frozen ? Math.floor(e.maxShield * 0.5) : e.maxShield;
     e.frozen = false;
     e.lastElement = null;
-    ev.push({ type: 'recover' });
+    ev.push({ type: 'recover', enemy: ei });
   } else if (intent.kind === 'charge') {
-    ev.push({ type: 'enemyCharge', intent });
+    ev.push({ type: 'enemyCharge', enemy: ei, intent });
     e.patternIndex += 1;
   } else if (intent.kind === 'guard') {
     const g = intent.guard ?? 0;
     e.guard += g;
-    ev.push({ type: 'enemyGuard', amount: g });
+    ev.push({ type: 'enemyGuard', enemy: ei, amount: g });
+    // 守護役の構えは、健在な仲間にも防御を分ける
+    if (e.def.traits?.protects) {
+      s.enemies.forEach((o, oi) => {
+        if (oi === ei || o.hp <= 0) return;
+        const share = Math.round(g * 0.5);
+        o.guard += share;
+        ev.push({ type: 'enemyGuard', enemy: oi, amount: share });
+      });
+    }
     e.patternIndex += 1;
   } else {
     const idx = resolveTarget(s, intent);
-    ev.push({ type: 'enemyAttack', intent, target: idx });
-    const value = intentValue(s, intent);
+    ev.push({ type: 'enemyAttack', enemy: ei, intent, target: idx });
+    const value = intentValue(s, intent, ei);
     e.weakened = false;
     let dealt = 0;
     if (idx === -1) s.party.forEach((m, i) => { if (alive(m)) dealt += hit(s, i, value, ev); });
@@ -540,12 +605,9 @@ export function endPlayerTurn(s: BattleState): BattleEvent[] {
       const amount = Math.min(Math.round(dealt * ls), e.maxHp - e.hp);
       if (amount > 0) {
         e.hp += amount;
-        ev.push({ type: 'enemyHeal', amount });
+        ev.push({ type: 'enemyHeal', enemy: ei, amount });
       }
     }
     e.patternIndex += 1;
   }
-  checkEnd(s);
-  if (s.phase === 'enemy') startPlayerTurn(s);
-  return ev;
 }

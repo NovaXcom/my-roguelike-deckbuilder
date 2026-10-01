@@ -1,5 +1,5 @@
 import {
-  alive, canUse, canWait, previewSkill, useSkill, wait, type BattleEvent, type BattleState,
+  alive, canUse, canWait, defaultTarget, previewSkill, useSkill, wait, type BattleEvent, type BattleState,
 } from './battle';
 import { SKILLS } from './data';
 
@@ -7,6 +7,8 @@ import { SKILLS } from './data';
 export interface PlanStep {
   member: number;
   skillId: string;
+  /** 狙う敵(敵の編成上の位置)。倒れていたら先頭の生存者に切り替わる */
+  target?: number;
 }
 export const WAIT_ID = 'wait';
 export const MAX_PLAN = 3;
@@ -18,7 +20,7 @@ const stepOk = (s: BattleState, st: PlanStep): boolean =>
 
 /** 手を実行する(状態を直接変更)。実行できなければ null */
 export function applyStep(s: BattleState, st: PlanStep): BattleEvent[] | null {
-  return st.skillId === WAIT_ID ? wait(s, st.member) : useSkill(s, st.member, st.skillId);
+  return st.skillId === WAIT_ID ? wait(s, st.member) : useSkill(s, st.member, st.skillId, st.target);
 }
 
 export interface PlanResult {
@@ -61,13 +63,15 @@ export function removeStep(s: BattleState, plan: PlanStep[], i: number): PlanSte
 }
 
 export interface PlanSummary {
-  /** 敵HPの減少予想(継続ダメージは含まない) */
+  /** 敵HPの減少予想の合計(継続ダメージは含まない) */
   damage: number;
   breaks: boolean;
   chains: number;
   reactions: string[];
-  /** 作戦を実行すると敵を倒せるか */
+  /** 作戦を実行すると敵を倒せるか(全滅) */
   kills: boolean;
+  /** 倒せる敵の数 */
+  killed: number;
   /** 何番目の手でブレイクするか(1始まり)。しない場合 null */
   breakAt: number | null;
   apLeft: number;
@@ -86,10 +90,11 @@ export function summarizePlan(s: BattleState, plan: PlanStep[]): PlanSummary {
     if (e.type === 'chain') chains += 1;
   }
   return {
-    damage: s.enemy.hp - state.enemy.hp,
+    damage: s.enemies.reduce((a, e, i) => a + (e.hp - state.enemies[i].hp), 0),
     breaks: breakAt !== null,
     chains, reactions,
-    kills: state.enemy.hp <= 0,
+    kills: state.enemies.every((e) => e.hp <= 0),
+    killed: state.enemies.filter((e, i) => e.hp <= 0 && s.enemies[i].hp > 0).length,
     breakAt,
     apLeft: state.ap,
   };
@@ -99,7 +104,7 @@ export function summarizePlan(s: BattleState, plan: PlanStep[]): PlanSummary {
 export function previewAfterPlan(s: BattleState, plan: PlanStep[], st: PlanStep) {
   const { state } = simulatePlan(s, plan);
   if (st.skillId === WAIT_ID) return null;
-  return previewSkill(state, SKILLS[st.skillId], st.member);
+  return previewSkill(state, SKILLS[st.skillId], st.member, st.target ?? defaultTarget(state));
 }
 
 export const livingMembers = (s: BattleState): number[] => s.party.map((m, i) => (alive(m) ? i : -1)).filter((i) => i >= 0);

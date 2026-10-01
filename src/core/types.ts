@@ -86,6 +86,10 @@ export interface EnemyTraits {
   lifesteal?: number;
   /** HPがこの割合以下で攻撃力が上がる */
   enrage?: { below: number; mult: number };
+  /** 「守護」: 健在な間、仲間(自分以外)が受けるダメージ倍率(例: 0.75)。ブレイクすると解除 */
+  protects?: number;
+  /** 「奮起」: 仲間が倒れるたび攻撃力が上がる割合(例: 0.25) */
+  rally?: number;
   /** 説明文（攻略のヒント） */
   text: string[];
 }
