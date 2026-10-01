@@ -48,7 +48,7 @@ export const ENEMIES: Record<EKind, EDef> = {
     atks: [A({ id: 'cut', icon: 'blue', wind: 0.4, strike: 0.1, rec: 0.5, dmg: 15, reach: 2.4, lunge: 1.5, hits: 2, anim: 'cut' })],
   },
   archer: {
-    kind: 'archer', hp: 24, speed: 3.4, w: 0.42, h: 1.72, armored: false, guard: false, cd: [1.6, 2.6], ring: [10, 15], pts: 130,
+    kind: 'archer', hp: 24, speed: 3.4, w: 0.42, h: 1.72, armored: false, guard: false, cd: [1.6, 2.6], ring: [7, 10], pts: 130,
     atks: [A({ id: 'shoot', icon: 'shot', wind: 0.9, strike: 0.05, rec: 0.8, dmg: 11, reach: 30, lunge: 0, proj: 'arrow', anim: 'shoot' })],
   },
   ninja: {
