@@ -1,17 +1,20 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../config';
-import { UPGRADES, UpgradeId } from '../systems/UpgradeSystem';
+import { UPGRADES, UpgradeId, Synergy, activeSynergies } from '../systems/UpgradeSystem';
 import { audio } from '../audio/AudioSystem';
 
 interface UpgradeData {
   choices: UpgradeId[];
   owned: UpgradeId[];
+  /** Per choice: the synergy that picking it would complete. */
+  synergies: Array<Synergy | null>;
 }
 
 /** Overlay shown while GameScene is paused. Emits 'upgrade-picked' on the game event bus. */
 export class UpgradeScene extends Phaser.Scene {
   private choices: UpgradeId[] = [];
   private owned: UpgradeId[] = [];
+  private synergies: Array<Synergy | null> = [];
   private selected = 1;
   private cards: Phaser.GameObjects.Rectangle[] = [];
   private picked = false;
@@ -23,6 +26,7 @@ export class UpgradeScene extends Phaser.Scene {
   init(data: UpgradeData): void {
     this.choices = data.choices;
     this.owned = data.owned;
+    this.synergies = data.synergies ?? [];
     this.selected = Math.min(1, this.choices.length - 1);
     this.picked = false;
     this.cards = [];
@@ -45,14 +49,22 @@ export class UpgradeScene extends Phaser.Scene {
       this.cards.push(card);
       this.add.text(x, 210, `${i + 1}`, { fontFamily: 'monospace', fontSize: '18px', color: '#778' }).setOrigin(0.5);
       this.add.text(x, 250, def.name, { fontFamily: 'monospace', fontSize: '30px', fontStyle: 'bold', color: '#fff' }).setOrigin(0.5);
-      this.add.text(x, 300, def.desc, { fontFamily: 'monospace', fontSize: '16px', color: '#bbd', align: 'center', wordWrap: { width: 210 } }).setOrigin(0.5);
-      this.add.text(x, 350, lv > 0 ? `owned x${lv}` : 'NEW', { fontFamily: 'monospace', fontSize: '14px', color: lv > 0 ? '#88ddff' : '#88ff88' }).setOrigin(0.5);
+      this.add.text(x, 292, def.desc, { fontFamily: 'monospace', fontSize: '16px', color: '#bbd', align: 'center', wordWrap: { width: 210 } }).setOrigin(0.5);
+      const syn = this.synergies[i];
+      if (syn) {
+        this.add.text(x, 328, `★ ${syn.name}\n${syn.desc}`, { fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#ffdd44', align: 'center', wordWrap: { width: 215 } }).setOrigin(0.5, 0);
+      }
+      this.add.text(x, 366, lv > 0 ? `owned x${lv}` : 'NEW', { fontFamily: 'monospace', fontSize: '14px', color: lv > 0 ? '#88ddff' : '#88ff88' }).setOrigin(0.5);
       card.on('pointerover', () => this.select(i));
       card.on('pointerdown', () => {
         this.select(i);
         this.confirm();
       });
     });
+    const active = activeSynergies(this.owned);
+    if (active.length) {
+      this.add.text(GAME_WIDTH / 2, 410, `ACTIVE SYNERGY: ${active.map((a) => a.name).join(' / ')}`, { fontFamily: 'monospace', fontSize: '15px', color: '#ffdd44' }).setOrigin(0.5);
+    }
     this.refresh();
 
     const kb = this.input.keyboard!;

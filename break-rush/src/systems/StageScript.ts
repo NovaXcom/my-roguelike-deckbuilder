@@ -3,11 +3,29 @@ export type StageStep =
   | { type: 'upgrade' }
   | { type: 'boss' };
 
+export type Route = 'standard' | 'swarm' | 'fortress';
+
+export interface RouteDef {
+  name: string;
+  desc: string;
+  countMult: number;
+  bossHpMult: number;
+  scoreMult: number;
+  extraUpgrade: boolean;
+}
+
+export const ROUTES: Record<Route, RouteDef> = {
+  standard: { name: 'STANDARD', desc: '', countMult: 1, bossHpMult: 1, scoreMult: 1, extraUpgrade: false },
+  swarm: { name: 'SWARM ROAD', desc: '+40% enemies, score x1.3', countMult: 1.4, bossHpMult: 1, scoreMult: 1.3, extraUpgrade: false },
+  fortress: { name: 'FORTRESS ROAD', desc: '-20% enemies, extra upgrade, boss HP +30%', countMult: 0.8, bossHpMult: 1.3, scoreMult: 1.1, extraUpgrade: true },
+};
+
 /** Stage layout: waves -> upgrade -> waves -> BREAK CHANCE horde -> boss. Later stages scale enemy counts. */
-export function buildStage(stage: number): StageStep[] {
-  const k = 1 + 0.25 * (stage - 1);
-  const c = (n: number) => Math.round(n * k);
-  return [
+export function buildStage(stage: number, route: Route = 'standard'): StageStep[] {
+  const r = ROUTES[route];
+  const k = (1 + 0.25 * (stage - 1)) * r.countMult;
+  const c = (n: number) => Math.max(1, Math.round(n * k));
+  const steps: StageStep[] = [
     { type: 'wave', count: c(3) },
     { type: 'wave', count: c(5) },
     { type: 'wave', count: c(8) },
@@ -16,6 +34,8 @@ export function buildStage(stage: number): StageStep[] {
     { type: 'wave', count: c(15), label: 'BREAK CHANCE!', horde: true },
     { type: 'boss' },
   ];
+  if (r.extraUpgrade) steps.splice(steps.length - 1, 0, { type: 'upgrade' });
+  return steps;
 }
 
 export function bossHpScale(stage: number): number {

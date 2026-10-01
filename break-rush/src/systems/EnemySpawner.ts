@@ -7,7 +7,7 @@ import { GROUND_Y, WORLD_WIDTH } from '../config';
 export class EnemySpawner {
   readonly group: Phaser.GameObjects.Group;
 
-  constructor(private scene: Phaser.Scene, private playerRef: Phaser.GameObjects.Components.Transform) {
+  constructor(private scene: Phaser.Scene, private playerRef: Phaser.GameObjects.Components.Transform, private hpMult = 1) {
     this.group = scene.add.group({ runChildUpdate: false });
   }
 
@@ -17,7 +17,7 @@ export class EnemySpawner {
       const side = i % 2 === 0 ? 1 : -1;
       const offset = 480 + Math.floor(i / 2) * 36 + Phaser.Math.Between(0, 20);
       const x = Phaser.Math.Clamp(this.playerRef.x + side * offset, 40, WORLD_WIDTH - 40);
-      this.group.add(new Grunt(this.scene, x, GROUND_Y - 40));
+      this.group.add(new Grunt(this.scene, x, GROUND_Y - 40, this.hpMult));
     }
   }
 

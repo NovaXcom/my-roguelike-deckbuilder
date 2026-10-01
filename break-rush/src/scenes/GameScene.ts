@@ -17,8 +17,11 @@ import { HitStop } from '../combat/HitStop';
 import { RushSystem, pickNearest } from '../combat/RushSystem';
 import { POINTS, ScoreSystem, calcRank } from '../systems/ScoreSystem';
 import { RunState, newRun } from '../systems/RunState';
-import { StageRunner, bossHpScale, buildStage } from '../systems/StageScript';
-import { UPGRADES, UpgradeId, rollChoices, statsFrom, PlayerStats } from '../systems/UpgradeSystem';
+import { DIFFICULTIES, DifficultyDef } from '../systems/Difficulty';
+import { SaveData, loadSave, recordRun, writeSave } from '../systems/SaveSystem';
+import { evaluateUnlocks, unlockedUpgrades } from '../systems/Unlocks';
+import { ROUTES, RouteDef, StageRunner, bossHpScale, buildStage } from '../systems/StageScript';
+import { BASE_UPGRADE_IDS, UPGRADES, UpgradeId, completesSynergy, rollChoices, statsFrom, PlayerStats } from '../systems/UpgradeSystem';
 import { audio, SfxName } from '../audio/AudioSystem';
 import { spawnDamageNumber } from '../effects/DamageNumber';
 import { burst, deathEffect, punchZoom, ring, slashFx } from '../effects/HitEffect';
@@ -49,6 +52,10 @@ const HEAL_ON_UPGRADE = 30;
 export class GameScene extends Phaser.Scene {
   private run!: RunState;
   private stats!: PlayerStats;
+  private diff!: DifficultyDef;
+  private route!: RouteDef;
+  private save!: SaveData;
+  private recorded = false;
   private player!: Player;
   private hud!: HUD;
   private comboDisplay!: ComboDisplay;
@@ -89,10 +96,14 @@ export class GameScene extends Phaser.Scene {
     this.gameOverShown = false;
     this.physicsFrozen = false;
     this.timeScale = 1;
+    this.save = loadSave();
+    this.diff = DIFFICULTIES[this.run.difficulty];
+    this.route = ROUTES[this.run.route];
+    this.recorded = false;
     this.stats = statsFrom(this.run.owned);
     this.combo = new ComboSystem();
-    this.combo.windowBonusMs = this.stats.comboBonusMs;
-    this.score = new ScoreSystem();
+    this.combo.windowBonusMs = this.stats.comboBonusMs + this.diff.comboWindowDelta;
+    this.score = new ScoreSystem(this.diff.scoreMult * this.route.scoreMult);
     this.hitStop = new HitStop();
     this.rush = new RushSystem<Enemy>();
     this.slowmo = new SlowMo();
@@ -115,7 +126,7 @@ export class GameScene extends Phaser.Scene {
 
     this.player = new Player(this, 300, GROUND_Y - 60);
     this.player.stats = this.stats;
-    this.spawner = new EnemySpawner(this, this.player);
+    this.spawner = new EnemySpawner(this, this.player, this.diff.enemyHpMult);
     this.hud = new HUD(this, this.player);
     this.comboDisplay = new ComboDisplay(this);
     this.enemyBars = new EnemyBars(this);
@@ -140,6 +151,12 @@ export class GameScene extends Phaser.Scene {
       this.game.events.off('upgrade-picked', this.onUpgradePicked, this);
       this.setTimeScale(1);
     });
+    this.input.keyboard!.on('keydown-M', () => {
+      audio.muted = !audio.muted;
+      this.save.settings.muted = audio.muted;
+      writeSave(this.save);
+      spawnDamageNumber(this, this.player.x, this.player.y - 70, audio.muted ? 'SOUND OFF' : 'SOUND ON', '#aab', 16);
+    });
     this.player.on('attack', (step: number, counter: boolean) => audio.play('swing', counter ? 0.8 : 1 + step * 0.1));
 
     this.add
@@ -149,14 +166,14 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100);
 
     // Stage script. Dev shortcut: ?start=upgrade|boss skips ahead.
-    const steps = buildStage(this.run.stage);
+    const steps = buildStage(this.run.stage, this.run.route);
     const startParam = new URLSearchParams(location.search).get('start');
     const startIndex = startParam === 'boss' ? steps.length - 1 : startParam === 'upgrade' ? steps.findIndex((s) => s.type === 'upgrade') : 0;
     this.runner = new StageRunner(steps, startIndex);
     this.phase = 'between';
     this.advanceOnNext = false;
     this.pendingDelay = 1500;
-    this.banner(`STAGE ${this.run.stage}`, '#44ffee');
+    this.banner(this.run.route === 'standard' ? `STAGE ${this.run.stage}` : `STAGE ${this.run.stage}  ${this.route.name}`, '#44ffee');
   }
 
   update(_time: number, delta: number): void {
@@ -233,18 +250,22 @@ export class GameScene extends Phaser.Scene {
       const { n, total } = this.runner.waveProgress();
       this.banner(step.label ?? `WAVE ${n}/${total}`, step.horde ? '#ff5566' : '#ffffff');
       if (step.horde) audio.play('horde');
-      this.spawner.spawn(step.count);
+      this.spawner.spawn(Math.max(1, Math.round(step.count * this.diff.countMult)));
       this.phase = 'fighting';
     } else if (step.type === 'upgrade') {
       this.phase = 'upgrade';
       this.game.events.once('upgrade-picked', this.onUpgradePicked, this);
-      this.scene.launch('Upgrade', { choices: rollChoices(Math.random), owned: this.run.owned });
+      const pool = [...BASE_UPGRADE_IDS, ...unlockedUpgrades(this.save)];
+      const choices = rollChoices(Math.random, 3, pool, this.run.lastOffered);
+      this.run.lastOffered = choices;
+      const synergies = choices.map((id) => completesSynergy(this.run.owned, id));
+      this.scene.launch('Upgrade', { choices, owned: this.run.owned, synergies });
       this.scene.pause();
     } else {
       this.banner('WARNING', '#ff3344');
       audio.play('horde');
       const x = Phaser.Math.Clamp(this.player.x + 520, 200, WORLD_WIDTH - 100);
-      this.boss = new IronBeast(this, x, GROUND_Y - 55, bossHpScale(this.run.stage));
+      this.boss = new IronBeast(this, x, GROUND_Y - 55, bossHpScale(this.run.stage) * this.route.bossHpMult * this.diff.enemyHpMult);
       this.spawner.add(this.boss);
       this.wireBoss(this.boss);
       this.phase = 'fighting';
@@ -255,7 +276,7 @@ export class GameScene extends Phaser.Scene {
     this.run.owned.push(id);
     this.stats = statsFrom(this.run.owned);
     this.player.stats = this.stats;
-    this.combo.windowBonusMs = this.stats.comboBonusMs;
+    this.combo.windowBonusMs = this.stats.comboBonusMs + this.diff.comboWindowDelta;
     this.player.hp = Math.min(this.player.maxHp, this.player.hp + HEAL_ON_UPGRADE);
     this.phase = 'between';
     this.pendingDelay = 800;
@@ -364,6 +385,8 @@ export class GameScene extends Phaser.Scene {
 
     this.time.delayedCall(3600, () => {
       const timeSec = Math.round(this.elapsedMs / 1000);
+      this.run.totalScore += this.score.total;
+      const rec = this.recordProgress(this.run.stage);
       const summary = {
         stage: this.run.stage,
         score: this.score.total,
@@ -371,21 +394,36 @@ export class GameScene extends Phaser.Scene {
         damageTaken: this.damageTaken,
         timeSec,
         rank: calcRank({ score: this.score.total, maxCombo: this.combo.max, damageTaken: this.damageTaken, timeSec }),
+        bestBefore: rec.bestBefore,
+        newRecord: rec.newRecord,
+        unlocked: rec.unlocked,
       };
-      this.run.totalScore += this.score.total;
       this.scene.start('Result', { run: this.run, summary });
     });
+  }
+
+  /** Folds this run into the save once (clear or game over) and applies any unlocks. */
+  private recordProgress(clearedStage: number, runScore = this.run.totalScore): { bestBefore: number; newRecord: boolean; unlocked: string[] } {
+    if (this.recorded) return { bestBefore: runScore, newRecord: false, unlocked: [] };
+    this.recorded = true;
+    const rec = recordRun(this.save, { difficulty: this.run.difficulty, runScore, maxCombo: this.combo.max, clearedStage });
+    const ev = evaluateUnlocks(rec.save);
+    this.save = ev.save;
+    writeSave(this.save);
+    return { bestBefore: rec.bestBefore, newRecord: rec.newRecord, unlocked: ev.newly.map((r) => r.label) };
   }
 
   // ---- Combat -----------------------------------------------------------
 
   /** Central place for the player taking damage. Returns true if it landed. */
   private damagePlayer(amount: number, fromX: number): boolean {
-    if (this.phase === 'ended' || !this.player.takeDamage(amount, fromX)) return false;
-    this.damageTaken += amount;
+    if (this.phase === 'ended') return false;
+    const dmg = Math.max(1, Math.round(amount * this.diff.enemyDmgMult * this.stats.damageTakenMult));
+    if (!this.player.takeDamage(dmg, fromX)) return false;
+    this.damageTaken += dmg;
     audio.play('hurt');
-    spawnDamageNumber(this, this.player.x, this.player.y - 40, amount, '#ff6666');
-    this.cameras.main.shake(100, 0.004 + amount * 0.0002);
+    spawnDamageNumber(this, this.player.x, this.player.y - 40, dmg, '#ff6666');
+    this.cameras.main.shake(100, 0.004 + dmg * 0.0002);
     return true;
   }
 
@@ -440,6 +478,7 @@ export class GameScene extends Phaser.Scene {
     const base = o.baseDamage * st.damageMult * (o.rush ? st.rushMult : 1);
     let dmg = calcDamage(base, { comboHits: this.combo.current(now), broken: e.broken, counter: !!o.counter });
     if (crit) dmg *= 2;
+    if (e.broken) dmg = Math.round(dmg * st.brokenDamageMult);
     const res = e.takeHit({ damage: dmg, breakDamage: o.breakDamage * st.breakMult, knockbackX: this.player.facing * o.knockback });
     const prevCombo = this.combo.current(now);
     const nextCombo = this.combo.add(now);
@@ -488,7 +527,11 @@ export class GameScene extends Phaser.Scene {
     if (mk.tierUp) this.onMultiKill(mk.count, mk.tier);
     const others = this.spawner.enemies.filter((o) => o !== e && o.active && !o.dead);
     const next = pickNearest(this.player, others, RUSH.range);
-    if (next) this.rush.offer(next, now);
+    if (next) this.rush.offer(next, now, RUSH.windowMs + this.stats.rushWindowBonusMs);
+    if (this.stats.killHeal > 0 && this.player.hp < this.player.maxHp) {
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.stats.killHeal);
+      spawnDamageNumber(this, this.player.x, this.player.y - 60, `+${this.stats.killHeal} HP`, '#44dd66', 16);
+    }
     e.destroy();
   }
 
@@ -549,16 +592,25 @@ export class GameScene extends Phaser.Scene {
 
   private showGameOver(): void {
     this.gameOverShown = true;
+    const total = this.run.totalScore + this.score.total;
+    const rec = this.recordProgress(this.run.stage - 1, total);
+    const best = Math.max(rec.bestBefore, total);
     this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, 'GAME OVER', { fontFamily: 'monospace', fontSize: '64px', fontStyle: 'bold', color: '#ff4466', stroke: '#000', strokeThickness: 8 })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(200);
     this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 40, `STAGE ${this.run.stage}  SCORE ${this.score.total.toLocaleString()}  MAX COMBO ${this.combo.max}   Press R to restart`, { fontFamily: 'monospace', fontSize: '18px', color: '#fff' })
+      .text(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2 + 50,
+        `STAGE ${this.run.stage}  SCORE ${total.toLocaleString()}  MAX COMBO ${this.combo.max}\n${rec.newRecord ? 'NEW RECORD!' : `BEST ${best.toLocaleString()} (${(best - total).toLocaleString()} TO GO)`}${rec.unlocked.length ? `\nUNLOCKED: ${rec.unlocked.join(', ')}` : ''}\n\nR: retry   T: title`,
+        { fontFamily: 'monospace', fontSize: '18px', color: '#fff', align: 'center' },
+      )
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(200);
-    this.input.keyboard!.once('keydown-R', () => this.scene.start('Game', {}));
+    this.input.keyboard!.once('keydown-R', () => this.scene.start('Game', { run: newRun(this.run.difficulty) }));
+    this.input.keyboard!.once('keydown-T', () => this.scene.start('Title'));
   }
 }

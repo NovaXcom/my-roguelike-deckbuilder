@@ -5,9 +5,9 @@ export class RushSystem<T> {
   target: T | null = null;
   private expireAt = 0;
 
-  offer(target: T, now: number): void {
+  offer(target: T, now: number, windowMs: number = RUSH.windowMs): void {
     this.target = target;
-    this.expireAt = now + RUSH.windowMs;
+    this.expireAt = now + windowMs;
   }
 
   available(now: number): boolean {

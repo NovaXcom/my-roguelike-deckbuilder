@@ -1,4 +1,7 @@
 import Phaser from 'phaser';
+import { audio } from '../audio/AudioSystem';
+import { loadSave } from '../systems/SaveSystem';
+import { newRun } from '../systems/RunState';
 
 /** Generates placeholder textures (no external assets in Phase 1). */
 export class BootScene extends Phaser.Scene {
@@ -33,14 +36,14 @@ export class BootScene extends Phaser.Scene {
     g.generateTexture('spark', 8, 8);
     g.destroy();
 
-    // Dev shortcut: ?start=result previews the result screen
-    if (new URLSearchParams(location.search).get('start') === 'result') {
+    audio.muted = loadSave().settings.muted;
+    // Dev shortcuts: ?start=result previews the result screen; any other ?start= skips the title.
+    const start = new URLSearchParams(location.search).get('start');
+    if (start === 'result') {
       this.scene.start('Result', {
-        run: { stage: 1, owned: [], totalScore: 0 },
-        summary: { stage: 1, score: 12345, maxCombo: 62, damageTaken: 20, timeSec: 130, rank: 'A' },
+        run: newRun(),
+        summary: { stage: 1, score: 12345, maxCombo: 62, damageTaken: 20, timeSec: 130, rank: 'A', bestBefore: 15000, newRecord: false, unlocked: ['HARD MODE'] },
       });
-      return;
-    }
-    this.scene.start('Game');
+    } else this.scene.start(start ? 'Game' : 'Title');
   }
 }

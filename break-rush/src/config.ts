@@ -41,7 +41,7 @@ export const ATTACK_STEPS: AttackStepConfig[] = [
 /** Time after cooldown ends in which the next J continues the chain. */
 export const CHAIN_WINDOW_MS = 350;
 
-export const COMBO = { windowMs: 2500, maxDamageBonus: 0.5, bonusCapHits: 50 };
+export const COMBO = { windowMs: 2500, minWindowMs: 1000, maxDamageBonus: 0.5, bonusCapHits: 50 };
 
 export const DODGE = {
   durationMs: 220,

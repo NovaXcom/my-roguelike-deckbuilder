@@ -5,10 +5,12 @@ export class ComboSystem {
   /** Extra combo time from upgrades. */
   windowBonusMs = 0;
   private hits = 0;
-
-  /** getWindow lets upgrades extend the combo time. */
-  constructor(private getWindow: () => number = () => COMBO.windowMs) {}
   private expireAt = 0;
+
+  /** Effective combo window (difficulty can shorten it, but never below the minimum). */
+  get window(): number {
+    return Math.max(COMBO.minWindowMs, COMBO.windowMs + this.windowBonusMs);
+  }
 
   /** Current combo; 0 once the window has lapsed. */
   current(now: number): number {
@@ -17,7 +19,7 @@ export class ComboSystem {
 
   add(now: number, n = 1): number {
     this.hits = this.current(now) + n;
-    this.expireAt = now + this.getWindow();
+    this.expireAt = now + this.window;
     this.max = Math.max(this.max, this.hits);
     return this.hits;
   }
@@ -25,7 +27,7 @@ export class ComboSystem {
   /** 1 → 0 as the combo timer runs out. */
   remainingRatio(now: number): number {
     if (this.current(now) === 0) return 0;
-    return (this.expireAt - now) / this.getWindow();
+    return (this.expireAt - now) / this.window;
   }
 
   reset(): void {

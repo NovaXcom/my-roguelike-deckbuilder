@@ -16,15 +16,18 @@ export function scoreMultiplier(comboHits: number): number {
 export class ScoreSystem {
   total = 0;
 
+  /** mult = difficulty x route score multiplier. */
+  constructor(private mult = 1) {}
+
   /** Adds points scaled by the combo multiplier. Returns the amount added. */
   add(points: number, comboHits: number): number {
-    const gained = Math.round(points * scoreMultiplier(comboHits));
+    const gained = Math.round(points * scoreMultiplier(comboHits) * this.mult);
     this.total += gained;
     return gained;
   }
 
   addFlat(points: number): void {
-    this.total += points;
+    this.total += Math.round(points * this.mult);
   }
 }
 

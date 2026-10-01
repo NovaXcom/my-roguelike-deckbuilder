@@ -8,8 +8,8 @@ export class Grunt extends Enemy {
   /** Slight per-grunt variation so groups string out instead of stacking. */
   readonly speed = GRUNT.speed * Phaser.Math.FloatBetween(0.8, 1.25);
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
-    super(scene, x, y, 'grunt', GRUNT.maxHp, GRUNT.maxBreak);
+  constructor(scene: Phaser.Scene, x: number, y: number, hpMult = 1) {
+    super(scene, x, y, 'grunt', Math.round(GRUNT.maxHp * hpMult), GRUNT.maxBreak);
     this.setCollideWorldBounds(true);
   }
 

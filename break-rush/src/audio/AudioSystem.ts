@@ -10,6 +10,7 @@ class AudioSystem {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
+  muted = false;
 
   /** Safe to call on every input event; creates/resumes the context as needed. */
   unlock(): void {
@@ -34,7 +35,7 @@ class AudioSystem {
   }
 
   play(name: SfxName, pitch = 1): void {
-    if (!this.ctx || this.ctx.state !== 'running') return;
+    if (this.muted || !this.ctx || this.ctx.state !== 'running') return;
     const p = pitch;
     switch (name) {
       case 'swing':

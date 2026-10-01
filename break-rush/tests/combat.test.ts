@@ -9,7 +9,12 @@ import { RushSystem, pickNearest } from '../src/combat/RushSystem';
 import { COMBO, BREAK, RUSH, ATTACK_STEPS, CHAIN_WINDOW_MS, DODGE } from '../src/config';
 import { BossAI, isEnraged } from '../src/enemies/BossAI';
 import { StageRunner, buildStage, bossHpScale } from '../src/systems/StageScript';
-import { MAX_COMBO_BONUS_MS, rollChoices, statsFrom, UPGRADE_IDS } from '../src/systems/UpgradeSystem';
+import { MAX_COMBO_BONUS_MS, BASE_UPGRADE_IDS, UPGRADE_IDS, activeSynergies, completesSynergy, rollChoices, statsFrom } from '../src/systems/UpgradeSystem';
+import { DIFFICULTIES, DIFFICULTY_ORDER } from '../src/systems/Difficulty';
+import { SAVE_KEY, emptySave, loadSave, recordRun, sanitizeSave, writeSave } from '../src/systems/SaveSystem';
+import { UNLOCK_RULES, evaluateUnlocks, isDifficultyUnlocked, unlockedUpgrades, usableDifficulty } from '../src/systems/Unlocks';
+import { ROUTES } from '../src/systems/StageScript';
+import { newRun, nextStage } from '../src/systems/RunState';
 import { ScoreSystem, calcRank, scoreMultiplier } from '../src/systems/ScoreSystem';
 import { canAttack, startAttack, newAttackState, isAttackActive } from '../src/player/PlayerAttack';
 import { canDodge, consumeCounter, counterReady, isDodging, newDodgeState, startDodge } from '../src/player/Dodge';
@@ -216,7 +221,8 @@ describe('UpgradeSystem', () => {
     expect(st.speedMult).toBeCloseTo(1.15);
     expect(st.breakMult).toBeCloseTo(1.3);
     expect(st.rushMult).toBeCloseTo(1.5);
-    expect(st.critChance).toBeCloseTo(0.1);
+    // rush + critical + speed also completes the BLITZ RUSHER synergy (+10% crit)
+    expect(st.critChance).toBeCloseTo(0.2);
     expect(st.comboBonusMs).toBe(1000);
   });
   it('caps the combo time bonus and crit chance', () => {
@@ -226,8 +232,8 @@ describe('UpgradeSystem', () => {
   it('rolls distinct choices', () => {
     const c = rollChoices(Math.random, 3);
     expect(new Set(c).size).toBe(3);
-    expect(rollChoices(() => 0, 3)).toEqual(UPGRADE_IDS.slice(0, 3));
-    expect(rollChoices(Math.random, 99).length).toBe(UPGRADE_IDS.length);
+    expect(rollChoices(() => 0, 3)).toEqual(BASE_UPGRADE_IDS.slice(0, 3));
+    expect(rollChoices(Math.random, 99).length).toBe(BASE_UPGRADE_IDS.length);
   });
 });
 
@@ -305,5 +311,189 @@ describe('BossAI', () => {
     ai.interrupt(2000);
     expect(ai.phase).toBe('idle');
     expect(ai.update(2500, 1)).toBeNull();
+  });
+});
+
+describe('upgrade rolling variety', () => {
+  it('avoids last offer when the pool allows, and falls back when it does not', () => {
+    for (let i = 0; i < 50; i++) {
+      const c = rollChoices(Math.random, 3, BASE_UPGRADE_IDS, ['power', 'speed', 'breaker']);
+      expect(c.some((x) => ['power', 'speed', 'breaker'].includes(x))).toBe(false);
+    }
+    const tight = rollChoices(Math.random, 3, ['power', 'speed', 'breaker', 'combo'], ['power', 'speed', 'breaker']);
+    expect(new Set(tight).size).toBe(3);
+    expect(tight).toContain('combo');
+  });
+  it('can include unlocked upgrades', () => {
+    const pool = [...BASE_UPGRADE_IDS, 'vampire' as const];
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) rollChoices(Math.random, 3, pool).forEach((c) => seen.add(c));
+    expect(seen.has('vampire')).toBe(true);
+  });
+  it('has all ids defined', () => {
+    expect(UPGRADE_IDS.length).toBe(8);
+  });
+});
+
+describe('synergies', () => {
+  it('activates only when every required upgrade is owned', () => {
+    expect(activeSynergies(['rush', 'critical']).length).toBe(0);
+    expect(activeSynergies(['rush', 'critical', 'speed']).map((s) => s.id)).toEqual(['blitz']);
+  });
+  it('reports which synergy a pick completes', () => {
+    expect(completesSynergy(['rush', 'critical'], 'speed')?.id).toBe('blitz');
+    expect(completesSynergy(['rush', 'critical'], 'power')).toBeNull();
+    expect(completesSynergy(['rush', 'critical', 'speed'], 'speed')).toBeNull();
+  });
+  it('applies synergy bonuses on top of the base upgrades', () => {
+    const st = statsFrom(['rush', 'critical', 'speed']);
+    expect(st.rushWindowBonusMs).toBe(1000);
+    expect(st.critChance).toBeCloseTo(0.2);
+    expect(statsFrom(['breaker', 'power', 'combo']).brokenDamageMult).toBeCloseTo(1.5);
+    const j = statsFrom(['armor', 'vampire', 'power']);
+    expect(j.killHeal).toBe(4);
+    expect(j.damageTakenMult).toBeCloseTo(0.7);
+  });
+  it('vampire and armor stack and armor is floored', () => {
+    expect(statsFrom(['vampire', 'vampire']).killHeal).toBe(4);
+    expect(statsFrom(Array(10).fill('armor')).damageTakenMult).toBeGreaterThanOrEqual(0.3);
+  });
+});
+
+describe('combo window', () => {
+  it('uses the upgrade bonus, difficulty penalty and a minimum', () => {
+    const c = new ComboSystem();
+    c.windowBonusMs = 1000;
+    c.add(0);
+    expect(c.current(COMBO.windowMs + 999)).toBe(1);
+    expect(c.current(COMBO.windowMs + 1000)).toBe(0);
+    const hard = new ComboSystem();
+    hard.windowBonusMs = -5000;
+    expect(hard.window).toBe(COMBO.minWindowMs);
+  });
+});
+
+describe('Difficulty', () => {
+  it('RUSH has more but weaker enemies and a shorter combo window', () => {
+    const n = DIFFICULTIES.normal;
+    const r = DIFFICULTIES.rush;
+    expect(r.countMult).toBeGreaterThan(n.countMult);
+    expect(r.enemyDmgMult).toBeLessThan(n.enemyDmgMult);
+    expect(r.comboWindowDelta).toBeLessThan(0);
+    expect(DIFFICULTIES.hard.enemyDmgMult).toBeGreaterThan(1);
+    expect(DIFFICULTY_ORDER.every((d) => DIFFICULTIES[d].scoreMult >= 1)).toBe(true);
+  });
+  it('multiplies score', () => {
+    const s = new ScoreSystem(1.5);
+    expect(s.add(100, 0)).toBe(150);
+    s.addFlat(100);
+    expect(s.total).toBe(300);
+  });
+});
+
+function memoryStore(initial?: string) {
+  const m = new Map<string, string>();
+  if (initial !== undefined) m.set(SAVE_KEY, initial);
+  return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+}
+
+describe('SaveSystem', () => {
+  it('round-trips through storage', () => {
+    const store = memoryStore();
+    const save = emptySave();
+    save.bestScore.hard = 1234;
+    save.unlocked = ['difficulty:hard'];
+    save.settings.muted = true;
+    expect(writeSave(save, store)).toBe(true);
+    expect(loadSave(store)).toEqual(save);
+  });
+  it('falls back to defaults on missing, corrupt or hostile data', () => {
+    expect(loadSave(memoryStore())).toEqual(emptySave());
+    expect(loadSave(memoryStore('{not json'))).toEqual(emptySave());
+    const odd = sanitizeSave({ bestScore: { normal: -5, hard: 'x', rush: 77.9 }, bestCombo: NaN, difficulty: 'impossible', unlocked: ['a', 3, 'a'], settings: { muted: 'yes' } });
+    expect(odd.bestScore).toEqual({ normal: 0, hard: 0, rush: 77 });
+    expect(odd.bestCombo).toBe(0);
+    expect(odd.difficulty).toBe('normal');
+    expect(odd.unlocked).toEqual(['a']);
+    expect(odd.settings.muted).toBe(false);
+  });
+  it('survives unavailable storage', () => {
+    expect(loadSave(null)).toEqual(emptySave());
+    expect(writeSave(emptySave(), null)).toBe(false);
+    const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+    expect(loadSave(broken)).toEqual(emptySave());
+    expect(writeSave(emptySave(), broken)).toBe(false);
+  });
+  it('records bests per difficulty without mutating the input', () => {
+    const save = emptySave();
+    const r1 = recordRun(save, { difficulty: 'normal', runScore: 5000, maxCombo: 20, clearedStage: 1 });
+    expect(r1.newRecord).toBe(true);
+    expect(r1.bestBefore).toBe(0);
+    expect(save.bestScore.normal).toBe(0);
+    const r2 = recordRun(r1.save, { difficulty: 'normal', runScore: 3000, maxCombo: 50, clearedStage: 0 });
+    expect(r2.newRecord).toBe(false);
+    expect(r2.bestBefore).toBe(5000);
+    expect(r2.save.bestScore.normal).toBe(5000);
+    expect(r2.save.bestCombo).toBe(50);
+    expect(r2.save.clearedStage).toBe(1);
+    expect(recordRun(r2.save, { difficulty: 'hard', runScore: 100, maxCombo: 0, clearedStage: 0 }).save.bestScore.hard).toBe(100);
+  });
+});
+
+describe('Unlocks', () => {
+  it('starts with only NORMAL', () => {
+    const s = emptySave();
+    expect(isDifficultyUnlocked(s, 'normal')).toBe(true);
+    expect(isDifficultyUnlocked(s, 'hard')).toBe(false);
+    expect(evaluateUnlocks(s).newly).toEqual([]);
+  });
+  it('unlocks on conditions exactly once', () => {
+    let s = emptySave();
+    s.clearedStage = 1;
+    s.bestCombo = 30;
+    const first = evaluateUnlocks(s);
+    expect(first.newly.map((r) => r.id).sort()).toEqual(['difficulty:hard', 'upgrade:vampire']);
+    s = first.save;
+    expect(evaluateUnlocks(s).newly).toEqual([]);
+    expect(isDifficultyUnlocked(s, 'hard')).toBe(true);
+    expect(unlockedUpgrades(s)).toEqual(['vampire']);
+  });
+  it('unlocks every rule eventually', () => {
+    const s = emptySave();
+    s.clearedStage = 5;
+    s.bestCombo = 100;
+    s.bestScore.normal = 99999;
+    expect(evaluateUnlocks(s).save.unlocked.length).toBe(UNLOCK_RULES.length);
+  });
+  it('falls back to NORMAL when the saved difficulty is locked', () => {
+    const s = emptySave();
+    s.difficulty = 'rush';
+    expect(usableDifficulty(s)).toBe('normal');
+    s.unlocked = ['difficulty:rush'];
+    expect(usableDifficulty(s)).toBe('rush');
+  });
+});
+
+describe('Routes and run state', () => {
+  it('swarm adds enemies, fortress removes some but adds an upgrade and a tougher boss', () => {
+    const waves = (r: 'standard' | 'swarm' | 'fortress') => buildStage(2, r).reduce((a, s) => a + (s.type === 'wave' ? s.count : 0), 0);
+    expect(waves('swarm')).toBeGreaterThan(waves('standard'));
+    expect(waves('fortress')).toBeLessThan(waves('standard'));
+    const up = (r: 'standard' | 'fortress') => buildStage(2, r).filter((s) => s.type === 'upgrade').length;
+    expect(up('fortress')).toBe(up('standard') + 1);
+    const f = buildStage(2, 'fortress');
+    expect(f[f.length - 1].type).toBe('boss');
+    expect(f[f.length - 2].type).toBe('upgrade');
+    expect(ROUTES.fortress.bossHpMult).toBeGreaterThan(1);
+  });
+  it('carries owned upgrades and difficulty into the next stage without sharing arrays', () => {
+    const run = newRun('hard');
+    run.owned.push('power');
+    const next = nextStage(run, 'swarm');
+    expect(next.stage).toBe(2);
+    expect(next.difficulty).toBe('hard');
+    expect(next.route).toBe('swarm');
+    next.owned.push('speed');
+    expect(run.owned).toEqual(['power']);
   });
 });

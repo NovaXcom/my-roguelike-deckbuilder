@@ -1,6 +1,6 @@
-# BREAK RUSH (Phase 4)
+# BREAK RUSH (Phase 5)
 
-TypeScript + Phaser 3 + Vite の2Dハイスピードアクション。現在は **Phase 4（ゲームループ）** まで実装。
+TypeScript + Phaser 3 + Vite の2Dハイスピードアクション。現在は **Phase 5（リプレイ性）** まで実装。
 
 ## 起動方法
 
@@ -41,7 +41,15 @@ npm test         # Vitest（戦闘ロジックの単体テスト）
   - ボス IRON BEAST: 突進・地面叩き(範囲)・ミサイルを予兆(赤点滅/`!`/危険円)付きで使い分ける。ヒットで怯まず、ブレイクで初めて止まる。HP50%以下で激化(攻撃加速+雑魚追加)
   - スコア(コンボ倍率あり)・ランク(S〜D: スコア/最大コンボ/被ダメ/時間)・リザルト画面
   - 次ステージは敵数+25%、ボスHP+50%。強化は引き継ぎ
-  - 開発用ショートカット: URL に `?start=upgrade` / `?start=boss` / `?start=result`
+  - 開発用ショートカット: URL に `?start=upgrade` / `?start=boss` / `?start=result`（何か指定するとタイトルを飛ばす）
+- **Phase 5**:
+  - タイトル画面で難易度選択（NORMAL / HARD / RUSH）。HARD=敵の攻撃+50%・HP/数増・スコア×1.5、RUSH=敵数2倍で弱いがコンボ猶予-0.5秒・スコア×1.25
+  - ランダム強化: 3択は前回の提示と被らないよう抽選。**シナジー**（BLITZ RUSHER = RUSH+CRITICAL+SPEED、BREAK MASTER = BREAKER+POWER+COMBO、JUGGERNAUT = ARMOR+VAMPIRE+POWER）が完成する選択肢には ★ が付く
+  - ステージ分岐: リザルトで次の道を選択。SWARM ROAD（敵+40%・スコア×1.3）/ FORTRESS ROAD（敵-20%・強化+1回・ボスHP+30%）
+  - ハイスコア: 難易度別ベスト、最大コンボ、クリアステージ、設定(サウンド)を localStorage に保存。リザルト/ゲームオーバーで `BEST ... (あと N)` / `NEW RECORD!` を表示
+  - アンロック: HARD(ステージ1クリア) / RUSH(ステージ2クリア) / VAMPIRE強化(30コンボ) / ARMOR強化(1ランで20,000点)
+  - `M` でサウンドON/OFF（設定は保存）
+  - 保存データのリセット: ブラウザの DevTools で `localStorage.removeItem('break-rush-save-v1')`
 
 ## 構成
 
