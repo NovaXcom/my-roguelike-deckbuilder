@@ -1,5 +1,5 @@
 // Canvas 2D 描画（アセット不要の手続き型ドット絵）。320x180 を CSS で拡大表示する。
-import type { LocId, NpcId } from '../engine/types';
+import type { LocId } from '../engine/types';
 
 export const W = 320;
 export const H = 180;
@@ -11,14 +11,18 @@ export interface SceneInfo {
   blackout: boolean;
   light: boolean;
   crack: boolean;
-  npcs: NpcId[];
+  actors: ActorView[];
+  hero: ActorView | null;
+  spots: { x: number; kind: string }[];
+  exits: { L: number; R: number };
   speaking: string | null;
   tick: number;
   loop: number;
   flash?: number;       // 0..1 白フラッシュ
   glitch?: number;      // 0..1
-  hero?: boolean;
 }
+
+export interface ActorView { id: string; x: number; y: number; dir: number; moving: boolean }
 
 type RGB = [number, number, number];
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -74,19 +78,21 @@ export const speakerLook = (name: string): string | null => {
   return m[name] ?? null;
 };
 
-function drawChar(c: Ctx, id: string, x: number, y: number, tick: number, active: boolean) {
+function drawChar(c: Ctx, id: string, x: number, y: number, tick: number, active: boolean, flip = false, moving = false) {
   const L = LOOKS[id]; if (!L) return;
   const sc = L.scale ?? 1;
-  const bob = active ? Math.round(Math.sin(tick / 4)) : 0;
+  const step = moving ? (tick >> 3) & 1 : 0;
+  const bob = moving ? step : active ? Math.round(Math.sin(tick / 4)) : 0;
   const skin = L.skin ?? '#f0cfae';
   c.save();
   c.translate(x | 0, (y + bob) | 0);
-  c.scale(sc, sc);
+  c.scale(flip ? -sc : sc, sc);
   c.fillStyle = 'rgba(0,0,0,.25)'; c.fillRect(-7, -1, 14, 3);
   if (L.aura) { const g = c.createRadialGradient(0, -16, 2, 0, -16, 24); g.addColorStop(0, 'rgba(255,255,255,.55)'); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.fillRect(-26, -42, 52, 52); }
   // 脚
-  rect(c, L.bottom, -4, -10, 3, 10); rect(c, L.bottom, 1, -10, 3, 10);
-  rect(c, '#2a2020', -4, -2, 3, 2); rect(c, '#2a2020', 1, -2, 3, 2);
+  const la = moving ? (step ? -2 : 0) : 0, lb = moving ? (step ? 0 : -2) : 0;
+  rect(c, L.bottom, -4, -10 + la, 3, 10 - la); rect(c, L.bottom, 1, -10 + lb, 3, 10 - lb);
+  rect(c, '#2a2020', -4, -2 + la, 3, 2); rect(c, '#2a2020', 1, -2 + lb, 3, 2);
   // 体
   const bodyH = L.long ? 14 : 10;
   rect(c, L.top, -5, -10 - bodyH, 10, bodyH);
@@ -273,15 +279,31 @@ export function drawScene(c: Ctx, st: SceneInfo) {
   // 夜の暗さ
   const night = nightness(st.time) * (outdoor ? 1 : 0.5);
   const dark = Math.min(0.85, night * 0.55 + (st.blackout ? 0.3 : 0));
-  // キャラクター
-  const slots = [150, 205, 255, 112, 285];
-  const chars: [string, number][] = st.npcs.slice(0, 5).map((n, i) => [n, slots[i]]);
-  if (st.hero !== false) drawChar(c, 'sou', 64, 152, st.tick, st.speaking === 'ソウ');
-  for (const [n, x] of chars) drawChar(c, n, x, 152 + (n === 'yu' ? 0 : 0), st.tick, speakerLook(st.speaking ?? '') === n);
+  // キャラクター（奥にいる順に描く）
+  const people: ActorView[] = [...st.actors];
+  if (st.hero) people.push(st.hero);
+  people.sort((p, q) => p.y - q.y);
+  for (const a of people) drawChar(c, a.id, a.x, a.y, st.tick, speakerLook(st.speaking ?? '') === a.id, a.dir < 0, a.moving);
 
   if (dark > 0) { c.fillStyle = `rgba(8,10,40,${dark})`; c.fillRect(0, 0, W, H); }
   // 灯り（夜かつ停電していない時）
   if (night > 0.3 && !st.blackout) for (const [x, y, w, h] of lights) { c.fillStyle = `rgba(255,226,140,${0.55 * night + 0.2})`; c.fillRect(x, y, w, h); }
+  // 調査ポイントの印・出口の矢印
+  for (const sp of st.spots) {
+    const bob = Math.sin(st.tick / 9 + sp.x) * 2;
+    const col = sp.kind === 'entrance' ? '120,200,255' : '255,225,120';
+    const g = c.createRadialGradient(sp.x, 128 + bob, 1, sp.x, 128 + bob, 11); g.addColorStop(0, `rgba(${col},.8)`); g.addColorStop(1, `rgba(${col},0)`);
+    c.fillStyle = g; c.fillRect(sp.x - 12, 116 + bob, 24, 24);
+    c.fillStyle = `rgb(${col})`; c.fillRect(sp.x - 1, 123 + bob, 2, 6); c.fillRect(sp.x - 1, 131 + bob, 2, 2);
+  }
+  for (const side of ['L', 'R'] as const) {
+    if (!st.exits[side]) continue;
+    const pulse = 0.35 + 0.35 * Math.sin(st.tick / 12);
+    const x0 = side === 'L' ? 0 : W - 14, dir = side === 'L' ? -1 : 1;
+    c.fillStyle = `rgba(255,255,255,${0.10 + pulse * 0.12})`; c.fillRect(x0, 124, 14, 52);
+    c.fillStyle = `rgba(255,255,255,${0.5 + pulse})`;
+    for (let i = 0; i < 2; i++) { const cx = side === 'L' ? 9 - i * 3 + (pulse * 3 | 0) * dir : W - 9 + i * 3 + (pulse * 3 | 0) * dir; c.fillRect(cx, 146 - i, 2, 2); c.fillRect(cx - dir, 148 - i, 2, 2); c.fillRect(cx - dir, 144 - i, 2, 2); c.fillRect(cx - 2 * dir, 150 - i, 2, 2); c.fillRect(cx - 2 * dir, 142 - i, 2, 2); }
+  }
   // 光の柱・亀裂
   if (st.light && outdoor) {
     const pulse = 0.55 + Math.sin(st.tick / 10) * 0.12;
@@ -299,7 +321,8 @@ export function drawScene(c: Ctx, st: SceneInfo) {
   }
   // 周回が進むほど走査線がわずかに乱れる（世界の綻び）
   if (st.glitch && st.glitch > 0) {
-    for (let i = 0; i < 6 * st.glitch; i++) {
+    const rows = st.glitch >= 0.6 ? 6 : Math.random() < st.glitch * 0.25 ? 1 : 0;
+    for (let i = 0; i < rows; i++) {
       const y = (Math.random() * H) | 0, h = 2 + ((Math.random() * 6) | 0);
       try { c.drawImage(c.canvas, 0, y, W, h, ((Math.random() - 0.5) * 16) | 0, y, W, h); } catch { /* noop */ }
     }

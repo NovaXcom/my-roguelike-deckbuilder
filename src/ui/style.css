@@ -135,3 +135,12 @@ button.close:hover, button.primary:hover, .menu button:hover { background: #2c35
   .tellwrap { grid-template-columns: 1fr; } .act { padding: 7px 10px; font-size: .92em; }
   #clockbox { min-width: 110px; } #place { display: none; }
 }
+
+/* ───── 探索 ───── */
+#prompt { position: absolute; left: 50%; bottom: 5%; transform: translateX(-50%); z-index: 7; background: #0b0f20ee; border: 2px solid var(--accent); border-radius: 22px; padding: 6px 18px; font-size: clamp(12px, 2.2vw, 17px); cursor: pointer; white-space: nowrap; box-shadow: 0 0 18px #f2b46d55; animation: bob2 1.2s infinite; max-width: 94%; overflow: hidden; text-overflow: ellipsis; }
+#prompt[hidden] { display: none; } #prompt.exit { border-color: #aab4e8; box-shadow: none; opacity: .9; cursor: default; }
+@keyframes bob2 { 50% { transform: translateX(-50%) translateY(-3px); } }
+kbd { display: inline-block; padding: 0 6px; margin: 0 1px; border: 1px solid #fff6; border-bottom-width: 3px; border-radius: 4px; background: #232a48; font-family: inherit; font-size: .85em; color: var(--accent); }
+.ctl { color: var(--dim); font-size: .85em; line-height: 1.8; } .ctl b { color: var(--text); }
+.act:disabled { opacity: .35; pointer-events: none; }
+#scene { cursor: crosshair; touch-action: none; }
