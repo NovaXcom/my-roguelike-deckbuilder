@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { audio } from '../audio';
 import { bgmForScene, castCue, deathCue, enemyAttackCue, hurtCue, impactCues, type Cue } from '../audio/cues';
 import {
-  BattleEvent, BattleState, canUse, canWait, currentIntent, effectiveSkill, endPlayerTurn, skillCost, intentValue, isEnraged,
+  BattleEvent, BattleState, canUse, canWait, currentIntent, defaultTarget, effectiveSkill, endPlayerTurn, skillCost, intentValue, isEnraged,
   nextIntent, previewSkill, resolveTarget, usePotion, useSkill, wait,
 } from '../core/battle';
 import { recommend } from '../core/hint';
@@ -22,8 +22,36 @@ import { hitStopMs, popupFontSize, shakeFor, shouldFlashHurt, sparkCount } from 
 import { H, W } from './TitleScene';
 
 const HERO_POS = [{ x: 430, y: 400 }, { x: 200, y: 400 }]; // [前衛, 後衛]
-const ENEMY = { x: 990, y: 350 };
-const enemyRect = new Phaser.Geom.Rectangle(ENEMY.x - 150, ENEMY.y - 230, 300, 270);
+const ENEMY_Y = 350;
+const ENEMY = { x: 990, y: ENEMY_Y };
+/** 敵の編成数ごとの配置(x座標)と縮尺 */
+const ENEMY_LAYOUT: Record<number, { xs: number[]; k: number }> = {
+  1: { xs: [990], k: 1 },
+  2: { xs: [915, 1135], k: 0.82 },
+  3: { xs: [850, 1010, 1170], k: 0.66 },
+};
+const ENEMY_TAG = ['A', 'B', 'C'];
+
+/** 1体分の表示物 */
+interface EnemyView {
+  pos: { x: number; y: number };
+  k: number;
+  base: number;
+  gfx: Actor;
+  stars: Phaser.GameObjects.Container;
+  hpText: Phaser.GameObjects.Text;
+  shieldText: Phaser.GameObjects.Text;
+  statusText: Phaser.GameObjects.Text;
+  intentBox: Phaser.GameObjects.Container;
+  intentGfx: Phaser.GameObjects.Graphics;
+  intentImg: Phaser.GameObjects.Image;
+  intentValue: Phaser.GameObjects.Text;
+  intentLabel: Phaser.GameObjects.Text;
+  intentHint: Phaser.GameObjects.Text;
+  marker: Phaser.GameObjects.Text;
+  barW: number;
+  dead: boolean;
+}
 const PLAY_LINE_Y = 470; // 補助スキルをドラッグでドロップして使う境界線
 const PANEL_W = 4 * 140 + 3 * 8; // パネル幅は固定。スキル数に応じてボタン幅を分割
 const BTN_H = 196; // アイコン分だけ高く
@@ -34,10 +62,7 @@ const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
 /** 演出用の表示値。イベント再生に合わせて段階的に更新し、HPバー等を滑らかに見せる */
 interface Disp {
-  enemyHp: number;
-  enemyShield: number;
-  enemyGuard: number;
-  broken: boolean;
+  en: { hp: number; shield: number; guard: number; broken: boolean }[];
   hp: number[];
   guard: number[];
 }
@@ -58,7 +83,7 @@ interface SkillBtn {
 const EVENT_MS: Record<BattleEvent['type'], number> = {
   skill: 0, damage: 260, shield: 0, break: 600, chain: 1450, stunned: 550, recover: 500,
   guard: 250, heal: 300, taunt: 250, enemyAttack: 380, hurt: 450, down: 450,
-  reaction: 700, status: 350, dot: 450, wait: 300, enemyCharge: 650, enemyGuard: 600, canceled: 700, enemyHeal: 350,
+  enemyDown: 300, reaction: 700, status: 350, dot: 450, wait: 300, enemyCharge: 650, enemyGuard: 600, canceled: 700, enemyHeal: 350,
 };
 
 const STATUS_TEXT: Record<'burn' | 'bleed' | 'freeze' | 'weaken' | 'charge' | 'focus', [string, string]> = {
@@ -84,21 +109,13 @@ export class BattleScene extends Phaser.Scene {
 
   private heroes: Actor[] = [];
   private heroBase: number[] = []; // 各キャラの基準スケール(画像は原寸→表示サイズの縮尺)
-  private enemyBase = 1;
-  private intentImg!: Phaser.GameObjects.Image;
-  private enemyGfx!: Actor;
-  private stars!: Phaser.GameObjects.Container;
+  private ev: EnemyView[] = [];
+  /** 選択中の狙う敵 */
+  private target = 0;
+  private dragTarget = -1;
   private bars!: Phaser.GameObjects.Graphics;
   private hpTexts: Phaser.GameObjects.Text[] = [];
   private guardTexts: Phaser.GameObjects.Text[] = [];
-  private enemyHpText!: Phaser.GameObjects.Text;
-  private shieldText!: Phaser.GameObjects.Text;
-  private intentBox!: Phaser.GameObjects.Container;
-  private intentGfx!: Phaser.GameObjects.Graphics;
-  private intentValue!: Phaser.GameObjects.Text;
-  private intentLabel!: Phaser.GameObjects.Text;
-  private intentHint!: Phaser.GameObjects.Text;
-  private enemyStatus!: Phaser.GameObjects.Text;
   private hintText!: Phaser.GameObjects.Text;
   private hintOn = false;
   /** 今回の作戦(予約した行動)と、それを実行した後の状態(ボタンの可否・プレビューの基準) */
@@ -127,7 +144,8 @@ export class BattleScene extends Phaser.Scene {
     this.buttons = [];
     this.heroes = [];
     this.heroBase = [];
-    this.enemyBase = 1;
+    this.ev = [];
+    this.target = 0;
     this.hpTexts = [];
     this.guardTexts = [];
     this.tags = [];
@@ -151,7 +169,7 @@ export class BattleScene extends Phaser.Scene {
     this.view = this.state;
     this.syncDisp();
     const s = this.state;
-    drawBackground(this, W, H, bgKeyFor('Battle', { boss: this.node.type === 'boss', row: this.node.row, enemyId: s.enemy.def.id }));
+    drawBackground(this, W, H, bgKeyFor('Battle', { boss: this.node.type === 'boss', row: this.node.row, enemyId: s.enemies[0].def.id }));
     // スキルパネル領域を暗くして文字を読みやすくする（背景画像の上）
     this.add.rectangle(W / 2, 604, W, 232, 0x0b0908, 0.62).setDepth(-90);
 
@@ -167,57 +185,11 @@ export class BattleScene extends Phaser.Scene {
     txt(this, HERO_POS[1].x, HERO_POS[1].y - 236, '後衛', 14, '#7b8798').setOrigin(0.5);
     txt(this, HERO_POS[0].x, HERO_POS[0].y - 236, '前衛', 14, '#7b8798').setOrigin(0.5);
 
-    // --- 敵 ---
-    const spriteKey = enemySpriteKey(s.enemy.def.id);
-    if (hasImg(this, spriteKey)) {
-      const img = this.add.image(ENEMY.x, ENEMY.y, spriteKey).setOrigin(0.5, 1);
-      this.enemyBase = (ENEMY_DISPLAY_H[s.enemy.def.id] ?? 200) / img.height;
-      img.setScale(this.enemyBase);
-      this.add.ellipse(ENEMY.x, ENEMY.y, img.displayWidth * 0.8, 24, 0x000000, 0.35).setDepth(-1);
-      this.enemyGfx = img;
-    } else {
-      this.enemyGfx = this.add.graphics().setPosition(ENEMY.x, ENEMY.y);
-      drawEnemy(this.enemyGfx, s.enemy.def.id, s.enemy.def.color);
-    }
-    this.tweens.add({ targets: this.enemyGfx, scaleY: this.enemyBase * 0.94, scaleX: this.enemyBase * 1.04, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
-    this.stars = this.add.container(ENEMY.x, ENEMY.y - (hasImg(this, spriteKey) ? (ENEMY_DISPLAY_H[s.enemy.def.id] ?? 200) - 10 : 130));
-    for (let k = 0; k < 3; k++) {
-      const a = (k / 3) * Math.PI * 2;
-      this.stars.add(this.add.star(Math.cos(a) * 46, Math.sin(a) * 12, 5, 4, 9, 0xffe066));
-    }
-    this.tweens.add({ targets: this.stars, angle: 360, duration: 1400, repeat: -1 });
-    this.stars.setVisible(false);
-    const traitLines = s.enemy.def.traits?.text ?? [];
-    txt(this, ENEMY.x, ENEMY.y + 98, s.enemy.def.name + (traitLines.length ? ' ⓘ' : ''), 18, '#e8dfd3').setOrigin(0.5);
-    if (traitLines.length) {
-      // 敵の特性(攻略のヒント): ホバー(PC) / タップ(スマホ)で表示
-      const zone = this.add.zone(ENEMY.x, ENEMY.y - 90, 300, 330).setInteractive({ useHandCursor: true });
-      const showTraits = () => { if (!this.dragBtn) this.showTipText(`${s.enemy.def.name}の特性`, traitLines.join('\n')); };
-      zone.on('pointerover', showTraits);
-      zone.on('pointerout', () => { if (!this.armed) this.hideTip(); });
-      onTap(zone, () => {
-        showTraits();
-        this.time.delayedCall(3800, () => { if (!this.armed) this.hideTip(); });
-      });
-    }
-    txt(this, ENEMY.x, ENEMY.y + 120,
-      `弱点: ${ELEMENT_LABEL[s.enemy.def.weak]}　耐性: ${ELEMENT_LABEL[s.enemy.def.resist]}`, 14, '#f6c453').setOrigin(0.5);
-    this.enemyStatus = txt(this, ENEMY.x, ENEMY.y + 14, '', compact() ? 16 : 14, '#ffd9a0', { fontStyle: 'bold', stroke: '#000', strokeThickness: 4 })
-      .setOrigin(0.5).setDepth(6);
+    // --- 敵(1〜3体) ---
     this.bars = this.add.graphics().setDepth(5);
-    this.enemyHpText = txt(this, ENEMY.x, ENEMY.y + 36, '', 14, '#fff', { fontStyle: 'bold' }).setOrigin(0.5).setDepth(6);
-    this.shieldText = txt(this, ENEMY.x, ENEMY.y + 66, '', 13, '#3a2a00', { fontStyle: 'bold' }).setOrigin(0.5).setDepth(6);
-
-    // --- インテント ---
-    this.intentGfx = this.add.graphics();
-    this.intentValue = txt(this, 0, 36, '', 24, '#fff', { fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
-    this.intentLabel = txt(this, 0, 68, '', 15, '#e8dfd3', { stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
-    this.intentHint = txt(this, 0, 92, '', 14, '#ffe066', { fontStyle: 'bold', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
-    this.intentImg = this.add.image(0, 0, hasImg(this, 'icon_status_intent_attack') ? 'icon_status_intent_attack' : '__DEFAULT').setVisible(false);
-    // 背の高い敵の頭に行動予告が被らないよう、敵の高さに合わせて位置を上げる
-    const intentY = Math.max(66, ENEMY.y - (hasImg(this, spriteKey) ? (ENEMY_DISPLAY_H[s.enemy.def.id] ?? 200) : 110) - 72);
-    this.intentBox = this.add.container(ENEMY.x, hasImg(this, spriteKey) ? intentY : ENEMY.y - 245, [this.intentGfx, this.intentImg, this.intentValue, this.intentLabel, this.intentHint]);
-    this.tweens.add({ targets: this.intentBox, y: this.intentBox.y - 10, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    const lay = ENEMY_LAYOUT[s.enemies.length] ?? ENEMY_LAYOUT[1];
+    s.enemies.forEach((en, i) => this.buildEnemy(i, en, lay.xs[i], lay.k, s.enemies.length > 1));
+    this.target = defaultTarget(s);
 
     this.turnText = txt(this, W / 2, 24, '', 22, '#f6e3b4', { fontStyle: 'bold' }).setOrigin(0.5);
 
@@ -284,6 +256,76 @@ export class BattleScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------ 構築
+  /** 敵1体分のスプライト・バー・予告表示を作る */
+  private buildEnemy(i: number, en: BattleState['enemies'][number], x: number, k: number, multi: boolean): void {
+    const y = multi ? ENEMY_Y - 26 : ENEMY_Y; // 複数編成は少し上へ(下の情報を行動パネルに被せない)
+    const id = en.def.id;
+    const spriteKey = enemySpriteKey(id);
+    const withImg = hasImg(this, spriteKey);
+    const dispH = (ENEMY_DISPLAY_H[id] ?? 200) * k;
+    let gfx: Actor;
+    let base = 1;
+    if (withImg) {
+      const img = this.add.image(x, y, spriteKey).setOrigin(0.5, 1);
+      base = dispH / img.height;
+      img.setScale(base);
+      this.add.ellipse(x, y, img.displayWidth * 0.8, 24 * k, 0x000000, 0.35).setDepth(-1);
+      gfx = img;
+    } else {
+      gfx = this.add.graphics().setPosition(x, y);
+      gfx.setScale(k);
+      base = k;
+      drawEnemy(gfx, id, en.def.color);
+    }
+    this.tweens.add({ targets: gfx, scaleY: base * 0.94, scaleX: base * 1.04, duration: 1100 + i * 170, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    const stars = this.add.container(x, y - (withImg ? dispH - 10 * k : 130 * k));
+    for (let n = 0; n < 3; n++) {
+      const a = (n / 3) * Math.PI * 2;
+      stars.add(this.add.star(Math.cos(a) * 46 * k, Math.sin(a) * 12 * k, 5, 4 * k, 9 * k, 0xffe066));
+    }
+    this.tweens.add({ targets: stars, angle: 360, duration: 1400, repeat: -1 });
+    stars.setVisible(false);
+    const fs = (n: number): number => (compact() ? Math.max(16, Math.round(n * k)) : Math.max(11, Math.round(n * k)));
+    const traitLines = en.def.traits?.text ?? [];
+    const tag = multi ? `${ENEMY_TAG[i]} ` : '';
+    txt(this, x, y + 98, tag + en.def.name + (traitLines.length ? ' ⓘ' : ''), fs(18), '#e8dfd3').setOrigin(0.5);
+    txt(this, x, y + 98 + fs(18) + 4, `弱点:${ELEMENT_LABEL[en.def.weak]} 耐性:${ELEMENT_LABEL[en.def.resist]}`, fs(14), '#f6c453').setOrigin(0.5);
+    // 敵の選択/特性表示(クリック・タップ): 狙う敵を切り替える
+    const zone = this.add.zone(x, y - 90 * k, 300 * k, 330 * k).setInteractive({ useHandCursor: true });
+    zone.on('pointerover', () => { if (!this.dragBtn && traitLines.length) this.showTipText(`${en.def.name}の特性`, traitLines.join('\n')); });
+    zone.on('pointerout', () => { if (!this.armed) this.hideTip(); });
+    onTap(zone, () => {
+      if (en.hp <= 0 || this.dragBtn) return;
+      this.target = i;
+      audio.play('ui_select');
+      if (traitLines.length) this.showTipText(`${en.def.name}の特性`, traitLines.join('\n'));
+      this.time.delayedCall(3800, () => { if (!this.armed) this.hideTip(); });
+      this.replan();
+    });
+    const barW = Math.max(120, Math.round(210 * k));
+    const statusText = txt(this, x, y + 14, '', compact() ? 16 : Math.max(11, Math.round(14 * k)), '#ffd9a0', { fontStyle: 'bold', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(6);
+    const hpText = txt(this, x, y + 36, '', 14, '#fff', { fontStyle: 'bold' }).setOrigin(0.5).setDepth(6);
+    const shieldText = txt(this, x, y + 66, '', 13, '#3a2a00', { fontStyle: 'bold' }).setOrigin(0.5).setDepth(6);
+    // 狙う敵の目印
+    const marker = txt(this, x, y - dispH - 8, '▼', 26, '#00f2fe', { stroke: '#000', strokeThickness: 5 }).setOrigin(0.5, 1).setDepth(7).setVisible(false);
+    this.tweens.add({ targets: marker, y: marker.y - 8, duration: 500, yoyo: true, repeat: -1 });
+    // 行動予告
+    const intentGfx = this.add.graphics();
+    const intentValue = txt(this, 0, 36, '', 24, '#fff', { fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
+    const intentLabel = txt(this, 0, 68, '', 15, '#e8dfd3', { stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
+    const intentHint = txt(this, 0, 92, '', 14, '#ffe066', { fontStyle: 'bold', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
+    const intentImg = this.add.image(0, 0, hasImg(this, 'icon_status_intent_attack') ? 'icon_status_intent_attack' : '__DEFAULT').setVisible(false);
+    // 背の高い敵の頭に行動予告が被らないよう、敵の高さに合わせて位置を上げる
+    const intentY = Math.max(66, y - (withImg ? dispH : 110 * k) - 72);
+    const intentBox = this.add.container(x, withImg ? intentY : y - 245 * k, [intentGfx, intentImg, intentValue, intentLabel, intentHint]);
+    intentBox.setScale(multi ? Math.max(0.78, k + 0.1) : 1);
+    this.tweens.add({ targets: intentBox, y: intentBox.y - 10, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    this.ev.push({
+      pos: { x, y }, k, base, gfx, stars, hpText, shieldText, statusText, intentBox, intentGfx, intentImg, intentValue, intentLabel, intentHint,
+      marker, barW, dead: false,
+    });
+  }
+
   /** 待機ボタン: 行動を溜める(CD-1・ガード+5・次のスキル強化) */
   private buildWait(member: number, x: number, y: number): void {
     const w = compact() ? 92 : 88;
@@ -462,7 +504,7 @@ export class BattleScene extends Phaser.Scene {
   private syncDisp(): void {
     const s = this.state;
     this.disp = {
-      enemyHp: s.enemy.hp, enemyShield: s.enemy.shield, enemyGuard: s.enemy.guard, broken: s.enemy.broken,
+      en: s.enemies.map((e) => ({ hp: e.hp, shield: e.shield, guard: e.guard, broken: e.broken })),
       hp: s.party.map((m) => m.hp), guard: s.party.map((m) => m.guard),
     };
   }
@@ -530,24 +572,30 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshIntent(): void {
-    const g = this.intentGfx;
+    this.state.enemies.forEach((_, i) => this.refreshIntentOf(i));
+  }
+
+  private refreshIntentOf(ei: number): void {
+    const v = this.ev[ei];
+    const e = this.state.enemies[ei];
+    const g = v.intentGfx;
     const s = this.state;
     g.clear();
-    this.intentHint.setText('');
-    if (s.phase === 'won') { this.intentBox.setVisible(false); return; }
-    this.intentBox.setVisible(true);
-    this.intentImg.setVisible(false);
-    const it = currentIntent(s);
-    const next = nextIntent(s);
+    v.intentHint.setText('');
+    if (s.phase === 'won' || e.hp <= 0 || v.dead) { v.intentBox.setVisible(false); return; }
+    v.intentBox.setVisible(true);
+    v.intentImg.setVisible(false);
+    const it = currentIntent(s, ei);
+    const next = nextIntent(s, ei);
     const ti = resolveTarget(s, it);
     const target = ti === -1 ? '全体' : s.party[ti].def.name;
     g.fillStyle(0x000000, 0.55).fillCircle(0, 0, 34);
-    if (s.enemy.broken) {
+    if (e.broken) {
       g.lineStyle(3, 0xffe066, 1).strokeCircle(0, 0, 34);
-      this.intentValue.setText('BREAK').setColor('#ffe066').setFontSize(20);
-      this.intentLabel.setText('行動不能');
-      if (it.kind === 'heavy') this.intentHint.setText(`${it.name}を阻止!`).setColor('#7be495');
-      else if (it.kind === 'charge') this.intentHint.setText(`溜めと${next.name}を阻止!`).setColor('#7be495');
+      v.intentValue.setText('BREAK').setColor('#ffe066').setFontSize(20);
+      v.intentLabel.setText('行動不能');
+      if (it.kind === 'heavy') v.intentHint.setText(`${it.name}を阻止!`).setColor('#7be495');
+      else if (it.kind === 'charge') v.intentHint.setText(`溜めと${next.name}を阻止!`).setColor('#7be495');
       return;
     }
     const kind = it.kind ?? 'attack';
@@ -556,24 +604,24 @@ export class BattleScene extends Phaser.Scene {
     if (kind === 'attack' || kind === 'heavy') {
       const iconKey = kind === 'heavy' && hasImg(this, 'icon_status_intent_heavy') ? 'icon_status_intent_heavy'
         : it.target === 'all' ? 'icon_status_intent_attack_all' : 'icon_status_intent_attack';
-      if (hasImg(this, iconKey)) this.intentImg.setTexture(iconKey).setDisplaySize(50, 50).setVisible(true);
+      if (hasImg(this, iconKey)) v.intentImg.setTexture(iconKey).setDisplaySize(50, 50).setVisible(true);
       else drawSword(g, 0, 0, 52, 0xff8a8a);
-      this.intentValue.setText(String(intentValue(s, it))).setColor(kind === 'heavy' ? '#ff5c5c' : '#ff9a9a').setFontSize(kind === 'heavy' ? 28 : 24);
-      this.intentLabel.setText(`${kind === 'heavy' ? '【強攻撃】' : ''}${it.name} → ${target}`);
-      if (kind === 'heavy') this.intentHint.setText('ブレイクで阻止!').setColor('#ffe066');
-      else if (next.kind === 'heavy' || next.kind === 'charge') this.intentHint.setText(`次→${next.name}`).setColor('#ffb86b');
+      v.intentValue.setText(String(intentValue(s, it, ei))).setColor(kind === 'heavy' ? '#ff5c5c' : '#ff9a9a').setFontSize(kind === 'heavy' ? 28 : 24);
+      v.intentLabel.setText(`${kind === 'heavy' ? '【強攻撃】' : ''}${it.name} → ${target}`);
+      if (kind === 'heavy') v.intentHint.setText('ブレイクで阻止!').setColor('#ffe066');
+      else if (next.kind === 'heavy' || next.kind === 'charge') v.intentHint.setText(`次→${next.name}`).setColor('#ffb86b');
     } else if (kind === 'charge') {
-      if (hasImg(this, 'icon_status_intent_charge')) this.intentImg.setTexture('icon_status_intent_charge').setDisplaySize(50, 50).setVisible(true);
+      if (hasImg(this, 'icon_status_intent_charge')) v.intentImg.setTexture('icon_status_intent_charge').setDisplaySize(50, 50).setVisible(true);
       else drawSword(g, 0, 0, 40, 0xffa23c);
-      this.intentValue.setText('溜め').setColor('#ffb86b').setFontSize(22);
-      this.intentLabel.setText(`${it.name} → 次は${next.name}`);
-      this.intentHint.setText('溜め中にブレイクで両方阻止').setColor('#ffe066');
+      v.intentValue.setText('溜め').setColor('#ffb86b').setFontSize(22);
+      v.intentLabel.setText(`${it.name} → 次は${next.name}`);
+      v.intentHint.setText('溜め中にブレイクで両方阻止').setColor('#ffe066');
     } else {
-      if (hasImg(this, 'icon_status_intent_guard')) this.intentImg.setTexture('icon_status_intent_guard').setDisplaySize(50, 50).setVisible(true);
+      if (hasImg(this, 'icon_status_intent_guard')) v.intentImg.setTexture('icon_status_intent_guard').setDisplaySize(50, 50).setVisible(true);
       else drawShield(g, 0, 0, 40, 0x6fa8ff);
-      this.intentValue.setText(`+${it.guard ?? 0}`).setColor('#9cc7ff').setFontSize(24);
-      this.intentLabel.setText(`${it.name}(防御)`);
-      this.intentHint.setText(`次→${next.name}`).setColor('#ffb86b');
+      v.intentValue.setText(`+${it.guard ?? 0}`).setColor('#9cc7ff').setFontSize(24);
+      v.intentLabel.setText(`${it.name}(防御)`);
+      v.intentHint.setText(`次→${next.name}`).setColor('#ffb86b');
     }
   }
 
@@ -624,7 +672,9 @@ export class BattleScene extends Phaser.Scene {
         const m = this.state.party[st.member];
         g.fillStyle(m.def.color, 1).fillRoundedRect(cx - 122, y - h / 2, 6, h, 3);
         const name = st.skillId === WAIT_ID ? '待機' : SKILLS[st.skillId].name;
-        this.planTexts[k].setText(`${k + 1}  ${name}`).setColor('#ffffff');
+        const sk = st.skillId === WAIT_ID ? null : SKILLS[st.skillId];
+        const tg = this.state.enemies.length > 1 && sk && (sk.damage || sk.breakPower) && st.target !== undefined ? `→${ENEMY_TAG[st.target]}` : '';
+        this.planTexts[k].setText(`${k + 1}  ${name}${tg}`).setColor('#ffffff');
         const cost = st.skillId === WAIT_ID ? 1 : skillCost(SKILLS[st.skillId]);
         this.planCost[k].setText(`AP${cost}`);
       } else {
@@ -667,44 +717,57 @@ export class BattleScene extends Phaser.Scene {
       this.guardTexts[i].setText(d.guard[i] > 0 ? String(d.guard[i]) : '');
     });
     // 敵HP / シールドゲージ
-    bar(ENEMY.x, ENEMY.y + 36, 210, 20, d.enemyHp / s.enemy.maxHp, COLORS.hp);
-    bar(ENEMY.x, ENEMY.y + 66, 210, 18, d.broken ? 1 : d.enemyShield / s.enemy.maxShield, d.broken ? 0xff5c5c : 0xf6c453);
-    this.enemyHpText.setText(`${Math.max(0, d.enemyHp)}/${s.enemy.maxHp}`);
-    this.shieldText.setText(d.broken ? 'BREAK!' : `シールド ${d.enemyShield}/${s.enemy.maxShield}`).setColor(d.broken ? '#fff' : '#3a2a00');
-    if (d.enemyGuard > 0) {
-      g.lineStyle(3, COLORS.block, 0.95).strokeRoundedRect(ENEMY.x - 107, ENEMY.y + 36 - 13, 214, 26, 7);
-    }
-    this.updateEnemySprite();
-    this.refreshEnemyStatus();
+    s.enemies.forEach((e, i) => {
+      const v = this.ev[i];
+      const de = d.en[i];
+      const live = !v.dead && (de.hp > 0 || e.hp > 0);
+      v.hpText.setVisible(live);
+      v.shieldText.setVisible(live);
+      v.statusText.setVisible(live);
+      if (!live) return;
+      bar(v.pos.x, v.pos.y + 36, v.barW, 20, de.hp / e.maxHp, COLORS.hp);
+      bar(v.pos.x, v.pos.y + 66, v.barW, 18, de.broken ? 1 : de.shield / e.maxShield, de.broken ? 0xff5c5c : 0xf6c453);
+      v.hpText.setText(`${Math.max(0, de.hp)}/${e.maxHp}`);
+      v.shieldText.setText(de.broken ? 'BREAK!' : `シールド ${de.shield}/${e.maxShield}`).setColor(de.broken ? '#fff' : '#3a2a00');
+      if (de.guard > 0) g.lineStyle(3, COLORS.block, 0.95).strokeRoundedRect(v.pos.x - v.barW / 2 - 2, v.pos.y + 36 - 13, v.barW + 4, 26, 7);
+      // 狙う敵に選択マーカー(複数編成のときのみ)
+      if (s.enemies.length > 1 && i === this.curTarget()) {
+        g.lineStyle(3, COLORS.energy, 1).strokeRoundedRect(v.pos.x - v.barW / 2 - 7, v.pos.y + 36 - 17, v.barW + 14, 64, 9);
+      }
+      this.updateEnemySprite(i);
+      this.refreshEnemyStatus(i);
+    });
   }
 
   /** ブレイク中は気絶スプライト、竜は激昂で差し替え（画像があれば） */
-  private updateEnemySprite(): void {
-    const d = this.disp;
-    const e = this.state.enemy;
+  private updateEnemySprite(i: number): void {
+    const v = this.ev[i];
+    const de = this.disp.en[i];
+    const e = this.state.enemies[i];
     const base = enemySpriteKey(e.def.id);
     let useStunned = false;
-    if (base && this.enemyGfx instanceof Phaser.GameObjects.Image) {
+    if (base && v.gfx instanceof Phaser.GameObjects.Image) {
       let key = base;
-      if (d.broken && hasImg(this, `${base}_stunned`)) { key = `${base}_stunned`; useStunned = true; }
+      if (de.broken && hasImg(this, `${base}_stunned`)) { key = `${base}_stunned`; useStunned = true; }
       else if (isEnraged(e) && hasImg(this, `${base}_enraged`)) key = `${base}_enraged`;
-      if (this.enemyGfx.texture.key !== key) this.enemyGfx.setTexture(key);
+      if (v.gfx.texture.key !== key) v.gfx.setTexture(key);
     }
-    this.enemyGfx.setAlpha(d.broken && !useStunned ? 0.75 : 1);
-    this.stars.setVisible(d.broken && !useStunned);
+    v.gfx.setAlpha(de.broken && !useStunned ? 0.75 : 1);
+    v.stars.setVisible(de.broken && !useStunned);
   }
 
-  private refreshEnemyStatus(): void {
-    const e = this.state.enemy;
-    const d = this.disp;
+  private refreshEnemyStatus(i: number): void {
+    const e = this.state.enemies[i];
+    const de = this.disp.en[i];
     const parts: string[] = [];
-    if (d.enemyGuard > 0) parts.push(`防御${d.enemyGuard}`);
+    if (de.guard > 0) parts.push(`防御${de.guard}`);
     if (e.burn) parts.push(`火傷${e.burn.dmg}×${e.burn.turns}`);
     if (e.bleed) parts.push(`出血${e.bleed.dmg}×${e.bleed.turns}`);
     if (e.frozen) parts.push('凍結');
     if (e.weakened) parts.push('弱体');
     if (isEnraged(e)) parts.push('激昂');
-    this.enemyStatus.setText(parts.join('  '));
+    if (e.def.traits?.protects && !de.broken && this.state.enemies.length > 1) parts.push('守護');
+    this.ev[i].statusText.setText(parts.join(' '));
   }
 
   private locked(): boolean {
@@ -727,13 +790,27 @@ export class BattleScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------ 入力
-  private showPreview(b: SkillBtn): void {
+  /** 点の下にいる生存中の敵(なければ -1) */
+  private enemyAt(x: number, y: number): number {
+    return this.ev.findIndex((v, i) => this.state.enemies[i].hp > 0 && !v.dead
+      && Math.abs(x - v.pos.x) <= 150 * v.k && y >= v.pos.y - 230 * v.k && y <= v.pos.y + 40);
+  }
+
+  /** 選択中の狙う敵(倒れていたら先頭の生存者に切り替える) */
+  private curTarget(): number {
+    if (this.state.enemies[this.target]?.hp <= 0 || this.ev[this.target]?.dead) this.target = defaultTarget(this.state);
+    return this.target;
+  }
+
+  private showPreview(b: SkillBtn, ti = this.curTarget()): void {
     if (this.locked() || !canUse(this.view, b.member, b.skill.id)) return;
     const sk = b.skill;
     if (!sk.damage && !sk.breakPower) return;
-    const p = previewSkill(this.view, sk, b.member);
+    const p = previewSkill(this.view, sk, b.member, ti);
     const from = HERO_POS[b.member];
-    this.drawTargetLine(from.x, from.y - 150, ENEMY.x, ENEMY.y - 100, p.chain);
+    const ep = this.ev[ti].pos;
+    this.preview.setPosition(ep.x + 100 * this.ev[ti].k, ep.y - 120);
+    this.drawTargetLine(from.x, from.y - 150, ep.x, ep.y - 100, p.chain);
     const lines: string[] = [];
     if (p.hp > 0) lines.push(`-${p.hp}`);
     if (p.chain) lines.push('CHAIN!');
@@ -745,6 +822,7 @@ export class BattleScene extends Phaser.Scene {
     if (p.reaction) lines.push(`${p.reaction.name}!`);
     if (p.focus) lines.push('集中');
     if (p.charged) lines.push('帯電');
+    if (p.protectedBy) lines.push('守護で被ダメ-25%');
     for (const c of p.conds) lines.push(`◆${c}`);
     this.preview.setText(lines.join('\n')).setColor(p.chain ? '#ff9a3c' : p.breaks ? '#ffe066' : '#ffffff').setAlpha(0.95);
     this.preview.setFontSize(p.chain ? 40 : 30);
@@ -789,10 +867,13 @@ export class BattleScene extends Phaser.Scene {
       const offensive = !!b.skill.damage || !!b.skill.breakPower;
       const from = HERO_POS[b.member];
       if (offensive) {
-        const over = Phaser.Geom.Rectangle.Contains(enemyRect, p.x, p.y);
-        const pv = previewSkill(this.view, b.skill, b.member);
+        const hov = this.enemyAt(p.x, p.y);
+        const over = hov >= 0;
+        const ti = over ? hov : this.curTarget();
+        const pv = previewSkill(this.view, b.skill, b.member, ti);
         this.drawTargetLine(from.x, from.y - 150, p.x, p.y, over && pv.chain);
-        this.enemyGfx.setScale(this.enemyBase * (over ? 1.08 : 1));
+        this.ev.forEach((v, i) => v.gfx.setScale(v.base * (i === hov ? 1.08 : 1)));
+        if (over && hov !== this.dragTarget) { this.dragTarget = hov; this.showPreview(b, hov); }
         this.preview.setAlpha(over ? 0.95 : 0.4);
       } else {
         const ok = p.y < PLAY_LINE_Y;
@@ -811,21 +892,25 @@ export class BattleScene extends Phaser.Scene {
       this.ghost?.destroy();
       this.ghost = null;
       this.clearPreview();
-      this.enemyGfx.setScale(this.enemyBase);
+      this.ev.forEach((v) => v.gfx.setScale(v.base));
+      this.dragTarget = -1;
       this.tweens.add({ targets: b.c, y: BTN_Y, scale: 1, alpha: 1, duration: 140, ease: 'Back.out' });
       b.c.setDepth(0);
       b.hover = false;
       const offensive = !!b.skill.damage || !!b.skill.breakPower;
-      const ok = offensive ? Phaser.Geom.Rectangle.Contains(enemyRect, p.x, p.y) : p.y < PLAY_LINE_Y;
-      if (ok) this.onSkill(b);
+      const hov = offensive ? this.enemyAt(p.x, p.y) : -1;
+      const ok = offensive ? hov >= 0 : p.y < PLAY_LINE_Y;
+      if (ok) this.onSkill(b, hov >= 0 ? hov : undefined);
       else this.tweens.add({ targets: b.c, x: b.c.x + 5, duration: 40, yoyo: true, repeat: 1 });
       this.paintBtn(b, false);
     });
   }
 
   /** スキル選択: 作戦に予約する(実際の処理は「実行」で順番に行う) */
-  private onSkill(b: SkillBtn): void {
-    const st: PlanStep = { member: b.member, skillId: b.skill.id };
+  private onSkill(b: SkillBtn, target?: number): void {
+    const offensive = !!b.skill.damage || !!b.skill.breakPower;
+    if (offensive && target !== undefined) this.target = target;
+    const st: PlanStep = { member: b.member, skillId: b.skill.id, target: offensive ? this.curTarget() : undefined };
     if (this.locked() || !canAppend(this.state, this.plan, st)) {
       audio.play('deny');
       this.tweens.add({ targets: b.c, x: b.c.x + 6, duration: 40, yoyo: true, repeat: 2 });
@@ -852,6 +937,7 @@ export class BattleScene extends Phaser.Scene {
   /** 作戦を変更したら、実行後の状態を再計算して表示を更新する */
   private replan(): void {
     this.view = simulatePlan(this.state, this.plan).state;
+    this.drawBars();
     this.refreshButtons();
     this.drawPlan();
     this.refreshHint();
@@ -894,7 +980,9 @@ export class BattleScene extends Phaser.Scene {
   private performSkill(st: PlanStep, done: () => void): void {
     const s = this.state;
     const b = this.buttons.find((x) => x.member === st.member && x.skill.id === st.skillId);
-    const events = b ? useSkill(s, st.member, st.skillId) : null;
+    const ti = st.target !== undefined && s.enemies[st.target]?.hp > 0 ? st.target : defaultTarget(s);
+    const tp = this.ev[ti].pos;
+    const events = b ? useSkill(s, st.member, st.skillId, ti) : null;
     if (!b || !events) { done(); return; }
     this.busy = true;
     this.refreshButtons();
@@ -906,7 +994,7 @@ export class BattleScene extends Phaser.Scene {
       this.playCue(castCue(sk));
       this.heroPose(b.member, 'attack', 520);
       this.tweens.add({
-        targets: hero, x: ENEMY.x - 150, duration: 150, ease: 'Cubic.in', yoyo: true, hold: 60,
+        targets: hero, x: tp.x - 150 * this.ev[ti].k, duration: 150, ease: 'Cubic.in', yoyo: true, hold: 60,
         onYoyo: () => this.playSeq(events, done), onComplete: () => { hero.x = p.x; },
       });
     } else if (offensive) {
@@ -916,7 +1004,7 @@ export class BattleScene extends Phaser.Scene {
       const orb = this.add.circle(p.x + 40, p.y - 160, 14, col).setDepth(2000);
       this.tweens.add({ targets: hero, y: p.y - 8, duration: 120, yoyo: true });
       this.tweens.add({
-        targets: orb, x: ENEMY.x, y: ENEMY.y - 90, scale: 1.6, duration: 320, delay: 140, ease: 'Cubic.in',
+        targets: orb, x: tp.x, y: tp.y - 90, scale: 1.6, duration: 320, delay: 140, ease: 'Cubic.in',
         onComplete: () => { orb.destroy(); this.playSeq(events, done); },
       });
     } else {
@@ -949,45 +1037,50 @@ export class BattleScene extends Phaser.Scene {
 
   private afterAction(): void {
     const p = this.state.phase;
-    if (p === 'won') { this.enemyDeath(() => this.showResult(true)); return; }
+    if (p === 'won') { this.time.delayedCall(800, () => this.showResult(true)); return; }
     if (p === 'lost') { this.showResult(false); return; }
   }
 
   private playEvent(e: BattleEvent): void {
     const d = this.disp;
+    const en = 'enemy' in e && typeof e.enemy === 'number' ? e.enemy : 0;
+    const V = this.ev[en];
+    const de = d.en[en];
+    const EX = V.pos.x;
+    const EY = V.pos.y;
     switch (e.type) {
       case 'damage': {
         if (e.chain) break; // チェインは cut-in 側で演出
-        d.enemyHp -= e.amount;
-        d.enemyGuard -= e.absorbed;
+        de.hp -= e.amount;
+        de.guard -= e.absorbed;
         impactCues(e).forEach((c) => this.playCue(c));
         const col = e.element === 'none' ? '#ffdf6b' : hex(ELEMENT_COLOR[e.element]);
-        if (e.absorbed > 0) this.popup(ENEMY.x - 110, ENEMY.y - 110, `防御 -${e.absorbed}`, '#9cc7ff', 24);
-        if (e.amount > 0) this.damagePopup(ENEMY.x, ENEMY.y - 140, e.amount, col, { weak: e.weak });
-        if (e.weak) this.popup(ENEMY.x + 100, ENEMY.y - 185, '弱点!', '#ff9a3c', 26);
-        if (e.resist) this.popup(ENEMY.x + 100, ENEMY.y - 185, '耐性', '#9fb0c8', 24);
-        this.impact(e.amount, ELEMENT_COLOR[e.element] || 0xffd166);
+        if (e.absorbed > 0) this.popup(EX - 110, EY - 110, `防御 -${e.absorbed}`, '#9cc7ff', 24);
+        if (e.amount > 0) this.damagePopup(EX, EY - 140, e.amount, col, { weak: e.weak });
+        if (e.weak) this.popup(EX + 100, EY - 185, '弱点!', '#ff9a3c', 26);
+        if (e.resist) this.popup(EX + 100, EY - 185, '耐性', '#9fb0c8', 24);
+        this.impact(e.amount, ELEMENT_COLOR[e.element] || 0xffd166, en);
         break;
       }
       case 'shield':
-        d.enemyShield = Math.max(0, d.enemyShield - e.amount);
+        de.shield = Math.max(0, de.shield - e.amount);
         break;
       case 'break': {
-        d.broken = true;
+        de.broken = true;
         audio.play('fx_break');
         const sh = shakeFor(0, 'break');
         this.cameras.main.flash(150, 255, 255, 255);
         this.cameras.main.shake(sh.ms, sh.intensity);
-        this.popup(ENEMY.x - 150, ENEMY.y - 150, 'BREAK!', '#ffe066', 70);
-        this.shockwave(ENEMY.x, ENEMY.y - 70, 0xffe066);
-        this.shards(ENEMY.x, ENEMY.y - 70, 0xffe066);
-        this.sparks(ENEMY.x, ENEMY.y - 60, 0xffe066, 26);
+        this.popup(EX - 150, EY - 150, 'BREAK!', '#ffe066', 70);
+        this.shockwave(EX, EY - 70, 0xffe066);
+        this.shards(EX, EY - 70, 0xffe066);
+        this.sparks(EX, EY - 60, 0xffe066, 26);
         this.zoomPunch(1.05);
         this.hitStop(hitStopMs(0, 'break'));
         break;
       }
       case 'chain':
-        this.cutIn(e.element, e.amount);
+        this.cutIn(e.element, e.amount, en);
         break;
       case 'guard':
         d.guard[e.member] += e.amount;
@@ -1006,17 +1099,17 @@ export class BattleScene extends Phaser.Scene {
         this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 230, '挑発!', '#ffb86b', 34);
         break;
       case 'stunned':
-        this.popup(ENEMY.x, ENEMY.y - 150, '行動不能…', '#ffe066', 34);
+        this.popup(EX, EY - 150, '行動不能…', '#ffe066', 34);
         break;
       case 'recover':
-        d.broken = false;
-        d.enemyShield = this.state.enemy.shield;
-        this.popup(ENEMY.x, ENEMY.y - 110, 'シールド回復', '#f6c453', 22);
+        de.broken = false;
+        de.shield = this.state.enemies[en].shield;
+        this.popup(EX, EY - 110, 'シールド回復', '#f6c453', 22);
         break;
       case 'enemyAttack': {
-        this.playCue(enemyAttackCue(this.state.enemy.def.id, e.intent));
+        this.playCue(enemyAttackCue(this.state.enemies[en].def.id, e.intent));
         const to = e.target === -1 ? { x: (HERO_POS[0].x + HERO_POS[1].x) / 2 } : HERO_POS[e.target];
-        this.tweens.add({ targets: this.enemyGfx, x: to.x + 140, duration: 150, yoyo: true, ease: 'Cubic.in', hold: 40 });
+        this.tweens.add({ targets: V.gfx, x: to.x + 140, duration: 150, yoyo: true, ease: 'Cubic.in', hold: 40 });
         break;
       }
       case 'hurt': {
@@ -1048,25 +1141,25 @@ export class BattleScene extends Phaser.Scene {
         this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 230, '戦闘不能', '#ff7a7a', 28);
         break;
       case 'reaction': {
-        const col = this.state.enemy.lastElement ? ELEMENT_COLOR[this.state.enemy.lastElement] : 0xffe066;
+        const col = this.state.enemies[en].lastElement ? ELEMENT_COLOR[this.state.enemies[en].lastElement] : 0xffe066;
         audio.play('hit_weak');
-        this.popup(ENEMY.x, ENEMY.y - 215, e.name + '!', '#ffffff', 44);
-        this.playFx(`fx_reaction_${e.id}`, ENEMY.x, ENEMY.y - 100, 1.6);
-        this.shockwave(ENEMY.x, ENEMY.y - 90, col);
-        this.sparks(ENEMY.x, ENEMY.y - 90, col, 24);
+        this.popup(EX, EY - 215, e.name + '!', '#ffffff', 44);
+        this.playFx(`fx_reaction_${e.id}`, EX, EY - 100, 1.6);
+        this.shockwave(EX, EY - 90, col);
+        this.sparks(EX, EY - 90, col, 24);
         break;
       }
       case 'status': {
         const [label, color] = STATUS_TEXT[e.kind];
-        const pos = e.kind === 'charge' || e.kind === 'focus' ? { x: HERO_POS[0].x, y: HERO_POS[0].y - 250 } : { x: ENEMY.x + 90, y: ENEMY.y - 170 };
+        const pos = e.kind === 'charge' || e.kind === 'focus' ? { x: HERO_POS[0].x, y: HERO_POS[0].y - 250 } : { x: EX + 90, y: EY - 170 };
         this.popup(pos.x, pos.y, label, color, 28);
         this.iconPop(`icon_status_${e.kind}`, pos.x - 70, pos.y, 40);
         break;
       }
       case 'dot':
-        d.enemyHp -= e.amount;
-        this.popup(ENEMY.x, ENEMY.y - 130, `-${e.amount} ${e.kind === 'burn' ? '火傷' : '出血'}`, e.kind === 'burn' ? '#ff8a4c' : '#e0455a', 30);
-        this.sparks(ENEMY.x, ENEMY.y - 70, e.kind === 'burn' ? 0xff8a4c : 0xe0455a, 8);
+        de.hp -= e.amount;
+        this.popup(EX, EY - 130, `-${e.amount} ${e.kind === 'burn' ? '火傷' : '出血'}`, e.kind === 'burn' ? '#ff8a4c' : '#e0455a', 30);
+        this.sparks(EX, EY - 70, e.kind === 'burn' ? 0xff8a4c : 0xe0455a, 8);
         break;
       case 'wait':
         audio.play('ui_select');
@@ -1078,24 +1171,27 @@ export class BattleScene extends Phaser.Scene {
         break;
       case 'enemyCharge':
         audio.play('en_dragon_claw');
-        this.popup(ENEMY.x, ENEMY.y - 215, '力を溜めている…!', '#ffb86b', 34);
-        this.tweens.add({ targets: this.enemyGfx, scaleX: this.enemyBase * 1.12, scaleY: this.enemyBase * 1.12, duration: 220, yoyo: true });
-        this.shockwave(ENEMY.x, ENEMY.y - 90, 0xffa23c);
+        this.popup(EX, EY - 215, '力を溜めている…!', '#ffb86b', 34);
+        this.tweens.add({ targets: V.gfx, scaleX: V.base * 1.12, scaleY: V.base * 1.12, duration: 220, yoyo: true });
+        this.shockwave(EX, EY - 90, 0xffa23c);
         break;
       case 'enemyGuard':
-        d.enemyGuard += e.amount;
+        de.guard += e.amount;
         audio.play('sup_guard');
-        this.popup(ENEMY.x, ENEMY.y - 215, `防御 +${e.amount}`, '#9cc7ff', 34);
-        this.shieldRing(ENEMY.x, ENEMY.y - 100, COLORS.block);
+        this.popup(EX, EY - 215, `防御 +${e.amount}`, '#9cc7ff', 34);
+        this.shieldRing(EX, EY - 100, COLORS.block);
         break;
       case 'canceled':
         audio.play('hit_resist');
-        this.popup(ENEMY.x, ENEMY.y - 215, `${e.intent.name} 阻止!`, '#7be495', 40);
+        this.popup(EX, EY - 215, `${e.intent.name} 阻止!`, '#7be495', 40);
         break;
       case 'enemyHeal':
-        d.enemyHp += e.amount;
+        de.hp += e.amount;
         audio.play('sup_heal');
-        this.popup(ENEMY.x, ENEMY.y - 130, `+${e.amount}`, '#7be495', 30);
+        this.popup(EX, EY - 130, `+${e.amount}`, '#7be495', 30);
+        break;
+      case 'enemyDown':
+        this.enemyDie(en);
         break;
       default:
         break;
@@ -1104,12 +1200,13 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /** 敵への命中演出: 火花・画面揺れ・ヒットストップ・発光・ノックバック */
-  private impact(amount: number, color: number): void {
+  private impact(amount: number, color: number, en = 0): void {
+    const V = this.ev[en];
     const sh = shakeFor(amount, 'hit');
-    this.sparks(ENEMY.x, ENEMY.y - 70, color, sparkCount(amount));
+    this.sparks(V.pos.x, V.pos.y - 70, color, sparkCount(amount));
     this.cameras.main.shake(sh.ms, sh.intensity);
-    this.tweens.add({ targets: this.enemyGfx, x: ENEMY.x + 16 + Math.min(14, amount * 0.6), duration: 50, yoyo: true, repeat: 2 });
-    this.flashAdd(this.enemyGfx);
+    this.tweens.add({ targets: V.gfx, x: V.pos.x + 16 + Math.min(14, amount * 0.6), duration: 50, yoyo: true, repeat: 2 });
+    this.flashAdd(V.gfx);
     if (amount >= 15) this.zoomPunch(1.03);
     this.hitStop(hitStopMs(amount, 'hit'));
   }
@@ -1165,7 +1262,8 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /** チェイン: 全画面カットイン + 大ダメージ演出（約1.3秒） */
-  private cutIn(element: Element, amount: number): void {
+  private cutIn(element: Element, amount: number, en = 0): void {
+    const V = this.ev[en];
     const col = ELEMENT_COLOR[element];
     audio.play('fx_chain');
     audio.duck(0.3, 1.9); // カットイン中はBGMを下げる
@@ -1214,28 +1312,35 @@ export class BattleScene extends Phaser.Scene {
     });
     // カットインを畳み、敵に大ダメージを反映
     this.time.delayedCall(1000, () => {
-      this.disp.enemyHp -= amount;
+      this.disp.en[en].hp -= amount;
       this.drawBars();
-      this.sparks(ENEMY.x, ENEMY.y - 70, col, 34);
-      this.shockwave(ENEMY.x, ENEMY.y - 70, col);
-      this.flashAdd(this.enemyGfx);
+      this.sparks(V.pos.x, V.pos.y - 70, col, 34);
+      this.shockwave(V.pos.x, V.pos.y - 70, col);
+      this.flashAdd(V.gfx);
       this.tweens.add({ targets: all, alpha: 0, duration: 280, onComplete: () => all.forEach((o) => o.destroy()) });
-      this.damagePopup(ENEMY.x, ENEMY.y - 140, amount, hex(col), { chain: true });
-      this.tweens.add({ targets: this.enemyGfx, x: ENEMY.x + 24, duration: 60, yoyo: true, repeat: 4 });
+      this.damagePopup(V.pos.x, V.pos.y - 140, amount, hex(col), { chain: true });
+      this.tweens.add({ targets: V.gfx, x: V.pos.x + 24, duration: 60, yoyo: true, repeat: 4 });
     });
   }
 
-  /** 撃破演出: 光の粒になって崩れ落ちる */
-  private enemyDeath(done: () => void): void {
-    this.playCue(deathCue(this.state.enemy.def.id));
-    this.intentBox.setVisible(false);
-    this.stars.setVisible(false);
+  /** 撃破演出(1体): 光の粒になって崩れ落ちる */
+  private enemyDie(en: number): void {
+    const v = this.ev[en];
+    if (v.dead) return;
+    v.dead = true;
+    const e = this.state.enemies[en];
+    this.playCue(deathCue(e.def.id));
+    v.intentBox.setVisible(false);
+    v.stars.setVisible(false);
+    v.marker.setVisible(false);
+    v.hpText.setVisible(false);
+    v.shieldText.setVisible(false);
+    v.statusText.setVisible(false);
     this.cameras.main.shake(320, 0.014);
-    this.sparks(ENEMY.x, ENEMY.y - 80, this.state.enemy.def.color, 40);
-    this.shockwave(ENEMY.x, ENEMY.y - 80, 0xffffff);
-    this.tweens.killTweensOf(this.enemyGfx);
-    this.tweens.add({ targets: this.enemyGfx, alpha: 0, scaleX: this.enemyBase * 1.3, scaleY: this.enemyBase * 0.4, angle: 6, duration: 700, ease: 'Cubic.in' });
-    this.time.delayedCall(950, done);
+    this.sparks(v.pos.x, v.pos.y - 80, e.def.color, 40);
+    this.shockwave(v.pos.x, v.pos.y - 80, 0xffffff);
+    this.tweens.killTweensOf(v.gfx);
+    this.tweens.add({ targets: v.gfx, alpha: 0, scaleX: v.base * 1.3, scaleY: v.base * 0.4, angle: 6, duration: 700, ease: 'Cubic.in' });
   }
 
   private hitStop(ms: number): void {
