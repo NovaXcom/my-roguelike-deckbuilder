@@ -89,25 +89,37 @@ export const PLAYER = {
   iFrom: 0.04,
   iTo: 0.36,
   dodgeCd: 0.15,
-  guardTime: 0.46,
-  perfect: 0.34,
-  counterTime: 0.5,
+  guardTime: 0.34,
+  /** Tapping guard holds the stance this long at minimum; holding keeps it up, releasing ends it at once. */
+  guardMin: 0.34,
+  perfect: 0.3,
+  counterTime: 0.4,
   maxMeter: 100,
   comboWindow: 3.2,
 };
 
 export const PLAYER_ATTACKS: Record<string, AttackDef> = {
-  l1: { id: 'l1', icon: 'blue', wind: 0.07, strike: 0.09, rec: 0.2, dmg: 8, range: 2.0, arc: 0.95, lunge: 2.4, kb: 1.2, anim: 'jabL' },
-  l2: { id: 'l2', icon: 'blue', wind: 0.07, strike: 0.09, rec: 0.2, dmg: 8, range: 2.0, arc: 0.95, lunge: 2.4, kb: 1.2, anim: 'jabR' },
-  l3: { id: 'l3', icon: 'blue', wind: 0.09, strike: 0.09, rec: 0.24, dmg: 10, range: 2.1, arc: 1.0, lunge: 2.4, kb: 1.8, anim: 'hook' },
-  l4: { id: 'l4', icon: 'blue', wind: 0.12, strike: 0.1, rec: 0.36, dmg: 16, range: 2.3, arc: 1.3, lunge: 2.6, kb: 4.5, knock: true, anim: 'kick' },
-  heavy: { id: 'heavy', icon: 'blue', wind: 0.28, strike: 0.12, rec: 0.4, dmg: 24, range: 2.5, arc: 1.2, lunge: 2.4, kb: 5.5, knock: true, anim: 'heavy' },
+  l1: { id: 'l1', icon: 'blue', wind: 0.06, strike: 0.08, rec: 0.12, dmg: 8, range: 2.0, arc: 0.95, lunge: 2.4, kb: 1.2, anim: 'jabL' },
+  l2: { id: 'l2', icon: 'blue', wind: 0.06, strike: 0.08, rec: 0.12, dmg: 8, range: 2.0, arc: 0.95, lunge: 2.4, kb: 1.2, anim: 'jabR' },
+  l3: { id: 'l3', icon: 'blue', wind: 0.08, strike: 0.08, rec: 0.15, dmg: 10, range: 2.1, arc: 1.0, lunge: 2.4, kb: 1.8, anim: 'hook' },
+  l4: { id: 'l4', icon: 'blue', wind: 0.1, strike: 0.1, rec: 0.26, dmg: 16, range: 2.3, arc: 1.3, lunge: 2.6, kb: 4.5, knock: true, anim: 'kick' },
+  heavy: { id: 'heavy', icon: 'blue', wind: 0.22, strike: 0.12, rec: 0.28, dmg: 24, range: 2.5, arc: 1.2, lunge: 2.4, kb: 5.5, knock: true, anim: 'heavy' },
   dash: { id: 'dash', icon: 'blue', wind: 0.04, strike: 0.1, rec: 0.3, dmg: 14, range: 2.4, arc: 1.1, lunge: 4.8, kb: 3.5, anim: 'kick' },
   cchain: { id: 'cchain', icon: 'blue', wind: 0.05, strike: 0.1, rec: 0.32, dmg: 18, range: 2.3, arc: 1.3, lunge: 5.0, kb: 4.5, knock: true, anim: 'kick' },
   finish: { id: 'finish', icon: 'blue', wind: 0.2, strike: 0.12, rec: 0.45, dmg: 999, range: 2.0, arc: 1.6, lunge: 1.0, kb: 0, anim: 'finish' },
   shoot: { id: 'shoot', icon: 'yellow', wind: 0.06, strike: 0.04, rec: 0.22, dmg: 0, range: 0, arc: 0, lunge: 0, kb: 0, anim: 'shootP' },
   throwW: { id: 'throwW', icon: 'blue', wind: 0.1, strike: 0.04, rec: 0.25, dmg: 0, range: 0, arc: 0, lunge: 0, kb: 0, anim: 'throwW' },
+  a1: { id: 'a1', icon: 'blue', wind: 0.04, strike: 0.07, rec: 0.1, dmg: 7, range: 2.6, arc: 1.8, lunge: 3.2, kb: 1, anim: 'airL' },
+  a2: { id: 'a2', icon: 'blue', wind: 0.04, strike: 0.07, rec: 0.1, dmg: 7, range: 2.6, arc: 1.8, lunge: 3.2, kb: 1, anim: 'airR' },
+  a3: { id: 'a3', icon: 'blue', wind: 0.05, strike: 0.08, rec: 0.12, dmg: 9, range: 2.7, arc: 1.8, lunge: 3.2, kb: 1.5, anim: 'airKick' },
+  a4: { id: 'a4', icon: 'blue', wind: 0.1, strike: 0.1, rec: 0.2, dmg: 18, range: 2.7, arc: 2.0, lunge: 2, kb: 3, knock: true, anim: 'airSlam' },
   ground: { id: 'ground', icon: 'blue', wind: 0.1, strike: 0.1, rec: 0.28, dmg: 12, range: 1.9, arc: 1.4, lunge: 1.2, kb: 0, anim: 'stomp' },
 };
 
 export const COMBO_CHAIN = ['l1', 'l2', 'l3', 'l4'];
+
+export const AIR_CHAIN = ['a1', 'a2', 'a3'];
+
+export const STYLE_RANKS = ['D', 'C', 'B', 'A', 'S', 'SS', 'SSS'];
+export const STYLE_THRESH = [0, 90, 190, 300, 430, 570, 720];
+export const STYLE_WORDS = ['DOPE', 'CRAZY', 'BADASS', 'APOCALYPTIC', 'SAVAGE', 'SICK STYLE', 'SMOKIN\' SEXY STYLE'];

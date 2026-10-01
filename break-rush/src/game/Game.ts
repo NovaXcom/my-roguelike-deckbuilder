@@ -265,7 +265,7 @@ export class Game {
       moveX: f.x * intent.moveY + r.x * intent.moveX,
       moveZ: f.z * intent.moveY + r.z * intent.moveX,
       aimX: f.x, aimZ: f.z,
-      light: intent.light, heavy: intent.heavy, dodge: intent.dodge, counter: intent.counter, grab: intent.grab, pickup: intent.pickup, rush: intent.rush, throw: intent.throw,
+      light: intent.light, heavy: intent.heavy, dodge: intent.dodge, counter: intent.counter, grab: intent.grab, pickup: intent.pickup, rush: intent.rush, throw: intent.throw, guardHeld: intent.guardHeld,
     };
   }
 

@@ -1,11 +1,11 @@
 import { Rng } from '../game/Rng';
-import { AttackDef, COMBO_CHAIN, EnemyDef, EnemyKind, ENEMIES, PLAYER, PLAYER_ATTACKS } from './data';
+import { AIR_CHAIN, AttackDef, COMBO_CHAIN, EnemyDef, EnemyKind, ENEMIES, PLAYER, PLAYER_ATTACKS, STYLE_THRESH } from './data';
 import { Mods, PERKS, computeMods } from './perks';
 import { endlessWave, Prop, StageDef, WaveSpec } from './stages';
 
 export type FState =
   | 'idle' | 'move' | 'attack' | 'dodge' | 'guard' | 'counter' | 'hit' | 'down' | 'getup' | 'grab' | 'rush' | 'dead'
-  | 'enter' | 'wind' | 'strike' | 'rec' | 'thrown' | 'grabbed' | 'launched';
+  | 'enter' | 'wind' | 'strike' | 'rec' | 'thrown' | 'grabbed' | 'launched' | 'air';
 
 export interface Fighter {
   id: number;
@@ -50,6 +50,9 @@ export interface Player extends Fighter {
   weapon: 'bat' | 'pipe' | 'gun' | null;
   uses: number;
   dodgeEnd: number;
+  airHits: number;
+  airSlam: boolean;
+  guardCd: number;
   hitAt: number;
   lungeT: number;
   grabId: number;
@@ -136,9 +139,11 @@ export interface PlayerCmd {
   rush: boolean;
   /** Fire the gun, or throw the weapon you are holding. */
   throw: boolean;
+  /** Guard button is being held (releasing ends the guard at once). */
+  guardHeld: boolean;
 }
 
-export const emptyCmd = (): PlayerCmd => ({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0, light: false, heavy: false, dodge: false, counter: false, grab: false, pickup: false, rush: false, throw: false });
+export const emptyCmd = (): PlayerCmd => ({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0, light: false, heavy: false, dodge: false, counter: false, grab: false, pickup: false, rush: false, throw: false, guardHeld: false });
 
 export function angleDiff(a: number, b: number): number {
   let d = a - b;
@@ -184,6 +189,12 @@ export class World {
   perkChoices: string[] = [];
   mods: Mods = computeMods([]);
   barrels: Barrel[] = [];
+  /** Just-dodge slow motion: enemies and bullets crawl while you keep full speed. */
+  witchT = 0;
+  style = 0;
+  styleRank = 0;
+  private styleHist: string[] = [];
+  private styleIdle = 0;
   private nextId = 1;
   private queue: { kind: EnemyKind; side: number }[] = [];
   private queueT = 0;
@@ -209,14 +220,14 @@ export class World {
   get parScore(): number {
     let s = 0;
     for (const w of this.waves) for (const g of w) s += ENEMIES[g.kind].pts * g.n;
-    return Math.round(s * 2.3);
+    return Math.round(s * 3.2);
   }
 
   private makePlayer(): Player {
     return {
       id: 0, kind: 'player', x: -this.stage.w / 2 + 4, z: 0, y: 0, vy: 0, vx: 0, vz: 0, kx: 0, kz: 0, facing: 0, hp: PLAYER.hp, maxHp: PLAYER.hp, radius: PLAYER.radius,
       state: 'idle', t: 0, alive: true, flash: 0, anim: 'idle', dur: 0, walk: 0,
-      atk: null, step: 0, comboGap: 0, queued: null, hitDone: false, lungeV: 0, dodgeCd: 0, dodgeX: 1, dodgeZ: 0, meter: 0, weapon: null, uses: 0, dodgeEnd: -9, hitAt: 0, lungeT: 0, grabId: -1, stun: 0, downT: 0, invuln: 0,
+      atk: null, step: 0, comboGap: 0, queued: null, hitDone: false, lungeV: 0, dodgeCd: 0, dodgeX: 1, dodgeZ: 0, meter: 0, weapon: null, uses: 0, dodgeEnd: -9, airHits: 0, airSlam: false, guardCd: 0, hitAt: 0, lungeT: 0, grabId: -1, stun: 0, downT: 0, invuln: 0,
     };
   }
 
@@ -225,11 +236,15 @@ export class World {
   update(dt: number, cmd: PlayerCmd): void {
     this.lastDt = dt;
     this.time += dt;
+    const wt = this.witchT > 0 ? 0.2 : 1;
+    this.witchT = Math.max(0, this.witchT - dt);
     this.updateWaves(dt);
     this.assignTokens();
     this.updatePlayer(dt, cmd);
-    for (const e of this.enemies) this.updateEnemy(e, dt);
-    this.updateBullets(dt);
+    for (const e of this.enemies) this.updateEnemy(e, dt * wt);
+    if (wt < 1) for (const e of this.enemies) { e.vx *= wt; e.vz *= wt; }
+    this.updateBullets(dt * wt);
+    this.updateStyle(dt);
     this.updatePickups(dt);
     this.collide();
     this.comboT -= dt;
@@ -246,7 +261,44 @@ export class World {
   }
 
   get mult(): number {
-    return 1 + Math.min(6, Math.floor(this.combo / 6)) * 0.5;
+    return (1 + Math.min(6, Math.floor(this.combo / 6)) * 0.5) * (1 + this.styleRank * 0.2);
+  }
+
+  /** 0..1 progress inside the current style rank. */
+  get styleProgress(): number {
+    const lo = STYLE_THRESH[this.styleRank];
+    const hi = STYLE_THRESH[this.styleRank + 1] ?? lo + 150;
+    return Math.max(0, Math.min(1, (this.style - lo) / (hi - lo)));
+  }
+
+  /** Reward a move; repeating the same move is worth much less than mixing it up. */
+  styleGain(move: string, base: number): void {
+    const h = this.styleHist;
+    const spam = h.length >= 3 && h.slice(-3).every((m) => m === move);
+    const fresh = !h.slice(-4).includes(move);
+    this.style = Math.min(800, this.style + base * (spam ? 0.35 : fresh ? 1.5 : 1));
+    h.push(move);
+    if (h.length > 12) h.shift();
+    this.styleIdle = 0;
+    this.refreshRank();
+  }
+
+  private refreshRank(): void {
+    let r = 0;
+    for (let i = 0; i < STYLE_THRESH.length; i++) if (this.style >= STYLE_THRESH[i]) r = i;
+    if (r !== this.styleRank) {
+      const up = r > this.styleRank;
+      this.styleRank = r;
+      this.ev({ type: 'rank', n: r, by: up ? 'up' : 'down' });
+    }
+  }
+
+  private updateStyle(dt: number): void {
+    this.styleIdle += dt;
+    if (this.styleIdle > 1.6 && this.style > 0) {
+      this.style = Math.max(0, this.style - (14 + this.styleRank * 9) * dt);
+      this.refreshRank();
+    }
   }
 
   private ev(e: WorldEvent): void {
@@ -415,7 +467,7 @@ export class World {
     for (const e of this.enemies) {
       if (e.state === 'dead' || e.state === 'down' || e.state === 'grabbed' || e.state === 'thrown' || e.state === 'enter') continue;
       const d = Math.hypot(e.x - p.x, e.z - p.z);
-      if (d > maxDist) continue;
+      if (d > maxDist || Math.abs(e.y - p.y) > 2.8) continue;
       const a = Math.abs(angleDiff(Math.atan2(e.z - p.z, e.x - p.x), dir));
       if (a > 1.0 && d > 2.2) continue;
       const s = d + a * 2.2;
@@ -437,6 +489,7 @@ export class World {
     p.hitDone = false;
     p.queued = null;
     const tgt = id === 'ground' || id === 'finish' ? this.nearestDowned(p) : this.pickTarget(p, cmd.moveX, cmd.moveZ, id === 'cchain' || id === 'dash' ? 7 : 5);
+    if (id[0] === 'a' && id.length === 2 && tgt) p.vy = Math.max(-5, Math.min(8, (tgt.y - p.y) * 7));
     let ax = Math.cos(p.facing), az = Math.sin(p.facing);
     let dist = 0;
     if (tgt) {
@@ -454,7 +507,7 @@ export class World {
     p.lungeV = travel / p.lungeT;
     // long lunges connect when we have mostly arrived, not at the first frame
     p.hitAt = travel > 1.6 ? Math.max(def.wind, Math.min(0.12, p.lungeT * 0.8)) : def.wind;
-    if (id !== 'ground' && id !== 'finish' && id !== 'dash' && id !== 'cchain') {
+    if (id !== 'ground' && id !== 'finish' && id !== 'dash' && id !== 'cchain' && !(id[0] === 'a' && id.length === 2)) {
       const i = COMBO_CHAIN.indexOf(id);
       p.step = i >= 0 ? (i + 1) % COMBO_CHAIN.length : 0;
     }
@@ -477,35 +530,64 @@ export class World {
     return best;
   }
 
+  private onPlayerLand(p: Player): void {
+    if (p.airSlam) {
+      p.airSlam = false;
+      this.ev({ type: 'airSlam', x: p.x, z: p.z });
+      for (const e of this.enemies) {
+        if (e.state === 'dead') continue;
+        if (Math.hypot(e.x - p.x, e.z - p.z) < 3.4) this.damageEnemy(e, 14 * this.mods.dmg, { kb: 7, knock: true, heavy: true, from: p, force: true, move: 'airslam' });
+      }
+      this.styleGain('airslam', 40);
+    } else this.ev({ type: 'playerLand', x: p.x, z: p.z });
+    if (p.state === 'air') { p.state = 'idle'; p.t = 0; }
+    p.airHits = 0;
+  }
+
   private updatePlayer(dt: number, cmd: PlayerCmd): void {
     const p = this.player;
     p.t += dt;
     p.flash = Math.max(0, p.flash - dt);
     p.dodgeCd = Math.max(0, p.dodgeCd - dt);
+    p.guardCd = Math.max(0, p.guardCd - dt);
     p.invuln = Math.max(0, p.invuln - dt);
     if (p.comboGap < 9) p.comboGap += dt;
     p.vx = p.vz = 0;
     if (!p.alive) return;
 
+    // ---- vertical motion (air combos): floaty while fighting in the air, heavy otherwise ----
+    if (p.y > 0.001 || p.vy > 0) {
+      const g = p.state === 'attack' || p.state === 'dodge' ? 7 : p.state === 'air' ? 15 : 24;
+      p.vy -= g * dt;
+      p.y += p.vy * dt;
+      if (p.y <= 0) {
+        p.y = 0;
+        p.vy = 0;
+        this.onPlayerLand(p);
+      }
+    }
+    const airborne = p.y > 0.35;
+
     const mlen = Math.hypot(cmd.moveX, cmd.moveZ);
-    const free = p.state === 'idle' || p.state === 'move';
+    const free = p.state === 'idle' || p.state === 'move' || p.state === 'air';
     const inRec = p.state === 'attack' && p.atk && p.t >= Math.max(p.atk.wind + p.atk.strike, p.hitAt + 0.05);
-    const canAct = free || inRec || (p.state === 'guard' && p.t > PLAYER.guardTime) || (p.state === 'counter' && p.t > PLAYER.counterTime * 0.55);
-    const dodgeCancel = p.state === 'dodge' && p.t > 0.22;
-    const counterChain = p.state === 'counter' && p.t > 0.1;
+    const guardOpen = p.state === 'guard' && p.t > 0.1;
+    const canAct = free || inRec || guardOpen || (p.state === 'counter' && p.t > PLAYER.counterTime * 0.45);
+    const dodgeCancel = p.state === 'dodge' && p.t > 0.22 && !airborne;
+    const counterChain = p.state === 'counter' && p.t > 0.08;
 
     // ---- buffered input and cancels ----
     if (p.state === 'attack' && p.atk) {
       if (cmd.light) p.queued = 'light';
       if (cmd.heavy) p.queued = 'heavy';
     }
-    if (cmd.dodge && p.dodgeCd <= 0 && (canAct || p.state === 'hit' && p.t > 0.12 || p.state === 'attack' && p.atk && p.t > p.atk.wind + p.atk.strike * 0.5)) {
+    if (cmd.dodge && p.dodgeCd <= 0 && (canAct || p.state === 'guard' || p.state === 'hit' && p.t > 0.12 || p.state === 'attack' && p.atk && p.t > p.atk.wind + p.atk.strike * 0.5)) {
       this.startDodge(p, cmd);
-    } else if (cmd.counter && canAct && p.state !== 'guard') {
+    } else if (cmd.counter && canAct && p.state !== 'guard' && p.guardCd <= 0 && !airborne) {
       p.state = 'guard';
       p.t = 0;
       p.anim = 'guard';
-      p.dur = PLAYER.guardTime;
+      p.dur = PLAYER.guardMin;
       p.atk = null;
     } else if (cmd.rush && p.meter >= PLAYER.maxMeter && (free || inRec)) {
       p.state = 'rush';
@@ -516,16 +598,20 @@ export class World {
       p.atk = null;
       p.invuln = 0.8;
       this.ev({ type: 'rushStart', x: p.x, z: p.z });
+      this.styleGain('rush', 50);
     } else if (cmd.pickup && (free || inRec)) {
       this.tryPickup(p);
-    } else if (cmd.grab && free) {
+    } else if (cmd.grab && free && !airborne) {
       this.tryGrab(p, cmd);
     } else if (cmd.throw && (free || inRec)) {
       this.startShoot(p, cmd);
-    } else if ((cmd.light || cmd.heavy) && (free || inRec || dodgeCancel || counterChain)) {
+    } else if ((cmd.light || cmd.heavy) && (canAct || dodgeCancel || counterChain)) {
       const down = this.nearestDowned(p);
       const standing = this.pickTarget(p, cmd.moveX, cmd.moveZ, 2.4);
-      if (p.state === 'counter') this.startAttack(p, 'cchain', cmd);
+      if (airborne) {
+        if (cmd.heavy) this.startAttack(p, 'a4', cmd);
+        else this.startAttack(p, AIR_CHAIN[p.airHits % AIR_CHAIN.length], cmd);
+      } else if (p.state === 'counter') this.startAttack(p, 'cchain', cmd);
       else if (dodgeCancel || (free && this.time - p.dodgeEnd < 0.28)) this.startAttack(p, 'dash', cmd);
       else if (cmd.heavy && this.finishTarget(p)) this.startAttack(p, 'finish', cmd);
       else if (cmd.heavy) this.startAttack(p, 'heavy', cmd);
@@ -539,11 +625,16 @@ export class World {
     // ---- state update ----
     switch (p.state) {
       case 'idle':
-      case 'move': {
-        const sp = PLAYER.speed;
+      case 'move':
+      case 'air': {
+        const sp = PLAYER.speed * (p.state === 'air' ? 0.75 : 1);
         p.vx = cmd.moveX * sp;
         p.vz = cmd.moveZ * sp;
-        if (mlen > 0.15) {
+        if (p.state === 'air') {
+          p.anim = 'air';
+          if (mlen > 0.15) p.facing += angleDiff(Math.atan2(cmd.moveZ, cmd.moveX), p.facing) * Math.min(1, dt * 12);
+          if (p.y <= 0.001) { p.state = 'idle'; }
+        } else if (mlen > 0.15) {
           p.state = 'move';
           p.anim = 'run';
           const target = Math.atan2(cmd.moveZ, cmd.moveX);
@@ -565,47 +656,52 @@ export class World {
         if (p.t >= p.hitAt && !p.hitDone) {
           p.hitDone = true;
           this.playerStrike(p, a);
+          if (p.state !== 'attack') break;
         }
         if (p.t >= active + a.rec) {
           const q = p.queued;
-          p.state = 'idle';
+          p.state = p.y > 0.05 ? 'air' : 'idle';
           p.atk = null;
-          if (q === 'light') this.startAttack(p, p.comboGap < 0.75 && p.step > 0 ? COMBO_CHAIN[p.step] : COMBO_CHAIN[0], cmd);
-          else if (q === 'heavy') this.startAttack(p, 'heavy', cmd);
+          if (q === 'light') {
+            if (p.y > 0.35) this.startAttack(p, AIR_CHAIN[p.airHits % AIR_CHAIN.length], cmd);
+            else this.startAttack(p, p.comboGap < 0.75 && p.step > 0 ? COMBO_CHAIN[p.step] : COMBO_CHAIN[0], cmd);
+          } else if (q === 'heavy') this.startAttack(p, p.y > 0.35 ? 'a4' : 'heavy', cmd);
         }
         break;
       }
       case 'dodge': {
         const k = Math.max(0, 1 - p.t / PLAYER.dodgeTime);
-        const sp = PLAYER.dodgeSpeed * (0.35 + 0.65 * k);
+        const sp = PLAYER.dodgeSpeed * (0.35 + 0.65 * k) * (airborne ? 1.25 : 1);
         p.vx = p.dodgeX * sp;
         p.vz = p.dodgeZ * sp;
-        if (p.t >= PLAYER.dodgeTime) { p.state = 'idle'; p.dodgeCd = PLAYER.dodgeCd; p.dodgeEnd = this.time; }
+        if (p.t >= (airborne ? 0.25 : PLAYER.dodgeTime)) { p.state = p.y > 0.05 ? 'air' : 'idle'; p.dodgeCd = PLAYER.dodgeCd; p.dodgeEnd = this.time; }
         break;
       }
-      case 'guard':
-        if (p.t >= PLAYER.guardTime + 0.18) p.state = 'idle';
+      case 'guard': {
+        // tap = a short parry stance, hold = keep blocking; letting go ends it immediately
+        if (p.t >= PLAYER.guardMin && !cmd.guardHeld) { p.state = 'idle'; p.guardCd = 0.05; }
         break;
+      }
       case 'counter':
         if (p.t >= PLAYER.counterTime) p.state = 'idle';
         break;
       case 'hit':
         p.vx = p.vz = 0;
-        if (p.t >= p.stun) p.state = 'idle';
+        if (p.t >= p.stun) p.state = p.y > 0.05 ? 'air' : 'idle';
         break;
       case 'down':
-        if (p.t >= p.downT) { p.state = 'getup'; p.t = 0; p.anim = 'getup'; p.dur = 0.55; }
+        if (p.t >= p.downT) { p.state = 'getup'; p.t = 0; p.anim = 'getup'; p.dur = 0.5; }
         break;
       case 'getup':
-        if (p.t >= 0.55) { p.state = 'idle'; p.invuln = Math.max(p.invuln, 0.3); }
+        if (p.t >= 0.5) { p.state = 'idle'; p.invuln = Math.max(p.invuln, 0.3); }
         break;
       case 'grab': {
         const e = this.enemies.find((q) => q.id === p.grabId);
         if (!e || e.state !== 'grabbed') { p.state = 'idle'; break; }
         e.x = p.x + Math.cos(p.facing) * 0.9;
         e.z = p.z + Math.sin(p.facing) * 0.9;
-        if (p.t >= 0.34) this.throwEnemy(p, e, cmd);
-        if (p.t >= 0.6) p.state = 'idle';
+        if (p.t >= 0.3) this.throwEnemy(p, e, cmd);
+        if (p.t >= 0.52) p.state = 'idle';
         break;
       }
       case 'rush': {
@@ -620,7 +716,7 @@ export class World {
       default:
         break;
     }
-    if (p.state !== 'attack' && p.state !== 'idle' && p.state !== 'move') p.comboGap = Math.min(p.comboGap, 0.3);
+    if (p.state !== 'attack' && p.state !== 'idle' && p.state !== 'move' && p.state !== 'air') p.comboGap = Math.min(p.comboGap, 0.3);
   }
 
   private startDodge(p: Player, cmd: PlayerCmd): void {
@@ -701,6 +797,7 @@ export class World {
     this.damageEnemy(e, 14 * this.mods.throwDmg, { kb: 0, knock: false, heavy: false, quiet: true });
     if (e.hp > 0) e.state = 'thrown';
     this.addScore(80);
+    this.styleGain('throw', 30);
   }
 
   private rushBlast(p: Player): void {
@@ -739,6 +836,7 @@ export class World {
     const sp = 40;
     this.bullets.push({ x: p.x + Math.cos(p.facing) * 0.8, z: p.z + Math.sin(p.facing) * 0.8, vx: Math.cos(p.facing) * sp, vz: Math.sin(p.facing) * sp, life: 1, dmg: 15 * this.mods.dmg, from: 0, reflected: false, friendly: true });
     this.ev({ type: 'pshoot', x: p.x, y: 1.3, z: p.z });
+    this.styleGain('gun', 9);
     if (p.uses <= 0) { p.weapon = null; this.ev({ type: 'weaponBreak', kind: 'empty' }); }
   }
 
@@ -775,6 +873,7 @@ export class World {
   private playerStrike(p: Player, a: AttackDef): void {
     if (a.id === 'shoot') { this.fireGun(p); return; }
     if (a.id === 'throwW') { this.throwWeapon(p); return; }
+    const isAir = a.id[0] === 'a' && a.id.length === 2;
     const melee = a.id === 'l1' || a.id === 'l2' || a.id === 'l3' || a.id === 'l4' || a.id === 'heavy';
     if (p.weapon && p.weapon !== 'gun' && melee) {
       p.uses--;
@@ -785,6 +884,7 @@ export class World {
     for (const e of this.enemies) {
       if (e.state === 'dead' || e.state === 'grabbed' || e.state === 'thrown' || e.state === 'enter') continue;
       if (onlyDown ? e.state !== 'down' : e.state === 'down') continue;
+      if (Math.abs(e.y - p.y) > 1.9) continue;
       const dx = e.x - p.x, dz = e.z - p.z;
       const d = Math.hypot(dx, dz) - e.radius;
       if (d > a.range) continue;
@@ -803,16 +903,25 @@ export class World {
       if (a.id === 'finish') {
         this.ev({ type: 'finisher', x: e.x, y: 0.8, z: e.z });
         this.addScore(300);
+        this.styleGain('finish', 60);
         p.hp = Math.min(p.maxHp, p.hp + 8);
         this.addMeter(15);
         this.damageEnemy(e, 9999, { kb: 0, knock: true, heavy: true, from: p, force: true });
         continue;
       }
       const air = e.state === 'launched';
-      this.damageEnemy(e, a.dmg * this.mods.dmg, {
-        kb: a.kb, knock: !!a.knock, heavy: a.id === 'heavy' || a.id === 'l4', from: p, finisher: a.id === 'l4',
-        launch: a.id === 'heavy' && !air, slam: a.id === 'heavy' && air,
+      const witch = this.witchT > 0 ? 1.3 : 1;
+      this.damageEnemy(e, a.dmg * this.mods.dmg * witch, {
+        kb: a.kb, knock: !!a.knock && !isAir, heavy: a.id === 'heavy' || a.id === 'l4' || a.id === 'a4', from: p, finisher: a.id === 'l4',
+        launch: a.id === 'heavy' && !air, slam: (a.id === 'heavy' || a.id === 'a4') && air, move: a.id,
       });
+      if (isAir && a.id !== 'a4') { p.vy = Math.max(p.vy, 3.4); p.airHits++; }
+      if (a.id === 'heavy' && e.state === 'launched' && p.state === 'attack') {
+        // follow them up
+        p.state = 'air'; p.t = 0; p.vy = 8.2; p.y = Math.max(p.y, 0.06); p.atk = null; p.queued = null; p.airHits = 0;
+        this.ev({ type: 'airUp', x: p.x, z: p.z });
+      }
+      if (a.id === 'a4' && air) { p.vy = -19; p.airSlam = true; }
     }
     for (const b of this.barrels) {
       if (!b.alive || !b.explosive) continue;
@@ -829,6 +938,7 @@ export class World {
     if (pr) pr.solid = false;
     const R = 3.7;
     this.ev({ type: 'explode', x: b.x, y: 0.6, z: b.z, id: b.index, n: R });
+    this.styleGain('explode', 40);
     for (const e of this.enemies) {
       if (e.state === 'dead') continue;
       const d = Math.hypot(e.x - b.x, e.z - b.z);
@@ -845,7 +955,7 @@ export class World {
   }
 
   /** Returns true if the enemy died. */
-  damageEnemy(e: Enemy, dmg: number, o: { kb: number; knock: boolean; heavy: boolean; from?: { x: number; z: number }; quiet?: boolean; force?: boolean; finisher?: boolean; launch?: boolean; slam?: boolean }): boolean {
+  damageEnemy(e: Enemy, dmg: number, o: { kb: number; knock: boolean; heavy: boolean; from?: { x: number; z: number }; quiet?: boolean; force?: boolean; finisher?: boolean; launch?: boolean; slam?: boolean; move?: string }): boolean {
     if (e.state === 'dead') return false;
     const wasAir = e.state === 'launched';
     const armored = e.def.armored && !o.knock && !o.force && !o.launch && e.state !== 'hit' && e.state !== 'down';
@@ -860,6 +970,7 @@ export class World {
       this.registerHit();
       this.addScore(10 + (o.heavy ? 15 : 0) + (wasAir ? 20 : 0));
       this.addMeter(4 + (o.heavy ? 4 : 0));
+      this.styleGain(o.move ?? 'hit', 5 + (o.heavy ? 8 : 0) + (wasAir ? 6 : 0) + (o.launch ? 14 : 0));
     }
     this.ev({ type: 'hit', target: 'enemy', id: e.id, x: e.x, y: 1.2 + e.y, z: e.z, dmg, heavy: o.heavy || o.knock || !!o.launch, kind: e.kind, by: armored ? 'armor' : undefined });
     if (e.hp <= 0) {
@@ -957,6 +1068,7 @@ export class World {
     this.kills++;
     this.addScore(e.def.pts);
     const p = this.player;
+    this.styleGain('kill', 18);
     this.addMeter(8);
     p.hp = Math.min(p.maxHp, p.hp + 3 + this.mods.vamp);
     const last = this.aliveCount === 0;
@@ -973,10 +1085,14 @@ export class World {
     const p = this.player;
     dmg *= this.damageScale * (1 - this.mods.armor);
     if (!p.alive || p.invuln > 0 && p.state !== 'guard') return 'none';
+    if (p.y > 1.0 && !bullet) return 'none';
     if (p.state === 'dodge' && p.t >= PLAYER.iFrom && p.t <= PLAYER.iTo + this.mods.iframes) {
-      this.ev({ type: 'evade', x: p.x, z: p.z });
-      this.addMeter(8);
-      this.addScore(30);
+      const just = p.t <= 0.2;
+      this.ev({ type: just ? 'justdodge' : 'evade', x: p.x, z: p.z });
+      this.addMeter(just ? 22 : 8);
+      this.addScore(just ? 90 : 30);
+      this.styleGain(just ? 'justdodge' : 'evade', just ? 50 : 18);
+      if (just) this.witchT = 1.8;
       return 'evade';
     }
     if (p.state === 'rush' || p.state === 'counter') return 'none';
@@ -991,6 +1107,7 @@ export class World {
           this.ev({ type: 'deflect', x: bullet.x, y: 1.3, z: bullet.z });
           this.registerHit();
           this.addScore(120);
+          this.styleGain('deflect', 35);
           this.addMeter(10);
           return 'counter';
         }
@@ -1012,6 +1129,8 @@ export class World {
     p.invuln = 0.3;
     this.combo = 0;
     this.comboT = 0;
+    this.style *= 0.5;
+    this.refreshRank();
     this.ev({ type: 'hit', target: 'player', id: 0, x: p.x, y: 1.2, z: p.z, dmg, heavy: !!atk.knock });
     if (p.hp <= 0) {
       this.downPlayer();
@@ -1061,6 +1180,7 @@ export class World {
     this.ev({ type: 'counter', id: e.id, x: e.x, y: 1.2, z: e.z });
     this.registerHit();
     this.addScore(150);
+    this.styleGain('counter', 45);
     this.addMeter(12);
     if (this.mods.counterBlast) {
       for (const o of this.enemies) {
@@ -1312,6 +1432,7 @@ export class World {
     let inRange = false;
     if (a.aoe) inRange = d <= a.aoe + p.radius;
     else inRange = d - p.radius <= a.range && Math.abs(angleDiff(Math.atan2(dz, dx), e.facing)) <= a.arc;
+    if (p.y > 1.0) inRange = false;
     if (a.aoe) this.ev({ type: 'slam', x: e.x, z: e.z, n: a.aoe });
     if (!inRange) { if (a.lunge >= 5) e.hitDone = false; return; }
     const res = this.hurtPlayer(e, a, a.dmg, dx / (d || 1), dz / (d || 1));

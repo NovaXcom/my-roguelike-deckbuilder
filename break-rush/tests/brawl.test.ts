@@ -600,3 +600,149 @@ describe('boss', () => {
     expect(e.rage).toBeGreaterThan(1);
   });
 });
+
+describe('guard feels snappy', () => {
+  it('a tapped guard is over in about a third of a second, and letting go of a held guard is instant', () => {
+    const w = arena([]);
+    run(w, 0.05, () => ({ counter: true }));
+    expect(w.player.state).toBe('guard');
+    run(w, 0.4, () => ({}));
+    expect(w.player.state).toBe('idle');
+    // hold
+    run(w, 0.1, () => ({ counter: true, guardHeld: true }));
+    run(w, 0.8, () => ({ guardHeld: true }));
+    expect(w.player.state).toBe('guard');
+    run(w, 0.02, () => ({ guardHeld: false }));
+    expect(w.player.state).toBe('idle');
+  });
+
+  it('you can roll out of a guard immediately', () => {
+    const w = arena([]);
+    run(w, 0.05, () => ({ counter: true }));
+    run(w, 0.03, () => ({ dodge: true, moveZ: 1 }));
+    expect(w.player.state).toBe('dodge');
+  });
+
+  it('and attack out of it once the stance is open', () => {
+    const w = arena(['thug']);
+    w.enemies[0].x = 1.6; w.enemies[0].cd = 99;
+    run(w, 0.05, () => ({ counter: true }));
+    run(w, 0.2, (_w, t) => ({ light: t > 0.08 && t < 0.1 }));
+    expect(w.player.state).toBe('attack');
+  });
+});
+
+describe('just dodge', () => {
+  it('rolling just as an attack lands triggers slow motion for enemies only', () => {
+    const w = arena(['thug', 'thug']);
+    const a = w.enemies[0], b = w.enemies[1];
+    a.x = 1.9; a.token = true; b.x = 8; b.z = 3; b.cd = 99;
+    let just = false;
+    run(w, 1.4, (ww) => {
+      if (ww.drain().some((x) => x.type === 'justdodge')) just = true;
+      if (!just && a.state === 'wind' && a.t > a.atk!.wind - 0.1 && ww.player.state !== 'dodge') return { dodge: true, moveZ: 1 };
+      return {};
+    });
+    expect(just).toBe(true);
+    expect(w.witchT).toBeGreaterThan(0);
+    const t0 = b.t;
+    w.update(1 / 60, emptyCmd());
+    // during witch time enemy clocks advance at a fraction of real time
+    expect(b.t - t0).toBeLessThan(1 / 60 * 0.5);
+    expect(w.player.hp).toBe(PLAYER.hp);
+  });
+
+  it('an early roll is an ordinary evade with no slow motion', () => {
+    const w = arena(['thug']);
+    const a = w.enemies[0];
+    a.x = 1.9; a.token = true;
+    let evaded = false;
+    run(w, 1.4, (ww) => {
+      for (const x of ww.drain()) if (x.type === 'evade') evaded = true;
+      if (!evaded && a.state === 'wind' && a.t > a.atk!.wind - 0.38 && ww.player.state !== 'dodge' && ww.player.dodgeEnd < 0) return { dodge: true, moveZ: 1 };
+      return {};
+    });
+    expect(w.witchT).toBe(0);
+  });
+});
+
+describe('air combos', () => {
+  const launchOne = () => {
+    const w = arena(['thug']);
+    const e = w.enemies[0];
+    e.x = 1.7; e.cd = 99; e.hp = 9999;
+    run(w, 0.4, (_w, t) => ({ heavy: t < 0.02 }));
+    return { w, e };
+  };
+
+  it('a launching heavy attack carries the player up after the enemy', () => {
+    const { w, e } = launchOne();
+    expect(e.state).toBe('launched');
+    expect(w.player.y).toBeGreaterThan(0.3);
+    expect(['air', 'attack']).toContain(w.player.state);
+  });
+
+  it('air strikes juggle the enemy and keep you both aloft, then the slam brings you down with a shockwave', () => {
+    const { w, e } = launchOne();
+    let hits = 0, slam = false, quake = false;
+    for (let t = 0; t < 2.4; t += DT) {
+      for (const x of w.drain()) { if (x.type === 'slamdown') slam = true; if (x.type === 'airSlam') quake = true; }
+      const press = Math.floor(t / 0.18) !== Math.floor((t - DT) / 0.18);
+      const cmd = { ...emptyCmd(), light: press && t < 0.6, heavy: press && t >= 0.6 && t < 0.8 };
+      if (cmd.light) hits++;
+      w.update(DT, cmd);
+    }
+    expect(hits).toBeGreaterThanOrEqual(2);
+    expect(e.juggle).toBeGreaterThanOrEqual(2);
+    expect(slam).toBe(true);
+    expect(quake).toBe(true);
+    expect(w.player.y).toBe(0);
+  });
+
+  it('while you are high in the air melee attacks cannot touch you', () => {
+    const { w } = launchOne();
+    w.player.y = 2; w.player.vy = 0;
+    const th = (w as unknown as { spawn(k: string, s: number): Enemy }).spawn('thug', 1);
+    th.state = 'idle'; th.x = w.player.x + 1; th.z = w.player.z; th.token = true; th.cd = 0;
+    const hp = w.player.hp;
+    for (let i = 0; i < 40; i++) { w.player.y = 2; w.player.vy = 0; w.update(DT, emptyCmd()); }
+    expect(w.player.hp).toBe(hp);
+  });
+});
+
+describe('style rank', () => {
+  it('mixing different moves climbs the rank much faster than repeating one move', () => {
+    const a = arena([]);
+    const b = arena([]);
+    for (let i = 0; i < 12; i++) b.styleGain('hit', 12);
+    for (const m of ['hit', 'counter', 'finish', 'throw', 'explode', 'justdodge', 'airslam', 'deflect', 'gun', 'kill', 'rush', 'evade']) a.styleGain(m, 12);
+    expect(a.style).toBeGreaterThan(b.style * 1.8);
+    expect(a.styleRank).toBeGreaterThan(b.styleRank);
+  });
+
+  it('style decays when you stop, and is cut when you are hit', () => {
+    const w = arena([]);
+    ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].forEach((m) => w.styleGain(m, 40));
+    const high = w.style;
+    expect(high).toBeGreaterThan(300);
+    for (let i = 0; i < 60 * 4; i++) w.update(DT, emptyCmd());
+    expect(w.style).toBeLessThan(high);
+    const s0 = w.style;
+    const th = (w as unknown as { spawn(k: string, s: number): Enemy }).spawn('thug', 1);
+    w.hurtPlayer(th, ENEMIES.thug.attacks[0], 8, 1, 0);
+    expect(w.style).toBeCloseTo(s0 * 0.5, 0);
+  });
+
+  it('a higher rank multiplies your score', () => {
+    const w = arena([]);
+    const base = w.mult;
+    for (const m of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']) w.styleGain(m, 40);
+    expect(w.mult).toBeGreaterThan(base * 1.5);
+  });
+
+  it('rank changes are announced', () => {
+    const w = arena([]);
+    w.styleGain('a', 100);
+    expect(w.drain().some((e) => e.type === 'rank' && e.by === 'up')).toBe(true);
+  });
+});
