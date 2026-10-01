@@ -5,7 +5,9 @@ import { LOCATIONS, NPCS, loc as locDef } from '../data/world';
 import { availableEvents, availableThreads, connect, currentLead, hintNow, nextAuto, presentNpcs, tellOptions, travelOptions } from '../engine/logic';
 import { BOUNDS, EXITS, TIME_SPEEDS, clampX, clampY, spots, talkEvents, type Spot } from '../engine/explore';
 import { run } from '../engine/runner';
-import { playEvent, processTime, startDay, tellTo, travelTo, waitMinutes, type Gen } from '../engine/session';
+import { playEvent, processTime, startDay, stealthFail, tellTo, travelTo, waitMinutes, type Gen } from '../engine/session';
+import { STEALTH_SPEED, createStealth, stepStealth, type StealthState, type StealthStatus } from '../engine/stealth';
+import { stealthDef } from '../data/stealth';
 import { advance, dayOver, deserialize, newState, nextLoop, recCount, serialize } from '../engine/state';
 import type { GameEvent, GameState, LocId, NpcId, Step } from '../engine/types';
 import { Sound } from './audio';
@@ -13,6 +15,7 @@ import { H, W, drawScene, skyAt, speakerLook, type SceneInfo } from './render';
 
 const SAVE_KEY = 'last-day-save-v1';
 const END_KEY = 'last-day-endings-v1';
+const OPT_KEY = 'last-day-options-v1';
 
 const store = {
   get(k: string): string | null { try { return localStorage.getItem(k); } catch { return null; } },
@@ -64,10 +67,16 @@ export class Game {
   private exiting = false;
   private speedIdx = 2;
   private modalClose: (() => void) | null = null;
+  // 追跡・隠れる
+  private stealth: StealthState | null = null;
+  private stealthResolve: ((s: StealthStatus | 'quit') => void) | null = null;
+  private easyStealth = false;
+  private lastTargetX = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
     try { this.seenEndings = JSON.parse(store.get(END_KEY) ?? '[]'); } catch { this.seenEndings = []; }
+    try { const o = JSON.parse(store.get(OPT_KEY) ?? '{}'); this.easyStealth = !!o.easy; if (typeof o.speed === 'number') this.speedIdx = o.speed; } catch { /* 既定値 */ }
     this.build();
     this.bindKeys();
     this.frame();
@@ -92,6 +101,7 @@ export class Game {
         </div>
         <div id="toast"></div>
         <div id="prompt" hidden></div>
+        <div id="sbar" hidden></div>
         <div id="dlg" hidden>
           <div id="spk"></div>
           <div id="txt"></div>
@@ -114,9 +124,10 @@ export class Game {
   private bindKeys() {
     window.addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
-      if (this.exploring()) {
+      if (this.stealth && k === 'escape' && this.$('modal').hidden) { this.stealthResolve?.('quit'); this.stealthResolve = null; return; }
+      if (this.exploring() || (this.stealth && !this.busy && this.$('modal').hidden)) {
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' ', 'enter'].includes(k)) e.preventDefault();
-        if (k === 'e' || k === ' ' || k === 'enter') { void this.interact(); return; }
+        if (!this.stealth && (k === 'e' || k === ' ' || k === 'enter')) { void this.interact(); return; }
         this.keys.add(k);
       }
       if (k === ' ' || k === 'enter') { if (!this.$('dlg').hidden && !this.$('choices').childElementCount) { e.preventDefault(); this.onAdvance(); } }
@@ -131,7 +142,7 @@ export class Game {
   private ui(id: string) { this.sound.sfx(id); }
 
   // ───────────── 描画ループ ─────────────
-  private exploring() { return this.inGame && !this.busy && !this.exiting && this.$('modal').hidden && this.$('dlg').hidden; }
+  private exploring() { return this.inGame && !this.busy && !this.exiting && !this.stealth && this.$('modal').hidden && this.$('dlg').hidden; }
 
   private info(): SceneInfo {
     const s = this.s;
@@ -144,8 +155,9 @@ export class Game {
       crack: !title && s.flags.crack !== undefined,
       actors: title ? [] : [...this.actors.values()].map((a) => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, moving: a.moving })),
       hero: title ? null : { ...this.hero },
-      spots: title ? [] : this.spotsNow.map((p) => ({ x: p.x, kind: p.kind })),
+      spots: title || this.stealth ? [] : this.spotsNow.map((p) => ({ x: p.x, kind: p.kind })),
       exits: title ? { L: 0, R: 0 } : { L: EXITS[s.loc].L.length, R: EXITS[s.loc].R.length },
+      stealth: title || !this.stealth ? null : this.stealthView(),
       speaking: this.speaking, tick: this.tick, loop: s.loop,
       flash: this.flash, glitch: Math.max(this.glitch, this.inGame ? Math.min(0.5, (s.loop - 1) / 40) : 0),
     };
@@ -162,6 +174,7 @@ export class Game {
       this.syncWorld();
       const ex = this.exploring();
       if (ex) { this.stepHero(dt); this.stepClock(dt); }
+      else if (this.stealth && !this.busy && this.$('modal').hidden) this.stepStealthFrame(dt);
       this.stepActors(dt);
       if (ex) this.updateTarget(); else this.setPrompt(null);
     }
@@ -201,10 +214,12 @@ export class Game {
     h.moving = !!(dx || dy);
     if (h.moving) {
       const len = Math.hypot(dx, dy) || 1;
-      h.x = clampX(h.x + (dx / len) * 80 * dt); h.y = clampY(h.y + (dy / len) * 50 * dt);
+      const sp = this.stealth ? STEALTH_SPEED : 80;
+      h.x = clampX(h.x + (dx / len) * sp * dt); h.y = clampY(h.y + (dy / len) * sp * 0.62 * dt);
       if (dx) h.dir = dx > 0 ? 1 : -1;
       this.stepSnd += dt; if (this.stepSnd > 0.32) { this.stepSnd = 0; this.sound.sfx('step'); }
       const e = EXITS[this.s.loc];
+      if (this.stealth) return;
       if (h.x <= BOUNDS.x0 + 0.6 && dx <= 0 && e.L.length) void this.takeExit('L');
       else if (h.x >= BOUNDS.x1 - 0.6 && dx >= 0 && e.R.length) void this.takeExit('R');
     }
@@ -234,6 +249,7 @@ export class Game {
     }
     this.instantActors = false;
     for (const [id, a] of this.actors) {
+      if (this.stealth && id === this.stealth.def.target) continue;
       if (!present.has(id) && !a.leaving) { a.leaving = true; a.tx = a.x < 160 ? -12 : 332; }
       if (!a.leaving) { a.wait -= dt; if (a.wait <= 0) { a.wait = 3 + Math.random() * 4; a.tx = SLOTS[a.slot] + (Math.random() - 0.5) * 36; } }
       const d = a.tx - a.x;
@@ -257,7 +273,7 @@ export class Game {
     }
     for (const sp of this.spotsNow) {
       const dx = Math.abs(sp.x - this.hero.x);
-      if (dx < 22) { const d = dx + 10; if (!best || d < best.d) best = { d, t: { kind: 'spot', spot: sp, label: `${sp.label}（${sp.cost}分）` } }; }
+      if (dx < 22) { const d = dx + 10; if (!best || d < best.d) best = { d, t: { kind: 'spot', spot: sp, label: `${sp.kind === 'stealth' ? '🕵 ' : ''}${sp.label}（${sp.cost}分）` } }; }
     }
     this.targetNow = best?.t ?? null;
     if (!best) {
@@ -277,10 +293,12 @@ export class Game {
   }
 
   private onCanvasClick(e: PointerEvent) {
-    if (!this.exploring()) return;
+    const sneaking = !!this.stealth && !this.busy && this.$('modal').hidden;
+    if (!this.exploring() && !sneaking) return;
     const r = this.canvas.getBoundingClientRect();
     const x = ((e.clientX - r.left) / r.width) * W, y = ((e.clientY - r.top) / r.height) * H;
     const go = (gx: number, gy: number, then?: () => void) => { this.goal = { x: clampX(gx), y: clampY(gy), then }; };
+    if (sneaking) { go(x, y); return; }
     for (const a of this.actors.values()) {
       if (!a.leaving && this.talkNow.has(a.id) && Math.abs(x - a.x) < 14 && y > a.y - 34 && y < a.y + 4) {
         go(a.x - 16 * (this.hero.x < a.x ? 1 : -1), a.y, () => { this.updateTarget(); void this.interact(); });
@@ -299,6 +317,11 @@ export class Game {
     this.ui('select');
     if (t.kind === 'spot') {
       const sp = t.spot;
+      if (sp.kind === 'stealth') {
+        const def = stealthDef(sp.event!.id)!;
+        if (this.easyStealth) await this.act(() => playEvent(this.s, sp.event!)); else await this.playStealth(def, sp.event!);
+        return;
+      }
       if (sp.kind === 'entrance') { this.nextSpawn = null; await this.act(() => travelTo(this.s, sp.to!)); } else await this.act(() => playEvent(this.s, sp.event!));
       return;
     }
@@ -326,6 +349,68 @@ export class Game {
     this.nextSpawn = side === 'L' ? 'R' : 'L';
     this.exiting = false;
     await this.act(() => travelTo(this.s, to!));
+  }
+
+  // ───────────── 追跡・隠れる ─────────────
+  private async playStealth(def: import('../engine/stealth').StealthDef, ev: GameEvent) {
+    this.busy = true;
+    await this.consume(run(this.s, def.intro));
+    const fails = this.s.seen['stealth:' + def.id] ?? 0;
+    const st = createStealth(def, fails);
+    this.hero.x = def.start; this.hero.y = 150; this.hero.dir = Math.sign(def.path[0].x - def.start) || 1; this.hero.moving = false;
+    this.goal = null; this.keys.clear();
+    const a = this.actors.get(def.target);
+    this.actors.set(def.target, { id: def.target, x: st.x, y: a?.y ?? 146, tx: st.x, dir: st.dir, moving: false, leaving: false, slot: a?.slot ?? 0, wait: 99 });
+    this.lastTargetX = st.x;
+    this.stealth = st;
+    this.busy = false;
+    this.sound.sfx('sneak');
+    const status = await new Promise<StealthStatus | 'quit'>((res) => { this.stealthResolve = res; });
+    this.stealth = null; this.stealthResolve = null;
+    this.$('sbar').hidden = true;
+    this.keys.clear(); this.goal = null;
+    this.actors.delete(def.target); this.cacheKey = '';
+    if (status === 'quit') { this.refresh(); return; }
+    if (status === 'success') {
+      this.toast('🕵 気づかれなかった', 2200);
+      await this.act(() => playEvent(this.s, ev));
+      return;
+    }
+    this.s.seen['stealth:' + def.id] = fails + 1;
+    this.sound.sfx('caught');
+    await this.act(() => stealthFail(this.s, def, status === 'caught' ? 'caught' : 'lost'));
+    if (fails + 1 >= 2) this.toast('💡 <b>「？」が出たら、物陰で立ち止まる。</b>失敗するほど、見つかりにくくなる。', 6000);
+  }
+
+  private stepStealthFrame(dt: number) {
+    const st = this.stealth!;
+    this.stepHero(dt);
+    const before = st.alert;
+    stepStealth(st, dt, { x: this.hero.x, moving: this.hero.moving });
+    const a = this.actors.get(st.def.target);
+    if (a) { a.moving = Math.abs(st.x - this.lastTargetX) > 0.01; a.x = st.x; a.tx = st.x; a.dir = st.glancing > 0 ? (this.hero.x < st.x ? -1 : 1) : st.dir; }
+    this.lastTargetX = st.x;
+    if (st.alert > 0.5 && before <= 0.5) this.sound.sfx('alert');
+    this.renderStealthBar(st);
+    if (st.status !== 'run' && this.stealthResolve) { const r = this.stealthResolve; this.stealthResolve = null; r(st.status); }
+  }
+
+  private renderStealthBar(st: StealthState) {
+    const el = this.$('sbar'); el.hidden = false;
+    const d = st.def, dist = Math.abs(this.hero.x - st.x);
+    let line: string, p: number;
+    if (d.goal) { p = st.hold / d.goal.hold; line = dist > d.goal.hear ? '👂 もっと近づく' : Math.abs(this.hero.x - d.goal.x) > d.goal.r ? '👂 光る線の上へ' : '👂 聞き耳を立てている…'; }
+    else { p = st.hold / d.tail!.hold; line = dist > d.tail!.max ? '🏃 離れすぎている！' : dist < d.tail!.min ? '⚠ 近すぎる！' : '👣 いい距離'; }
+    const state = st.hidden ? '<b class="ok">隠れている</b>' : st.glancing > 0 ? '<b class="ng">見られている！</b>' : st.warn ? '<b class="wn">？ 物陰へ！</b>' : '';
+    el.innerHTML = `<span>${line}</span><i><u style="width:${Math.min(100, p * 100)}%"></u></i><span class="al"><u style="width:${st.alert * 100}%"></u></span>${state}<small>Esc でやめる</small>`;
+  }
+
+  private stealthView() {
+    const st = this.stealth!, d = st.def;
+    return {
+      x: st.x, dir: st.dir, vision: d.vision * st.ease, alert: st.alert, warn: st.warn, glancing: st.glancing > 0, hidden: st.hidden,
+      spots: d.spots, goal: d.goal ? { x: d.goal.x, r: d.goal.r, p: Math.min(1, st.hold / d.goal.hold) } : null,
+    };
   }
 
   private pickList(title: string, items: { label: string; sub?: string }[]): Promise<number> {
@@ -488,7 +573,7 @@ export class Game {
     panel.querySelectorAll<HTMLButtonElement>('[data-w]').forEach((b) => { b.onclick = () => { this.ui('select'); void this.act(() => waitMinutes(this.s, Number(b.dataset.w))); }; });
     panel.querySelector<HTMLElement>('#aTell')!.addEventListener('click', () => { this.ui('select'); this.openTell(); });
     panel.querySelector<HTMLElement>('#aMap')!.addEventListener('click', () => { this.ui('select'); this.openMap(); });
-    panel.querySelector<HTMLElement>('#aSpeed')!.addEventListener('click', (e) => { this.ui('select'); this.speedIdx = (this.speedIdx + 1) % TIME_SPEEDS.length; (e.currentTarget as HTMLElement).textContent = `⏱ 時間の流れ：${TIME_SPEEDS[this.speedIdx].name}`; });
+    panel.querySelector<HTMLElement>('#aSpeed')!.addEventListener('click', (e) => { this.ui('select'); this.speedIdx = (this.speedIdx + 1) % TIME_SPEEDS.length; (e.currentTarget as HTMLElement).textContent = `⏱ 時間の流れ：${TIME_SPEEDS[this.speedIdx].name}`; this.saveOpts(); });
     panel.querySelector<HTMLElement>('#aHint')!.addEventListener('click', () => { this.ui('select'); this.toast('💡 ' + esc(hintNow(this.s) ?? 'いまは特に手がかりがない。町を歩いてみよう。'), 5000); });
   }
 
@@ -589,6 +674,7 @@ export class Game {
     const card = this.openModal(`<h2>メニュー</h2>
       <div class="menu">
         <button id="mSnd">${this.sound.muted ? '🔇 音：OFF' : '🔊 音：ON'}</button>
+        <button id="mEasy">${this.easyStealth ? '🕵 追跡・隠れる：かんたん（自動成功）' : '🕵 追跡・隠れる：通常'}</button>
         <button id="mSkip">🌙 この周回をあきらめる（23:59へ）</button>
         <button id="mTitle">🏠 タイトルへ戻る（自動セーブ済み）</button>
       </div>
@@ -596,6 +682,7 @@ export class Game {
       <button class="close">閉じる</button>`);
     card.querySelector<HTMLElement>('.close')!.onclick = () => this.closeModal();
     card.querySelector<HTMLElement>('#mSnd')!.onclick = (e) => { const m = this.sound.toggle(); (e.target as HTMLElement).textContent = m ? '🔇 音：OFF' : '🔊 音：ON'; };
+    card.querySelector<HTMLElement>('#mEasy')!.onclick = (e) => { this.easyStealth = !this.easyStealth; this.saveOpts(); (e.target as HTMLElement).textContent = this.easyStealth ? '🕵 追跡・隠れる：かんたん（自動成功）' : '🕵 追跡・隠れる：通常'; };
     card.querySelector<HTMLElement>('#mSkip')!.onclick = () => { this.closeModal(); if (!this.busy) void this.act(() => waitMinutes(this.s, 24 * 60)); };
     card.querySelector<HTMLElement>('#mTitle')!.onclick = () => {
       if (this.busy) { this.toast('会話やイベントの途中では戻れません。'); return; }
@@ -604,6 +691,8 @@ export class Game {
   }
 
   // ───────────── 周回の進行 ─────────────
+  private saveOpts() { store.set(OPT_KEY, JSON.stringify({ easy: this.easyStealth, speed: this.speedIdx })); }
+
   private save() { if (this.inGame) store.set(SAVE_KEY, serialize(this.s)); }
 
   private async beginDay() {

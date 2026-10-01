@@ -32,6 +32,12 @@ export const TOWN_B: GameEvent[] = [
     ['椎名', '「あの子たちに、気づかれる前に。」'],
     '町長は去り、黒田は静かにシャッターを下ろして、倉庫へ入っていった。',
     fact('kuroda_shiina_talk'))},
+  { id: 'st_tail', kind: 'look', npc: 'kuroda', label: '黒田を尾行する', cost: 12, once: 'ever',
+    cond: { at: 'station', t: [hm(14, 50), hm(14, 57)], has: ['station_3pm'] }, script: sc(
+    '気づかれないまま、倉庫の戸の隙間から中を覗く。',
+    '黒田は、がらんとした倉庫の床板を、慣れた手つきで持ち上げた。',
+    '床の下に、地下へ続く暗い階段が、一瞬だけ見えた。——黒田は、そこへ降りていった。',
+    fact('station_3pm', 'warehouse_empty', 'hatch_known'))},
   { id: 'st_warehouse', kind: 'look', label: '倉庫へ入る', cost: 20, cond: { at: 'station', t: [hm(15), hm(15, 30)], has: ['station_3pm'] }, script: sc(
     'シャッターの隙間から、倉庫へ滑り込む。',
     'がらんとした暗い空間。棚も、箱も、何もない。',

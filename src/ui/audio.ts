@@ -125,6 +125,9 @@ export class Sound {
       case 'crack': this.noise(0.5, 0.25, 4000, 'highpass'); this.tone(1800, 0.4, 0.06, 'square', undefined, -1500); break;
       case 'glitch': for (let i = 0; i < 6; i++) window.setTimeout(() => this.tone(200 + Math.random() * 1800, 0.05, 0.05, 'square'), i * 40); break;
       case 'white': this.tone(1200, 2.4, 0.05, 'sine'); this.tone(1204, 2.4, 0.05, 'sine'); break;
+      case 'sneak': this.tone(180, 0.5, 0.05, 'triangle', undefined, -60); break;
+      case 'alert': this.tone(880, 0.12, 0.07, 'square'); this.tone(1175, 0.18, 0.06, 'square'); break;
+      case 'caught': this.tone(330, 0.5, 0.1, 'sawtooth', undefined, -200); this.noise(0.3, 0.12, 800); break;
       case 'ending': [262, 330, 392, 523].forEach((f, i) => window.setTimeout(() => this.tone(f, 2.5, 0.08, 'sine'), i * 380)); break;
     }
   }

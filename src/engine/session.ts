@@ -2,6 +2,7 @@
 import { finaleFor, markSeen, nextAuto, tellScript, travelOptions } from './logic';
 import { run } from './runner';
 import { advance, dayOver } from './state';
+import type { StealthDef } from './stealth';
 import type { GameEvent, GameState, LocId, NpcId, Step } from './types';
 
 export type Gen = Generator<Step, void, number | undefined>;
@@ -53,3 +54,10 @@ export function* tellTo(s: GameState, npc: NpcId, fact: string): Gen {
 }
 
 export const startDay = (s: GameState): Gen => processTime(s);
+
+/** 追跡・隠れるに失敗した時（取り返しのつかない失敗ではない：少し時間を失うだけ） */
+export function* stealthFail(s: GameState, def: StealthDef, why: 'caught' | 'lost'): Gen {
+  yield* run(s, why === 'caught' ? def.caught : def.lost);
+  advance(s, def.failCost);
+  yield* processTime(s);
+}

@@ -1,4 +1,5 @@
 // Canvas 2D 描画（アセット不要の手続き型ドット絵）。320x180 を CSS で拡大表示する。
+import { AHEAD_RATIO } from '../engine/stealth';
 import type { LocId } from '../engine/types';
 
 export const W = 320;
@@ -15,6 +16,7 @@ export interface SceneInfo {
   hero: ActorView | null;
   spots: { x: number; kind: string }[];
   exits: { L: number; R: number };
+  stealth: StealthView | null;
   speaking: string | null;
   tick: number;
   loop: number;
@@ -22,6 +24,10 @@ export interface SceneInfo {
   glitch?: number;      // 0..1
 }
 
+export interface StealthView {
+  x: number; dir: number; vision: number; alert: number; warn: boolean; glancing: boolean; hidden: boolean;
+  spots: { x: number; w: number }[]; goal: { x: number; r: number; p: number } | null;
+}
 export interface ActorView { id: string; x: number; y: number; dir: number; moving: boolean }
 
 type RGB = [number, number, number];
@@ -184,6 +190,7 @@ function drawBg(c: Ctx, st: SceneInfo, lights: Lights) {
       // 線路（途中で途切れる）
       rect(c, '#6a5a4a', 140, GROUND + 50, 150, 3); rect(c, '#6a5a4a', 140, GROUND + 58, 150, 3);
       for (let i = 0; i < 12; i++) rect(c, '#4a3a2a', 146 + i * 12, GROUND + 48, 4, 14);
+      rect(c, '#8a7f70', 236, 84, 58, 34); rect(c, '#6a6055', 232, 80, 66, 6); rect(c, '#2a2520', 256, 92, 16, 26);
       rect(c, '#555', 288, GROUND + 44, 6, 20); rect(c, '#d33', 288, GROUND + 44, 6, 4);
       rect(c, '#4a8a4a', 296, GROUND + 48, 24, 16);
       return;
@@ -279,11 +286,43 @@ export function drawScene(c: Ctx, st: SceneInfo) {
   // 夜の暗さ
   const night = nightness(st.time) * (outdoor ? 1 : 0.5);
   const dark = Math.min(0.85, night * 0.55 + (st.blackout ? 0.3 : 0));
+  // 物陰・聞き耳の位置（追跡・隠れる中）
+  if (st.stealth) {
+    for (const sp of st.stealth.spots) {
+      c.fillStyle = 'rgba(8,12,34,.5)'; c.fillRect(sp.x - sp.w / 2, 138, sp.w, 22);
+      c.fillStyle = 'rgba(8,12,34,.35)'; c.fillRect(sp.x - sp.w / 2 + 2, 134, sp.w - 4, 5);
+      const on = st.stealth.hidden && Math.abs((st.hero?.x ?? -99) - sp.x) <= sp.w / 2;
+      c.fillStyle = on ? 'rgba(120,255,170,.95)' : 'rgba(255,255,255,.6)'; c.font = '7px sans-serif'; c.fillText('物陰', sp.x - 7, 150);
+      c.strokeStyle = on ? 'rgba(120,255,170,.95)' : 'rgba(255,255,255,.35)'; c.setLineDash([2, 2]); c.strokeRect(sp.x - sp.w / 2 + .5, 134.5, sp.w - 1, 25); c.setLineDash([]);
+    }
+    const g = st.stealth.goal;
+    if (g) {
+      c.fillStyle = 'rgba(255,225,120,.18)'; c.fillRect(g.x - g.r, 158, g.r * 2, 6);
+      c.fillStyle = 'rgba(255,225,120,.95)'; c.fillRect(g.x - g.r, 164, g.r * 2 * g.p, 2);
+      c.fillStyle = 'rgba(255,225,120,.7)'; c.fillRect(g.x - 1, 150, 2, 8);
+    }
+  }
   // キャラクター（奥にいる順に描く）
   const people: ActorView[] = [...st.actors];
   if (st.hero) people.push(st.hero);
   people.sort((p, q) => p.y - q.y);
-  for (const a of people) drawChar(c, a.id, a.x, a.y, st.tick, speakerLook(st.speaking ?? '') === a.id, a.dir < 0, a.moving);
+  for (const a of people) {
+    c.globalAlpha = a.id === 'sou' && st.stealth?.hidden ? 0.45 : 1;
+    drawChar(c, a.id, a.x, a.y, st.tick, speakerLook(st.speaking ?? '') === a.id, a.dir < 0, a.moving);
+    c.globalAlpha = 1;
+  }
+  // 視界の扇形・警戒マーク
+  if (st.stealth) {
+    const z = st.stealth, t = st.actors.find((a) => a.id !== 'sou' && Math.abs(a.x - z.x) < 1) ?? { y: 148 };
+    const hy = t.y - 18, col = `255,${Math.round(225 - z.alert * 190)},${Math.round(90 - z.alert * 60)}`;
+    const cone = (dir: number, len: number) => {
+      const gr = c.createLinearGradient(z.x, 0, z.x + dir * len, 0); gr.addColorStop(0, `rgba(${col},.38)`); gr.addColorStop(1, `rgba(${col},0)`);
+      c.fillStyle = gr; c.beginPath(); c.moveTo(z.x, hy); c.lineTo(z.x + dir * len, hy - 16); c.lineTo(z.x + dir * len, hy + 34); c.closePath(); c.fill();
+    };
+    if (z.glancing) { cone(1, z.vision); cone(-1, z.vision); } else cone(z.dir, z.vision * AHEAD_RATIO);
+    if (z.warn || z.glancing) { c.fillStyle = z.glancing ? '#ff7a7a' : '#ffe27a'; c.font = 'bold 12px sans-serif'; c.fillText('？', z.x - 6, hy - 14 + Math.sin(st.tick / 3) * 2); }
+    if (z.alert > 0.05) { c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(z.x - 9, hy - 10, 18, 3); c.fillStyle = z.alert > 0.6 ? '#ff5a5a' : '#ffd36a'; c.fillRect(z.x - 9, hy - 10, 18 * z.alert, 3); }
+  }
 
   if (dark > 0) { c.fillStyle = `rgba(8,10,40,${dark})`; c.fillRect(0, 0, W, H); }
   // 灯り（夜かつ停電していない時）
