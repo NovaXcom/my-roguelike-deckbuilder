@@ -1,7 +1,7 @@
 import {
   CHAIN_MULT, MAX_SKILL_LEVEL, alive, createBattle, skillUpgradeCost, startPlayerTurn, type BattleSetup, type BattleState, type EnemyScale,
 } from './battle';
-import { MEMBERS, PARTY_ORDER, SKILLS } from './data';
+import { MEMBERS, PARTY_ORDER, SKILLS, START_LINK_DECK } from './data';
 import {
   BUY_PRICE, SELL_VALUE, rollItem, type EquipItem, type EquipStats, type Slot,
 } from './equipment';
@@ -54,6 +54,8 @@ export interface RunState {
   curse: number;
   /** 今回の旅(特殊条件) */
   mods: RunMods | null;
+  /** 連携デッキ(2人共通。毎ターン1枚引く) */
+  linkDeck: string[];
   /** これまでに行ったカード削除の回数(料金に影響) */
   removals: number;
   seed: number;
@@ -86,6 +88,7 @@ export function newRun(meta: MetaState, seed: number, mods: RunMods | null = nul
     skillPoints: 0,
     curse: 0,
     mods,
+    linkDeck: [...START_LINK_DECK],
     removals: 0,
     seed: seed >>> 0,
     battles: 0,
@@ -119,13 +122,15 @@ export function rollCardChoices(rng: Rng, elite = false): string[] {
   return out;
 }
 
-const ownerOf = (cardId: string): Role | null => SKILLS[cardId]?.reward?.owner ?? null;
+const ownerOf = (cardId: string): Role | 'link' | null => SKILLS[cardId]?.reward?.owner ?? null;
 
 /** カードをデッキに加える。そのカードを使えるキャラ(報酬カードは持ち主)のデッキへ */
 export function addCard(run: RunState, cardId: string, role?: Role): boolean {
+  if (!SKILLS[cardId]) return false;
   const r = role ?? ownerOf(cardId);
+  if (r === 'link' || SKILLS[cardId].link) { run.linkDeck.push(cardId); return true; }
   const m = run.party.find((x) => x.role === r);
-  if (!m || !SKILLS[cardId]) return false;
+  if (!m) return false;
   m.deck.push(cardId);
   return true;
 }
@@ -219,6 +224,7 @@ export function buildSetup(run: RunState): BattleSetup {
       };
     }),
     mods: run.mods,
+    link: [...run.linkDeck],
     seed: (run.seed + run.battles * 7919) >>> 0,
   };
 }

@@ -59,7 +59,7 @@ export class ShopScene extends Phaser.Scene {
       const x = 160 + i * 300;
       if (!id) { txt(this, x, 596, '売り切れ', 18, '#5b6370').setOrigin(0.5); return; }
       const price = cardPriceOf(id);
-      makeButton(this, x, 596, 280, 56, `${SKILLS[id].name}(${SKILLS[id].reward?.owner === 'knight' ? 'ナイト' : '魔法'})\nカード購入  ${price} G`, () => {
+      makeButton(this, x, 596, 280, 56, `${SKILLS[id].name}(${SKILLS[id].reward?.owner === 'knight' ? 'ナイト' : SKILLS[id].reward?.owner === 'link' ? '連携' : '魔法'})\nカード購入  ${price} G`, () => {
         if (buyCard(run, nodeId, i)) { audio.play('coin'); this.scene.restart(); }
       }, { size: 16, color: 0x9a7bd8, enabled: run.gold >= price });
     });

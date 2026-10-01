@@ -32,6 +32,19 @@ export const SKILLS: Record<string, SkillDef> = Object.fromEntries([
   sk({ id: 'crush', name: '粉砕', kind: 'physical', element: 'none', cooldown: 3, damage: 10, breakPower: 26, reward: { owner: 'knight', rarity: 'rare' },
     conds: [{ when: { kind: 'shieldAtMost', n: 20 }, then: { damageMult: 1.5 }, label: 'シールド20以下の敵: ダメージ×1.5' }],
     text: '10ダメージ。シールドゲージ-26。' }),
+  // --- 連携カード(2人共通。直前の手を参照する) ---
+  sk({ id: 'chase', name: '追撃', kind: 'support', element: 'none', cooldown: 1, link: 'chase',
+    text: '直前の攻撃と同じ敵に、そのダメージの50%を追加で与える。' }),
+  sk({ id: 'enchant', name: '魔力付与', kind: 'support', element: 'none', cooldown: 1, link: 'enchant',
+    text: '次の物理攻撃に、直前に使った魔法の属性を付与する(反応の起点になる)。' }),
+  sk({ id: 'convert', name: '属性変換', kind: 'support', element: 'none', cooldown: 2, cost: 0, link: 'convert',
+    text: '狙う敵の「最後の属性」を 火→雷→氷→火 の順に1つ進める。AP0。' }),
+  sk({ id: 'counter', name: '反撃指令', kind: 'support', element: 'none', cooldown: 1, link: 'counter',
+    text: 'このターン、ナイトが攻撃を受けると反撃(4+受ける前のガードの半分、最大20)。' }),
+  sk({ id: 'barrier', name: '魔法障壁', kind: 'support', element: 'none', cooldown: 2, cost: 2, link: 'barrier', reward: { owner: 'link', rarity: 'common' },
+    text: '味方全員にガード10。' }),
+  sk({ id: 'unison', name: '協調', kind: 'support', element: 'none', cooldown: 2, link: 'unison', reward: { owner: 'link', rarity: 'rare' },
+    text: '2人とも、次のダメージスキルが強化(×1.2・ゲージ-5)。' }),
   // --- エレメンタリスト ---
   sk({ id: 'flame_burst', name: '爆炎', kind: 'magic', element: 'fire', cooldown: 1, damage: 12, inflict: 'burn', reward: { owner: 'elementalist', rarity: 'common' },
     text: '火属性12ダメージ。敵を火傷にする。' }),
@@ -76,6 +89,9 @@ export const SKILLS: Record<string, SkillDef> = Object.fromEntries([
     conds: [{ when: { kind: 'shieldAtMost', n: 20 }, then: { breakBonus: 10 }, label: 'シールド20以下の敵: ブレイク力+10' }],
     text: '【全体】雷14ダメージ・ゲージ-20（×0.7）' }),
 ]);
+
+/** 連携デッキの初期カード(2人共通) */
+export const START_LINK_DECK = ['chase', 'enchant', 'convert', 'counter'];
 
 export const MEMBERS: Record<Role, MemberDef> = {
   knight: {

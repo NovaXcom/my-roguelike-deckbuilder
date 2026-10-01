@@ -1,5 +1,5 @@
 import {
-  canUse, canWait, currentIntent, defaultTarget, livingEnemies, endPlayerTurn, previewSkill, skillCost, usePotion, useSkill, wait, type BattleState,
+  LINK, canUse, canWait, currentIntent, defaultTarget, livingEnemies, endPlayerTurn, previewSkill, skillCost, usePotion, useSkill, wait, type BattleState,
 } from '../../src/core/battle';
 import { SKILLS } from '../../src/core/data';
 import type { EquipItem } from '../../src/core/equipment';
@@ -56,6 +56,22 @@ export function autoBattle(run: RunState, node: MapNode): BattleState {
           }
         }
       });
+      // 連携カード(2人共通)。直前の手を参照するものを、効果が見込めるときに使う
+      for (const c of s.link.hand) {
+        if (!canUse(s, LINK, c.defId)) continue;
+        const lk = SKILLS[c.defId];
+        let v = -1;
+        if (lk.link === 'chase' && s.lastHit) {
+          const p = previewSkill(s, SKILLS[s.lastHit.skillId], s.lastHit.member, s.lastHit.enemy);
+          v = Math.floor(p.hp * 0.5) * 0.9 + (s.enemies[s.lastHit.enemy].hp <= p.hp * 0.5 ? 20 : 0);
+        } else if (lk.link === 'counter') v = s.party[0].guard > 0 && s.enemies.some((e) => e.hp > 0) ? 9 : 3;
+        else if (lk.link === 'barrier') v = avg < 0.7 ? 16 : 3;
+        else if (lk.link === 'unison') v = s.party.some((m) => m.skills.some((id) => !!SKILLS[id].damage && canUse(s, s.party.indexOf(m), id))) ? 10 : 0;
+        else if (lk.link === 'enchant') v = s.lastMagic && s.party[0].deck.hand.some((h) => !!SKILLS[h.defId].damage) ? 9 : 0;
+        else if (lk.link === 'convert') v = 4;
+        v -= skillCost(lk) * 2;
+        if (v > bestScore) { bestScore = v; best = { mi: LINK, id: c.defId, ti: defaultTarget(s) }; }
+      }
       const b = best as { mi: number; id: string; ti: number } | null;
       if (botOptions.alwaysWait && s.turn % 2 === 1 && canWait(s, 0)) { wait(s, 0); continue; }
       if (b && (bestScore >= 6 || !botOptions.allowWait)) useSkill(s, b.mi, b.id, b.ti);

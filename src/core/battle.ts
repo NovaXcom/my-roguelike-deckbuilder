@@ -12,6 +12,9 @@ export const MAX_SKILL_LEVEL = 3;
 const LEVEL_MULT = [1, 1, 1.2, 1.45];
 export const AP_MAX = 3;
 export const HAND_SIZE = 4;
+/** 連携カードを使う手の member 番号(キャラではなく2人共通) */
+export const LINK = -1;
+export const LINK_HAND = 2;
 export const WAIT_COST = 1;
 export const skillCost = (sk: SkillDef): number => sk.cost ?? 1;
 export const WAIT_GUARD = 5;
@@ -68,6 +71,16 @@ export interface BattleState {
   apMax: number;
   /** デッキ戦闘か(旧方式=全スキルが常に手札・CD制。テスト・互換用) */
   deckMode: boolean;
+  /** 連携デッキ(2人共通)。手札は最大2枚 */
+  link: DeckState;
+  /** このターンの直前の攻撃(追撃の参照先) */
+  lastHit: { member: number; skillId: string; enemy: number } | null;
+  /** このターンに最後に使った魔法の属性(魔力付与の参照先) */
+  lastMagic: Element | null;
+  /** 魔力付与: 次の物理攻撃に付く属性 */
+  enchant: Element | null;
+  /** 反撃指令: このターン、ナイトが攻撃を受けたら反撃する */
+  counterOn: boolean;
   /** 山札シャッフル用の乱数状態(決定論的) */
   rngState: number;
   nextUid: number;
@@ -97,6 +110,8 @@ export interface BattleSetup {
   mods?: RunMods | null;
   /** 山札シャッフルのシード */
   seed?: number;
+  /** 連携デッキ(カードID) */
+  link?: string[];
 }
 
 export function defaultSetup(): BattleSetup {
@@ -113,7 +128,8 @@ export type BattleEvent =
   | { type: 'skill'; member: number; skillId: string }
   | { type: 'damage'; enemy: number; amount: number; absorbed: number; element: SkillDef['element']; weak: boolean; resist: boolean; chain: boolean }
   | { type: 'reaction'; enemy: number; id: ReactionId; name: string; amount: number }
-  | { type: 'status'; enemy?: number; kind: 'burn' | 'bleed' | 'freeze' | 'weaken' | 'charge' | 'focus' }
+  | { type: 'status'; enemy?: number; kind: 'burn' | 'bleed' | 'freeze' | 'weaken' | 'charge' | 'focus' | 'enchant' | 'convert' | 'counter' }
+  | { type: 'counter'; enemy: number; amount: number }
   | { type: 'dot'; enemy: number; kind: 'burn' | 'bleed'; amount: number }
   | { type: 'wait'; member: number }
   | { type: 'enemyCharge'; enemy: number; intent: EnemyIntent }
@@ -203,6 +219,12 @@ export function createBattle(
     ap: AP_MAX,
     apMax: AP_MAX,
     deckMode,
+    link: ((): DeckState => {
+      const dk = emptyDeck();
+      if (setup.link?.length) dk.draw = shuffleInPlace(rs, setup.link.map((defId) => ({ uid: uid++, defId, sealed: 0 })));
+      return dk;
+    })(),
+    lastHit: null, lastMagic: null, enchant: null, counterOn: false,
     rngState: rs.rngState,
     nextUid: uid,
     phase: 'player',
@@ -283,14 +305,33 @@ export function startPlayerTurn(s: BattleState): void {
     m.acted = false;
     m.used = [];
   }
+  s.lastHit = null;
+  s.lastMagic = null;
+  s.enchant = null;
+  s.counterOn = false;
   if (s.deckMode) {
     s.party.forEach((m, i) => { if (alive(m)) drawUp(s, i); });
     if (s.turn === 1) ensureOpeningHand(s);
+    // 連携デッキ: 毎ターン1枚引く(1ターン目は2枚)。手札は最大2枚
+    if (s.turn > 1) { tickFatigue({ deck: s.link }, 1); for (const c of s.link.hand) if (c.sealed > 0) c.sealed -= 1; }
+    drawLink(s, s.turn === 1 ? LINK_HAND : 1);
+  }
+}
+
+function drawLink(s: BattleState, n: number): void {
+  const d = s.link;
+  for (let k = 0; k < n && d.hand.length < LINK_HAND; k++) {
+    if (!d.draw.length) {
+      if (!d.discard.length) break;
+      d.draw = shuffleInPlace(s, d.discard);
+      d.discard = [];
+    }
+    d.hand.push(d.draw.pop()!);
   }
 }
 
 /** 疲労ゾーンの残りターンを減らし、0になったカードを山札のランダムな位置へ戻す */
-function tickFatigue(m: MemberState, n: number): void {
+function tickFatigue(m: { deck: DeckState }, n: number): void {
   const d = m.deck;
   const stay: DeckState['fatigued'] = [];
   for (const f of d.fatigued) {
@@ -352,7 +393,23 @@ export function nextDraw(s: BattleState, member: number): string | null {
   return d.draw.length ? d.draw[d.draw.length - 1].defId : null;
 }
 
+/** 連携カードを今使えるか(カードの前提条件。作戦の前の手を参照する) */
+function linkReady(s: BattleState, effect: string): boolean {
+  switch (effect) {
+    case 'chase': return !!s.lastHit && s.enemies[s.lastHit.enemy]?.hp > 0;
+    case 'enchant': return !!s.lastMagic && !s.enchant;
+    case 'convert': return s.enemies.some((e) => e.hp > 0);
+    case 'counter': return !s.counterOn;
+    default: return true;
+  }
+}
+
 export function canUse(s: BattleState, member: number, skillId: string): boolean {
+  if (member === LINK) {
+    const lk = SKILLS[skillId];
+    return s.phase === 'player' && s.deckMode && !!lk?.link && s.party.some(alive) && s.ap >= skillCost(lk)
+      && s.link.hand.some((c) => c.defId === skillId && c.sealed <= 0) && linkReady(s, lk.link!);
+  }
   const m = s.party[member];
   const sk = SKILLS[skillId];
   if (!(s.phase === 'player' && !!m && !!sk && alive(m) && s.ap >= skillCost(sk))) return false;
@@ -393,6 +450,11 @@ function condMet(e: EnemyState, c: SkillCond): boolean {
   }
 }
 
+/** 魔力付与中の物理攻撃は、付与された属性を持つ */
+function withEnchant(s: BattleState, sk: SkillDef): SkillDef {
+  return s.enchant && sk.kind === 'physical' && sk.element === 'none' && sk.damage ? { ...sk, element: s.enchant } : sk;
+}
+
 /** スキル(レベル反映前の基本定義)の実効定義: メンバーのスキルLvを反映 */
 function skillFor(m: MemberState, skill: SkillDef): SkillDef {
   return effectiveSkill(skill, m.levels[skill.id] ?? 1);
@@ -402,7 +464,7 @@ function skillFor(m: MemberState, skill: SkillDef): SkillDef {
 export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0, ti = defaultTarget(s)): DamagePreview {
   const e = s.enemies[ti];
   const m = s.party[member];
-  const skill = skillFor(m, baseSkill);
+  const skill = withEnchant(s, skillFor(m, baseSkill));
   const weak = skill.element !== 'none' && e.def.weak === skill.element;
   const resist = skill.element !== 'none' && e.def.resist === skill.element;
   const chain = skill.kind === 'magic' && e.broken && !!skill.damage;
@@ -481,10 +543,11 @@ function skillCooldown(s: BattleState, m: MemberState, skill: SkillDef): number 
 
 export function useSkill(s: BattleState, member: number, skillId: string, target?: number): BattleEvent[] | null {
   if (!canUse(s, member, skillId)) return null;
+  if (member === LINK) return useLink(s, skillId, target);
   const ti = target !== undefined && s.enemies[target]?.hp > 0 ? target : defaultTarget(s);
   const base = SKILLS[skillId];
   const m = s.party[member];
-  const skill = skillFor(m, base);
+  const skill = withEnchant(s, skillFor(m, base));
   m.acted = true;
   m.used.push(skillId);
   s.ap -= skillCost(base);
@@ -522,6 +585,11 @@ export function useSkill(s: BattleState, member: number, skillId: string, target
     }
     if (focusUsed) m.focus = false;
     if (chargedUsed) m.charged = false;
+    if (skill.damage) {
+      s.lastHit = { member, skillId, enemy: targets[0] };
+      if (skill.kind === 'magic' && skill.element !== 'none') s.lastMagic = skill.element;
+      if (s.enchant && skill.kind === 'physical') s.enchant = null; // 魔力付与は1回の物理攻撃で消える
+    }
   }
   const gm = s.mods?.guardMult ?? 1;
   if (skill.guardSelf) {
@@ -542,6 +610,63 @@ export function useSkill(s: BattleState, member: number, skillId: string, target
   if (skill.taunt) {
     m.taunt = true;
     ev.push({ type: 'taunt', member });
+  }
+  checkEnd(s);
+  return ev;
+}
+
+const CONVERT_NEXT: Record<string, Element> = { fire: 'thunder', thunder: 'ice', ice: 'fire' };
+export const nextConvert = (e: Element | null): Element => (e && CONVERT_NEXT[e]) || 'fire';
+
+/** 連携カードを使う(2人共通。直前の手を参照する) */
+function useLink(s: BattleState, skillId: string, target?: number): BattleEvent[] | null {
+  const card = SKILLS[skillId];
+  const d = s.link;
+  const hi = d.hand.findIndex((c) => c.defId === skillId && c.sealed <= 0);
+  if (hi < 0) return null;
+  s.ap -= skillCost(card);
+  const [inst] = d.hand.splice(hi, 1);
+  if (card.cooldown > 0) d.fatigued.push({ card: inst, turns: card.cooldown });
+  else d.discard.push(inst);
+  const ev: BattleEvent[] = [{ type: 'skill', member: LINK, skillId }];
+  switch (card.link) {
+    case 'chase': {
+      const h = s.lastHit!;
+      const e = s.enemies[h.enemy];
+      const p = previewSkill(s, SKILLS[h.skillId], h.member, h.enemy);
+      const total = Math.max(1, Math.floor(p.hp * 0.5));
+      const absorbed = Math.min(e.guard, total);
+      e.guard -= absorbed;
+      e.hp = Math.max(0, e.hp - (total - absorbed));
+      ev.push({ type: 'damage', enemy: h.enemy, amount: total - absorbed, absorbed, element: 'none', weak: false, resist: false, chain: false });
+      if (e.hp <= 0) onEnemyDown(s, h.enemy, ev);
+      break;
+    }
+    case 'enchant':
+      s.enchant = s.lastMagic;
+      ev.push({ type: 'status', kind: 'enchant' });
+      break;
+    case 'convert': {
+      const ti = target !== undefined && s.enemies[target]?.hp > 0 ? target : defaultTarget(s);
+      const e = s.enemies[ti];
+      e.lastElement = nextConvert(e.lastElement);
+      ev.push({ type: 'status', enemy: ti, kind: 'convert' });
+      break;
+    }
+    case 'counter':
+      s.counterOn = true;
+      ev.push({ type: 'status', kind: 'counter' });
+      break;
+    case 'barrier': {
+      const v = Math.round(10 * (s.mods?.guardMult ?? 1));
+      s.party.forEach((m, i) => { if (alive(m)) { m.guard += v; ev.push({ type: 'guard', member: i, amount: v }); } });
+      break;
+    }
+    case 'unison':
+      for (const m of s.party) if (alive(m)) m.focus = true;
+      ev.push({ type: 'status', kind: 'focus' });
+      break;
+    default: break;
   }
   checkEnd(s);
   return ev;
@@ -667,7 +792,7 @@ export function usePotion(s: BattleState, ratio = 0.35): BattleEvent[] | null {
 
 /** これ以上できる行動が無いか（行動ポイント切れ、または使える行動が残っていない） */
 export const allActed = (s: BattleState): boolean =>
-  s.ap <= 0 || !s.party.some((m, i) => m.skills.some((id) => canUse(s, i, id)) || canWait(s, i));
+  s.ap <= 0 || !(s.party.some((m, i) => m.skills.some((id) => canUse(s, i, id)) || canWait(s, i)) || s.link.hand.some((c) => canUse(s, LINK, c.defId)));
 
 /** 手札(カード実体)を使えるスキルIDごとに数える */
 export const handIds = (s: BattleState, member: number): string[] => s.party[member].deck.hand.map((c) => c.defId);
@@ -777,10 +902,18 @@ function enemyAct(s: BattleState, e: EnemyState, ei: number, ev: BattleEvent[]):
     const value = intentValue(s, intent, ei);
     e.weakened = false;
     let dealt = 0;
+    const guard0 = s.party[0].guard;
     if (idx === -1) s.party.forEach((m, i) => { if (alive(m)) dealt += hit(s, i, value, ev); });
     else dealt = hit(s, idx, value, ev);
+    // 反撃指令: ナイトが攻撃を受けたら、受ける前のガードに応じて反撃
+    if (s.counterOn && alive(s.party[0]) && (idx === 0 || idx === -1)) {
+      const amount = Math.min(20, 4 + Math.floor(guard0 * 0.5));
+      e.hp = Math.max(0, e.hp - amount);
+      ev.push({ type: 'counter', enemy: ei, amount });
+      if (e.hp <= 0) onEnemyDown(s, ei, ev);
+    }
     const ls = e.def.traits?.lifesteal;
-    if (ls && dealt > 0) {
+    if (ls && dealt > 0 && e.hp > 0) {
       const amount = Math.min(Math.round(dealt * ls), e.maxHp - e.hp);
       if (amount > 0) {
         e.hp += amount;

@@ -36,18 +36,19 @@ export class DeckScene extends Phaser.Scene {
       : m === 'remove' ? 'デッキから外すカードを1枚選ぼう（最低6枚は残る）'
         : `削除料金 ${removalCost(run)} G（所持 ${run.gold} G）。デッキを薄くすると強いカードを引きやすくなる`;
     txt(this, W / 2, 76, sub, 15, '#9fb0c8').setOrigin(0.5);
+    txt(this, W / 2, 96, `連携デッキ(2人共通・毎ターン1枚引く): ${run.linkDeck.map((id) => SKILLS[id].name).join('・')}（${run.linkDeck.length}枚）`, 14, '#c9a6ff').setOrigin(0.5);
     run.party.forEach((p, i) => {
       const def = MEMBERS[p.role];
       const x0 = 30 + i * 625;
       const g = this.add.graphics();
-      g.fillStyle(0x2d3748, 0.92).fillRoundedRect(x0, 100, 590, 520, 14).lineStyle(3, def.color, 1).strokeRoundedRect(x0, 100, 590, 520, 14);
+      g.fillStyle(0x2d3748, 0.92).fillRoundedRect(x0, 116, 590, 504, 14).lineStyle(3, def.color, 1).strokeRoundedRect(x0, 116, 590, 504, 14);
       const deck = memberDeck(run, i);
-      txt(this, x0 + 20, 110, `${def.name}  ${deck.length}枚`, 20, hex(def.color), { fontStyle: 'bold' });
+      txt(this, x0 + 20, 124, `${def.name}  ${deck.length}枚`, 20, hex(def.color), { fontStyle: 'bold' });
       const kinds = [...new Set(deck)];
-      const step = Math.min(56, Math.floor(480 / Math.max(1, kinds.length)));
+      const step = Math.min(56, Math.floor(450 / Math.max(1, kinds.length)));
       kinds.forEach((id, k) => {
         const sk = SKILLS[id];
-        const y = 148 + k * step;
+        const y = 160 + k * step;
         const n = deck.filter((x) => x === id).length;
         const col = sk.element !== 'none' ? ELEMENT_COLOR[sk.element] : sk.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;
         g.fillStyle(col, 1).fillRoundedRect(x0 + 16, y + 2, 6, step - 12, 3);

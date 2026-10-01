@@ -13,6 +13,7 @@ export function skillSummary(sk: SkillDef): string[] {
   else if (sk.guardAlly) out.push(`味方ガード ${sk.guardAlly}`);
   if (sk.healAll) out.push(`全体回復 ${sk.healAll}`);
   if (sk.taunt) out.push('挑発');
+  if (sk.link) out.push(({ chase: '追撃50%', enchant: '属性付与', convert: '属性変換', counter: '反撃', barrier: '全員ガード10', unison: '全員強化' } as Record<string, string>)[sk.link]);
   if (sk.waitEffect) out.push('疲労-1 ガード+5', '次の攻撃強化');
   if (sk.chargeSelf) out.push('次の攻撃+30%');
   return out;
