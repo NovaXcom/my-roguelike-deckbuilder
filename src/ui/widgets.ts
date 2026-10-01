@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { EFFECT_TEXT, RARITY_COLOR, RARITY_LABEL, SLOT_LABEL, statLines, type EquipItem } from '../core/equipment';
-import { SKILLS } from '../core/data';
+import { ELEMENT_COLOR, SKILLS } from '../core/data';
 import { audio } from '../audio';
-import { equipIconKey } from './assetMap';
+import { equipIconKey, skillIconKey } from './assetMap';
+import { skillSummary } from './skillText';
 import { hasImg } from './assets';
 import { COLORS, txt } from './art';
 import { HIT_PAD_COMPACT, compact } from './device';
@@ -150,4 +151,28 @@ export function addSystemButtons(scene: Phaser.Scene, w = 1280): void {
       void o?.lock?.('landscape')?.catch(() => undefined);
     });
   }
+}
+
+/** カード1枚の表示(報酬・デッキ一覧用)。アイコン・名前・要点・効果文・疲労 */
+export function cardPanel(scene: Phaser.Scene, x: number, y: number, w: number, h: number, cardId: string): Phaser.GameObjects.Container {
+  const sk = SKILLS[cardId];
+  const c = scene.add.container(x, y);
+  const rare = sk.reward?.rarity === 'rare';
+  const col = sk.element !== 'none' ? ELEMENT_COLOR[sk.element] : sk.kind === 'support' ? 0x6fcf97 : 0xe9d8c4;
+  const g = scene.add.graphics();
+  g.fillStyle(0x1f2126, 0.96).fillRoundedRect(-w / 2, -h / 2, w, h, 12);
+  g.lineStyle(rare ? 5 : 3, rare ? 0x4aa3ff : col, 1).strokeRoundedRect(-w / 2, -h / 2, w, h, 12);
+  c.add(g);
+  const top = -h / 2;
+  const key = skillIconKey(cardId);
+  if (hasImg(scene, key)) c.add(scene.add.image(0, top + 54, key).setDisplaySize(72, 72));
+  c.add(txt(scene, 0, top + 98, sk.name, 20, '#ffffff', { fontStyle: 'bold' }).setOrigin(0.5, 0));
+  const owner = sk.reward ? (sk.reward.owner === 'knight' ? 'ナイト' : 'エレメンタリスト') : '';
+  c.add(txt(scene, 0, top + 126, `${owner}${owner ? ' ・ ' : ''}${rare ? 'Rare' : 'Common'}`, 12, rare ? '#4aa3ff' : '#9fb0c8', { fontStyle: 'bold' }).setOrigin(0.5, 0));
+  c.add(txt(scene, 0, top + 148, skillSummary(sk).join('  '), 14, '#ffd9a0', { fontStyle: 'bold', align: 'center' }).setOrigin(0.5, 0));
+  c.add(txt(scene, 0, top + 172, sk.text, 12, '#b8c2d0', { align: 'center', wordWrap: { width: w - 24, useAdvancedWrap: true } }).setOrigin(0.5, 0));
+  const cond = (sk.conds ?? []).map((k) => `◆${k.label}`).join('\n');
+  if (cond) c.add(txt(scene, 0, top + 228, cond, 11, '#9ff0c0', { align: 'center', wordWrap: { width: w - 20, useAdvancedWrap: true } }).setOrigin(0.5, 0));
+  c.add(txt(scene, 0, top + h - 24, `AP${sk.cost ?? 1}  ${sk.cooldown ? `疲労${sk.cooldown}` : '疲労なし'}`, 13, '#ffb86b').setOrigin(0.5));
+  return c;
 }

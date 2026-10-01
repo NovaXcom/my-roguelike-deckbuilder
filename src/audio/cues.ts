@@ -62,7 +62,7 @@ export type BgmId = 'bgm_town' | 'bgm_map' | 'bgm_battle' | 'bgm_boss';
 export function bgmForScene(key: string, opts: { boss?: boolean } = {}): BgmId | null {
   switch (key) {
     case 'Title': case 'Town': case 'Party': return 'bgm_town';
-    case 'Map': case 'Chest': case 'Rest': case 'Shop': case 'Gear': case 'Skills': case 'Loot': return 'bgm_map';
+    case 'Map': case 'Chest': case 'Rest': case 'Shop': case 'Gear': case 'Skills': case 'Deck': case 'CardReward': case 'Loot': return 'bgm_map';
     case 'Battle': return opts.boss ? 'bgm_boss' : 'bgm_battle';
     default: return null;
   }

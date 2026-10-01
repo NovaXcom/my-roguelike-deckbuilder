@@ -22,6 +22,8 @@ export interface SkillDef {
   inflict?: 'burn';
   /** 行動ポイント消費(既定1)。強力なスキルは2 */
   cost?: number;
+  /** 報酬カードのレア度(報酬プールに入るカードのみ)。owner=使えるキャラ */
+  reward?: { owner: Role; rarity: 'common' | 'rare' };
   /** 使うと次のダメージスキルが強化される(帯電と同じ)自己バフ */
   chargeSelf?: boolean;
   /** 待機カード: CD/疲労-1・ガード+5・次のダメージスキル強化 */

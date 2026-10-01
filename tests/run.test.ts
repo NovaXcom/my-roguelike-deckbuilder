@@ -205,3 +205,20 @@ describe('難易度カーブ', () => {
     expect(s.party[0].hp).toBe(90 - 12);
   });
 });
+
+describe('デッキ構築の効果(Bot)', () => {
+  it('強いカードを選んで取る方が、何でも取るより踏破しやすい(デッキが厚くなる代償)', async () => {
+    const { botOptions } = await import('./helpers/bot');
+    const rate = (th: number) => {
+      botOptions.cardThreshold = th;
+      let w = 0;
+      for (let seed = 1; seed <= 40; seed++) if (autoRun(newMeta(), seed).finished === 'victory') w++;
+      return w;
+    };
+    const selective = rate(21);
+    const greedy = rate(-999);
+    botOptions.cardThreshold = 21;
+    console.log(`[balance] カード選択: 厳選 ${selective}/40 / 何でも取る ${greedy}/40`);
+    expect(selective).toBeGreaterThan(greedy);
+  });
+});

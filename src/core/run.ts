@@ -1,7 +1,7 @@
 import {
   CHAIN_MULT, MAX_SKILL_LEVEL, alive, createBattle, skillUpgradeCost, startPlayerTurn, type BattleSetup, type BattleState, type EnemyScale,
 } from './battle';
-import { MEMBERS, PARTY_ORDER } from './data';
+import { MEMBERS, PARTY_ORDER, SKILLS } from './data';
 import {
   BUY_PRICE, SELL_VALUE, rollItem, type EquipItem, type EquipStats, type Slot,
 } from './equipment';
@@ -22,6 +22,8 @@ export interface RunMember {
 
 export interface ShopStock {
   items: (EquipItem | null)[];
+  /** 販売カード(買うとデッキに加わる) */
+  cards: (string | null)[];
   potionsLeft: number;
 }
 
@@ -52,6 +54,8 @@ export interface RunState {
   curse: number;
   /** 今回の旅(特殊条件) */
   mods: RunMods | null;
+  /** これまでに行ったカード削除の回数(料金に影響) */
+  removals: number;
   seed: number;
   /** これまでの戦闘数(山札シャッフルのシードに使う) */
   battles: number;
@@ -82,12 +86,67 @@ export function newRun(meta: MetaState, seed: number, mods: RunMods | null = nul
     skillPoints: 0,
     curse: 0,
     mods,
+    removals: 0,
     seed: seed >>> 0,
     battles: 0,
   };
   run.nextUid = uid;
   run.party.forEach((_, i) => { run.party[i].hp = memberMaxHp(run, i); });
   return run;
+}
+
+// ------------------------------------------------------------------ デッキ(カード)
+export const MIN_DECK = 6;
+export const CARD_SKIP_GOLD = 12;
+export const CARD_PRICE: Record<'common' | 'rare', number> = { common: 40, rare: 85 };
+export const removalCost = (run: RunState): number => 40 + 25 * run.removals;
+
+/** 報酬・ショップに出るカードの一覧(キャラ別・レア度別) */
+export function cardPool(role?: Role, rarity?: 'common' | 'rare'): string[] {
+  return Object.values(SKILLS)
+    .filter((c) => c.reward && (!role || c.reward.owner === role) && (!rarity || c.reward.rarity === rarity))
+    .map((c) => c.id);
+}
+
+/** カード報酬の3択(重複なし)。エリートはレア寄り。持っているカードも出る(枚数を増やす選択) */
+export function rollCardChoices(rng: Rng, elite = false): string[] {
+  const out: string[] = [];
+  for (let guard = 0; out.length < 3 && guard < 40; guard++) {
+    const rarity = rng.next() < (elite ? 0.7 : 0.25) ? 'rare' : 'common';
+    const id = rng.pick(cardPool(undefined, rarity));
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+const ownerOf = (cardId: string): Role | null => SKILLS[cardId]?.reward?.owner ?? null;
+
+/** カードをデッキに加える。そのカードを使えるキャラ(報酬カードは持ち主)のデッキへ */
+export function addCard(run: RunState, cardId: string, role?: Role): boolean {
+  const r = role ?? ownerOf(cardId);
+  const m = run.party.find((x) => x.role === r);
+  if (!m || !SKILLS[cardId]) return false;
+  m.deck.push(cardId);
+  return true;
+}
+
+/** カードを1枚削除する(最小枚数まで)。成功すればtrue */
+export function removeCard(run: RunState, member: number, cardId: string): boolean {
+  const m = run.party[member];
+  const i = m?.deck.indexOf(cardId) ?? -1;
+  if (i < 0 || m.deck.length <= MIN_DECK) return false;
+  m.deck.splice(i, 1);
+  return true;
+}
+
+/** ゴールドを払ってカードを削除(ショップ) */
+export function buyRemoval(run: RunState, member: number, cardId: string): boolean {
+  const cost = removalCost(run);
+  if (run.gold < cost || run.party[member].deck.length <= MIN_DECK || !run.party[member].deck.includes(cardId)) return false;
+  run.gold -= cost;
+  removeCard(run, member, cardId);
+  run.removals += 1;
+  return true;
 }
 
 export const takeUid = (run: RunState): number => run.nextUid++;
@@ -231,6 +290,8 @@ export interface Reward {
   stones: number;
   item: EquipItem | null;
   skillPoints: number;
+  /** カード報酬の3択(戦闘勝利時のみ) */
+  cards?: string[];
 }
 
 /** 戦闘終了を反映: HP持ち越し(戦闘不能者は復活)、報酬付与、ボス撃破/全滅でラン終了 */
@@ -257,6 +318,7 @@ export function finishBattle(run: RunState, s: BattleState, node: MapNode): Rewa
       : guaranteed ? rollItem(r, 'chest', takeUid(run))
       : r.next() < 0.55 ? rollItem(r, 'battle', takeUid(run)) : null,
     skillPoints: boss ? 0 : elite ? 2 : 1,
+    cards: boss ? undefined : rollCardChoices(r, elite),
   };
   run.skillPoints += reward.skillPoints;
   run.gold += reward.gold;
@@ -317,6 +379,7 @@ export function shopStock(run: RunState, nodeId: number): ShopStock {
   if (!run.shops[nodeId]) {
     run.shops[nodeId] = {
       items: [0, 1, 2].map(() => rollItem(run.rng, 'shop', takeUid(run))),
+      cards: rollCardChoices(run.rng, false).slice(0, 2),
       potionsLeft: 2,
     };
   }
@@ -324,6 +387,16 @@ export function shopStock(run: RunState, nodeId: number): ShopStock {
 }
 
 export const priceOf = (item: EquipItem): number => BUY_PRICE[item.rarity];
+export const cardPriceOf = (cardId: string): number => CARD_PRICE[SKILLS[cardId].reward?.rarity ?? 'common'];
+
+export function buyCard(run: RunState, nodeId: number, index: number): boolean {
+  const stock = shopStock(run, nodeId);
+  const id = stock.cards[index];
+  if (!id || run.gold < cardPriceOf(id)) return false;
+  run.gold -= cardPriceOf(id);
+  stock.cards[index] = null;
+  return addCard(run, id);
+}
 
 export function buyItem(run: RunState, nodeId: number, index: number): EquipItem | null {
   const stock = shopStock(run, nodeId);

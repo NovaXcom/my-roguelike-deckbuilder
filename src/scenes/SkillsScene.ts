@@ -19,7 +19,7 @@ export class SkillsScene extends Phaser.Scene {
     const run = game.run;
     if (!run) { this.scene.start('Town'); return; }
     drawBackground(this, W, H);
-    txt(this, W / 2, 36, 'スキル強化', 36, '#f6e3b4', { fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
+    txt(this, W / 2, 36, 'カード強化', 36, '#f6e3b4', { fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
     txt(this, W / 2, 76, `スキルポイント  ${run.skillPoints} SP　（Lv1→2: 1SP / Lv2→3: 2SP。戦闘勝利で1、エリートで2獲得）`, 16, '#ffe066', { fontStyle: 'bold' }).setOrigin(0.5);
 
     run.party.forEach((m, i) => {

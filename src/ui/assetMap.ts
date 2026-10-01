@@ -9,6 +9,9 @@ import type { Element } from '../core/types';
 /** 専用アイコンが無いカードは近い既存アイコンを流用する */
 const SKILL_ICON_ALIAS: Record<string, string> = {
   defend: 'icon_skill_guardian', wait: 'icon_ui_wait', focus_mana: 'icon_status_charge',
+  power_strike: 'icon_skill_slash', iron_wall: 'icon_skill_guardian', rally: 'icon_skill_provoke', whirlwind: 'icon_skill_cleave',
+  crush: 'icon_skill_shield_bash', flame_burst: 'icon_skill_firebolt', chain_bolt: 'icon_skill_thunder', arcane_ward: 'icon_skill_guardian',
+  frost_nova: 'icon_skill_blizzard', overcharge: 'icon_skill_thunderstorm',
 };
 export const skillIconKey = (skillId: string): string => SKILL_ICON_ALIAS[skillId] ?? `icon_skill_${skillId}`;
 

@@ -1537,7 +1537,12 @@ export class BattleScene extends Phaser.Scene {
     }
     const next = () => {
       if (run.finished) this.scene.start('RunEnd', { jingleDone: !won });
-      else this.scene.start('Loot', { title: '戦利品', reward, returnTo: { scene: 'Map' } });
+      else {
+        const after = reward.cards?.length
+          ? { scene: 'CardReward', data: { cards: reward.cards, returnTo: { scene: 'Map' } } }
+          : { scene: 'Map' };
+        this.scene.start('Loot', { title: '戦利品', reward, returnTo: after });
+      }
     };
     makeButton(this, W / 2, 440, 300, 60, won ? '戦利品へ' : '結果へ', () => { audio.play('ui_click'); next(); }, { size: 26 }).c.setDepth(6001);
   }

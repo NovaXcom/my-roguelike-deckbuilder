@@ -116,7 +116,8 @@ export class MapScene extends Phaser.Scene {
     if (run.curse && hasImg(this, 'icon_status_curse')) this.add.image(42, 360, 'icon_status_curse').setDisplaySize(24, 24);
     if (journey) txt(this, run.curse && hasImg(this, 'icon_status_curse') ? 56 : 30, 348, journey, 13, '#ffb86b', { wordWrap: { width: 220, useAdvancedWrap: true } });
     makeButton(this, 141, 410, 220, 44, '装備を確認', () => this.scene.start('Gear'), { size: 18 });
-    makeButton(this, 141, 522, 220, 44, `スキル強化  ${run.skillPoints}SP`, () => this.scene.start('Skills'), {
+    makeButton(this, 141, 578, 220, 40, 'デッキを確認', () => this.scene.start('Deck', { mode: 'view', returnTo: { scene: 'Map' } }), { size: 16, color: 0x9a7bd8 });
+    makeButton(this, 141, 522, 220, 44, `カード強化  ${run.skillPoints}SP`, () => this.scene.start('Skills'), {
       size: 18, color: 0xffd166, enabled: true,
     });
     const pot = makeButton(this, 141, 466, 220, 44, `ポーション使用 ×${run.potions}`, () => {

@@ -7,11 +7,11 @@ import type { MapNode } from '../../src/core/map';
 import type { MetaState } from '../../src/core/meta';
 import {
   availableNodes, bankRun, buyItem, buyPotion, canEquip, enterNode, equip, finishBattle, newRun, openChest,
-  priceOf, rest, sellItem, shopStock, startBattle, upgradeSkill, type RunState,
+  priceOf, rest, sellItem, shopStock, startBattle, upgradeSkill, addCard, type RunState,
 } from '../../src/core/run';
 
 /** 1戦闘を単純な貪欲AIで最後まで進める（バランス確認・不変条件テスト用） */
-export const botOptions = { allowWait: true, alwaysWait: false };
+export const botOptions = { allowWait: true, alwaysWait: false, cardThreshold: 21 };
 
 export function autoBattle(run: RunState, node: MapNode): BattleState {
   const s = startBattle(run, node);
@@ -97,6 +97,17 @@ export function autoSpendSkillPoints(run: RunState): void {
   }
 }
 
+/** カード報酬: 攻撃・ブレイク・全体の価値が高いものを選ぶ(防御系は低評価) */
+export function autoPickCard(run: RunState, cards?: string[]): void {
+  if (!cards?.length) return;
+  const val = (id: string): number => {
+    const c = SKILLS[id];
+    return (c.damage ?? 0) * (c.aoe ? 1.6 : 1) + (c.breakPower ?? 0) * 0.7 + (c.guardSelf ?? 0) * 0.3 - c.cooldown * 1.5;
+  };
+  const best = [...cards].sort((a, b) => val(b) - val(a))[0];
+  if (val(best) >= botOptions.cardThreshold) addCard(run, best);
+}
+
 export function autoRun(meta: MetaState, seed: number): RunState {
   const run = newRun(meta, seed);
   for (let step = 0; !run.finished && step < 60; step++) {
@@ -110,6 +121,7 @@ export function autoRun(meta: MetaState, seed: number): RunState {
       const s = autoBattle(run, node);
       const r = finishBattle(run, s, node);
       if (r.item) autoEquip(run, r.item);
+      autoPickCard(run, r.cards);
       autoSpendSkillPoints(run);
     } else if (node.type === 'chest' || node.type === 'cursed') {
       const r = openChest(run, node.type === 'cursed');

@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { BattleScene } from './scenes/BattleScene';
+import { CardRewardScene } from './scenes/CardRewardScene';
 import { ChestScene } from './scenes/ChestScene';
+import { DeckScene } from './scenes/DeckScene';
 import { GearScene } from './scenes/GearScene';
 import { LootScene } from './scenes/LootScene';
 import { MapScene } from './scenes/MapScene';
@@ -30,7 +32,7 @@ const phaser = new Phaser.Game({
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: [
     PreloadScene, TitleScene, TownScene, PartyScene, MapScene, BattleScene, LootScene,
-    ChestScene, RestScene, ShopScene, GearScene, SkillsScene, RunEndScene,
+    ChestScene, RestScene, ShopScene, GearScene, SkillsScene, CardRewardScene, DeckScene, RunEndScene,
   ],
 });
 
