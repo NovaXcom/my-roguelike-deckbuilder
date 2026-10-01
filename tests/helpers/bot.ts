@@ -11,6 +11,8 @@ import {
 } from '../../src/core/run';
 
 /** 1戦闘を単純な貪欲AIで最後まで進める（バランス確認・不変条件テスト用） */
+export const botOptions = { allowWait: true, alwaysWait: false };
+
 export function autoBattle(run: RunState, node: MapNode): BattleState {
   const s = startBattle(run, node);
   for (let guard = 0; s.phase === 'player' && guard < 300; guard++) {
@@ -33,7 +35,8 @@ export function autoBattle(run: RunState, node: MapNode): BattleState {
         if (sk.taunt) score += 3;
         if (score > bestScore) { bestScore = score; best = id; }
       }
-      if (best && bestScore >= 6) useSkill(s, mi, best);
+      if (botOptions.alwaysWait && canWait(s, mi) && s.turn % 2 === 1) wait(s, mi);
+      else if (best && (bestScore >= 6 || !botOptions.allowWait)) useSkill(s, mi, best);
       else if (canWait(s, mi)) wait(s, mi);
       else if (best) useSkill(s, mi, best);
     });

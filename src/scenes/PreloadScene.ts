@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS, FONT } from '../ui/art';
-import { queueImages } from '../ui/assets';
+import { IMAGE_KEYS, queueImages } from '../ui/assets';
 import { H, W } from './TitleScene';
 
 /** 画像アセットの読み込み。読み込みに失敗した画像は無視され、その部分は図形描画で表示される。 */
@@ -26,6 +26,8 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
+    // ドット絵がにじまないよう、全画像を最近傍補間にする
+    for (const key of IMAGE_KEYS) this.textures.get(key)?.setFilter(Phaser.Textures.FilterMode.NEAREST);
     this.scene.start('Title');
   }
 }

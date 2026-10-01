@@ -5,6 +5,7 @@ import {
   BattleEvent, BattleState, allActed, canUse, canWait, currentIntent, effectiveSkill, endPlayerTurn, intentValue, isEnraged,
   nextIntent, previewSkill, resolveTarget, usePotion, useSkill, wait,
 } from '../core/battle';
+import { recommend } from '../core/hint';
 import type { MapNode } from '../core/map';
 import { finishBattle, startBattle } from '../core/run';
 import { game } from '../game';
@@ -97,6 +98,8 @@ export class BattleScene extends Phaser.Scene {
   private intentLabel!: Phaser.GameObjects.Text;
   private intentHint!: Phaser.GameObjects.Text;
   private enemyStatus!: Phaser.GameObjects.Text;
+  private hintText!: Phaser.GameObjects.Text;
+  private hintOn = false;
   private waitBtns: Phaser.GameObjects.Container[] = [];
   private turnText!: Phaser.GameObjects.Text;
   private tags: Phaser.GameObjects.Text[] = [];
@@ -230,6 +233,18 @@ export class BattleScene extends Phaser.Scene {
 
     const back = txt(this, 20, 14, '← 挑戦を諦める', 14, '#7b8798').setInteractive({ useHandCursor: true });
     onTap(back, () => { run.finished = 'defeat'; this.scene.start('RunEnd'); });
+    // 初心者向けヒント(任意): 「今やるべきこと」を1行だけ表示。既定はOFF（パズル性を損なわないため）
+    try { this.hintOn = localStorage.getItem('partyrogue.hint') === '1'; } catch { this.hintOn = false; }
+    this.hintText = txt(this, W / 2, 56, '', compact() ? 18 : 16, '#9ff0c0', { fontStyle: 'bold', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(10);
+    const hintBtn = txt(this, 20, 38, '', 14, '#9ff0c0').setInteractive({ useHandCursor: true });
+    const paintHint = () => { hintBtn.setText(this.hintOn ? 'ヒント: ON' : 'ヒント: OFF').setColor(this.hintOn ? '#9ff0c0' : '#7b8798'); this.refreshHint(); };
+    onTap(hintBtn, () => {
+      this.hintOn = !this.hintOn;
+      try { localStorage.setItem('partyrogue.hint', this.hintOn ? '1' : '0'); } catch { /* 保存できない環境では無視 */ }
+      audio.play('ui_select');
+      paintHint();
+    });
+    paintHint();
     this.input.keyboard?.on('keydown-M', () => audio.toggleMute());
     this.input.keyboard?.on('keydown-SPACE', () => this.endTurn());
 
@@ -584,9 +599,24 @@ export class BattleScene extends Phaser.Scene {
     if (d.enemyGuard > 0) {
       g.lineStyle(3, COLORS.block, 0.95).strokeRoundedRect(ENEMY.x - 107, ENEMY.y + 36 - 13, 214, 26, 7);
     }
-    this.enemyGfx.setAlpha(d.broken ? 0.75 : 1);
+    this.updateEnemySprite();
     this.refreshEnemyStatus();
-    this.stars.setVisible(d.broken);
+  }
+
+  /** ブレイク中は気絶スプライト、竜は激昂で差し替え（画像があれば） */
+  private updateEnemySprite(): void {
+    const d = this.disp;
+    const e = this.state.enemy;
+    const base = enemySpriteKey(e.def.id);
+    let useStunned = false;
+    if (base && this.enemyGfx instanceof Phaser.GameObjects.Image) {
+      let key = base;
+      if (d.broken && hasImg(this, `${base}_stunned`)) { key = `${base}_stunned`; useStunned = true; }
+      else if (isEnraged(e) && hasImg(this, `${base}_enraged`)) key = `${base}_enraged`;
+      if (this.enemyGfx.texture.key !== key) this.enemyGfx.setTexture(key);
+    }
+    this.enemyGfx.setAlpha(d.broken && !useStunned ? 0.75 : 1);
+    this.stars.setVisible(d.broken && !useStunned);
   }
 
   private refreshEnemyStatus(): void {
@@ -602,12 +632,19 @@ export class BattleScene extends Phaser.Scene {
     this.enemyStatus.setText(parts.join('  '));
   }
 
+  private refreshHint(): void {
+    if (!this.hintText) return;
+    const t = this.hintOn && !this.busy ? recommend(this.state) : null;
+    this.hintText.setText(t ? `おすすめ: ${t}` : '');
+  }
+
   private refreshAll(): void {
     const tag = this.node.type === 'elite' ? ' ─ エリート' : this.node.danger ? ' ─ 危険な戦闘' : '';
     this.turnText.setText(`第${this.node.row + 1}階層 ─ ターン ${this.state.turn}${tag}`);
     this.drawBars();
     this.refreshButtons();
     this.refreshIntent();
+    this.refreshHint();
   }
 
   // ------------------------------------------------------------------ 入力

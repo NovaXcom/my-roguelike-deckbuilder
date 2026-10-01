@@ -374,3 +374,38 @@ describe('マップのリスクとリターン', () => {
     expect(CHAIN_MULT).toBe(2);
   });
 });
+
+describe('待機のバランス', () => {
+  it('CD0スキルでは、毎ターン攻撃する方が待機→強化攻撃より2ターン合計で強い', () => {
+    const atk = fresh('skeleton');
+    const d1 = previewSkill(atk, SKILLS.slash, K).hp;
+    const twoAttacks = d1 * 2;
+    const w = fresh('skeleton');
+    wait(w, K);
+    const d2 = previewSkill(w, SKILLS.slash, K).hp; // 次ターンに強化攻撃(待機のターンは攻撃していない)
+    expect(twoAttacks).toBeGreaterThan(d2);
+  });
+  it('待機は「使えるスキルが無いターン」や CD短縮・ガードに価値がある', () => {
+    const s = fresh('skeleton');
+    s.party[K].cooldowns.shield_bash = 1;
+    wait(s, K);
+    expect(s.party[K].cooldowns.shield_bash).toBe(0);
+  });
+});
+
+import { recommend } from '../src/core/hint';
+describe('ヒント(任意表示)', () => {
+  it('強攻撃の前はブレイクを促し、ブレイク中はチェインを促す', () => {
+    const s = fresh('skeleton');
+    s.enemy.patternIndex = 3;
+    expect(recommend(s)).toContain('ブレイク');
+    brokenEnemy(s);
+    expect(recommend(s)).toContain('チェイン');
+  });
+  it('常に1行の文字列を返し、戦闘終了後は null', () => {
+    const s = fresh('slime');
+    expect(typeof recommend(s)).toBe('string');
+    s.phase = 'won';
+    expect(recommend(s)).toBeNull();
+  });
+});

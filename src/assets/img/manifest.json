@@ -1,55 +1,55 @@
 {
  "char_knight_idle": {
-  "w": 178,
-  "h": 282
+  "w": 120,
+  "h": 191
  },
  "char_knight_attack": {
-  "w": 196,
-  "h": 238
+  "w": 168,
+  "h": 188
  },
  "char_knight_hit": {
-  "w": 176,
-  "h": 248
+  "w": 126,
+  "h": 188
  },
  "char_knight_down": {
-  "w": 200,
-  "h": 126
+  "w": 144,
+  "h": 96
  },
  "char_elementalist_idle": {
-  "w": 202,
-  "h": 284
+  "w": 105,
+  "h": 192
  },
  "char_elementalist_attack": {
-  "w": 238,
-  "h": 286
+  "w": 155,
+  "h": 192
  },
  "char_elementalist_hit": {
-  "w": 218,
-  "h": 302
+  "w": 134,
+  "h": 192
  },
  "char_elementalist_down": {
-  "w": 202,
-  "h": 120
+  "w": 144,
+  "h": 83
  },
  "enemy_slime": {
-  "w": 158,
-  "h": 106
+  "w": 96,
+  "h": 56
  },
  "enemy_bat": {
-  "w": 300,
-  "h": 194
+  "w": 160,
+  "h": 112
  },
  "enemy_skeleton": {
-  "w": 194,
-  "h": 204
+  "w": 127,
+  "h": 160
  },
  "enemy_golem": {
-  "w": 330,
-  "h": 276
+  "w": 176,
+  "h": 176
  },
  "enemy_dragon": {
-  "w": 566,
-  "h": 348
+  "w": 256,
+  "h": 176
  },
  "icon_equip_weapon_common": {
   "w": 128,
@@ -276,8 +276,8 @@
   "h": 156
  },
  "cutin_elementalist_bust": {
-  "w": 656,
-  "h": 736
+  "w": 224,
+  "h": 256
  },
  "app_icon_192": {
   "w": 192,
@@ -286,6 +286,30 @@
  "app_icon_512": {
   "w": 512,
   "h": 512
+ },
+ "enemy_bat_stunned": {
+  "w": 160,
+  "h": 139
+ },
+ "enemy_dragon_enraged": {
+  "w": 256,
+  "h": 176
+ },
+ "enemy_dragon_stunned": {
+  "w": 256,
+  "h": 194
+ },
+ "enemy_golem_stunned": {
+  "w": 176,
+  "h": 203
+ },
+ "enemy_skeleton_stunned": {
+  "w": 127,
+  "h": 187
+ },
+ "enemy_slime_stunned": {
+  "w": 96,
+  "h": 80
  },
  "fx_reaction_melt": {
   "w": 1024,
