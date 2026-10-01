@@ -266,7 +266,7 @@ export class Game {
       moveX: f.x * intent.moveY + r.x * intent.moveX,
       moveZ: f.z * intent.moveY + r.z * intent.moveX,
       aimX: f.x, aimZ: f.z,
-      light: intent.light, heavy: intent.heavy, dodge: intent.dodge, counter: intent.counter, grab: intent.grab, pickup: intent.pickup, rush: intent.rush, throw: intent.throw, guardHeld: intent.guardHeld,
+      light: intent.light, heavy: intent.heavy, dodge: intent.dodge, counter: intent.counter, grab: intent.grab, pickup: intent.pickup, rush: intent.rush, throw: intent.throw, guardHeld: intent.guardHeld, jump: intent.jump, jumpHeld: intent.jumpHeld,
     };
   }
 
@@ -278,7 +278,7 @@ export class Game {
 
     // latch presses until a physics step consumes them
     const cmd = this.toCmd(intent);
-    for (const k of ['light', 'heavy', 'dodge', 'counter', 'grab', 'pickup', 'rush', 'throw'] as const) if (cmd[k]) this.pending[k] = true;
+    for (const k of ['light', 'heavy', 'dodge', 'counter', 'grab', 'pickup', 'rush', 'throw', 'jump'] as const) if (cmd[k]) this.pending[k] = true;
 
     const scale = this.slow.scale(nowMs);
     const frozen = this.hitStop.active(nowMs);
@@ -330,6 +330,12 @@ export class Game {
       if (d < nd) { nd = d; bx = (e.x - w.player.x) * 0.22; bz = (e.z - w.player.z) * 0.22; }
     }
     this.view.witch = w.witchT > 0;
+    // speed: wider FOV, rushing air, after-images when sprinting flat out
+    const spd = Math.hypot(w.player.vx, w.player.vz);
+    this.view.speedFov += (Math.max(0, (spd - 6.5)) * 1.7 - this.view.speedFov) * Math.min(1, realDt * 6);
+    this.hud.setSpeed(Math.max(0, Math.min(1, (spd - 7) / 3)));
+    if (w.player.sprint > 0.85 && w.player.state === 'move' && this.sprintGhostT <= 0) { this.sprintGhostT = 0.1; this.view.addGhost(0xbfd8ff); }
+    this.sprintGhostT -= realDt;
     this.ghostT -= realDt;
     const pl = w.player;
     if (this.ghostT <= 0 && (pl.state === 'dodge' || pl.state === 'rush' || (pl.state === 'attack' && pl.lungeV > 11 && pl.t < pl.lungeT))) {
@@ -366,6 +372,7 @@ export class Game {
 
   private dustT = 0;
   private ghostT = 0;
+  private sprintGhostT = 0;
   private footDust(dt: number): void {
     const p = this.world.player;
     this.dustT -= dt;
@@ -486,6 +493,22 @@ export class Game {
           v.shake = Math.max(v.shake, 0.4);
           p.burst(e.x ?? 0, 1, e.z ?? 0, 20, 6, 0xc0b8a8, 0.2, 0.5, 4);
           audio.play('boom', 1.2);
+          break;
+        case 'jump':
+          p.burst(e.x ?? 0, 0.1, e.z ?? 0, 10, 4, 0xc8c2b8, 0.2, 0.5, 2);
+          audio.play('dodge', 1.8);
+          break;
+        case 'djump':
+          v.fx.ring(e.x ?? 0, (e.y ?? 0) + 0.1, e.z ?? 0, 1.8, 0xffffff, 0.3);
+          p.burst(e.x ?? 0, e.y ?? 0, e.z ?? 0, 14, 5, 0xdfe8ff, 0.1, 0.4, 1);
+          audio.play('skill', 1.7);
+          break;
+        case 'airdash':
+          v.fovKick = Math.max(v.fovKick, 7);
+          p.burst(e.x ?? 0, e.y ?? 0.8, e.z ?? 0, 14, 7, 0xdfe8ff, 0.1, 0.4, 0);
+          v.fx.ring(e.x ?? 0, (e.y ?? 0.8) + 0.5, e.z ?? 0, 1.6, 0xffffff, 0.25);
+          audio.play('dodge', 1.3);
+          audio.play('swing', 1.4);
           break;
         case 'justdodge':
           this.slow.trigger(now, 160, 0.5);

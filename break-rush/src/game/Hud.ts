@@ -47,6 +47,7 @@ export class Hud {
   private hintEl!: HTMLElement;
   private perksEl!: HTMLElement;
   private styleEl!: HTMLElement;
+  private speedEl!: HTMLElement;
   private flashEl!: HTMLElement;
   private markers!: HTMLElement;
   private floaters: Floater[] = [];
@@ -60,6 +61,7 @@ export class Hud {
     this.el.id = 'hud';
     this.el.innerHTML = `
       <div id="flash"></div>
+      <div id="speedlines"></div>
       <div id="play" class="layer hidden">
         <div id="markers"></div>
         <div class="hpbox"><div class="lbl">HEALTH</div><div class="bar hp"><i id="hpfill"></i><b id="hptext"></b></div>
@@ -96,6 +98,7 @@ export class Hud {
     this.hintEl = q('#hint');
     this.perksEl = q('#perks');
     this.styleEl = q('#style');
+    this.speedEl = q('#speedlines');
     this.flashEl = q('#flash');
     this.markers = q('#markers');
   }
@@ -129,9 +132,9 @@ export class Hud {
         <label>VOL <input type="range" id="vol" min="0" max="1" step="0.05" value="${s.volume}"></label>
       </div>
       <div class="keys">
-        <b>WASD</b> 移動 · <b>MOUSE</b> カメラ · <b>左クリック</b> 攻撃（4連コンボ・自動で敵へ踏み込む） · <b>E</b> 強攻撃<br>
-        <b>右クリック / Shift</b> ガード（押しっぱなしで構え続け、離せば即解除）— 敵の<i class="bl">青いリング</i>の直前に押すとカウンター · <b>Space</b> 回避 — <i class="rd">赤い攻撃</i>はこれだけ。<b>攻撃の直前ギリギリ</b>に回避すると<b>ジャストドッジ</b>で敵がスロー<br>
-        <b>F</b> 掴んで投げる · <b>Q</b> 武器を拾う · <b>G</b> 銃を撃つ／武器を投げる · <b>R</b> RUSH（ゲージ満タン）<br>強攻撃で<b>打ち上げ</b>→自分も飛び上がり<b>空中コンボ</b>（攻撃連打・Spaceで空中ダッシュ・強攻撃で叩きつけ）。技を使い分けると<b>スタイルランク</b>(D〜SSS)が上がって得点倍率UP · 倒れた弱い敵に強攻撃で<b>フィニッシュ</b> · 赤い樽は爆発 · ゲームパッド対応
+        <b>WASD</b> 移動（走り続けると加速）· <b>MOUSE</b> カメラ · <b>左クリック</b> 攻撃（4連コンボ・自動で敵へ踏み込む） · <b>E</b> 強攻撃<br>
+        <b>右クリック / Shift</b> ガード（押しっぱなしで構え続け、離せば即解除）— 敵の<i class="bl">青いリング</i>の直前に押すとカウンター · <b>Shift</b> 回避ローリング — <i class="rd">赤い攻撃</i>はこれだけ。<b>Space</b> ジャンプ（2段ジャンプ、空中で Shift = 空中ダッシュ×2）。走り続けるとどんどん加速、遠くの敵は攻撃で一気に飛びかかる。<b>攻撃の直前ギリギリ</b>に回避すると<b>ジャストドッジ</b>で敵がスロー<br>
+        <b>F</b> 掴んで投げる · <b>Q</b> 武器を拾う · <b>G</b> 銃を撃つ／武器を投げる · <b>R</b> RUSH（ゲージ満タン）<br>強攻撃で<b>打ち上げ</b>→自分も飛び上がり<b>空中コンボ</b>（攻撃連打・Shiftで空中ダッシュ・強攻撃で叩きつけ）。技を使い分けると<b>スタイルランク</b>(D〜SSS)が上がって得点倍率UP · 倒れた弱い敵に強攻撃で<b>フィニッシュ</b> · 赤い樽は爆発 · ゲームパッド対応
       </div>`;
     this.title.classList.remove('hidden');
     const g = this.game;
@@ -214,6 +217,10 @@ export class Hud {
     l.className = `sl r${n}`;
     void l.offsetWidth;
     l.classList.add(up ? 'up' : 'down');
+  }
+
+  setSpeed(k: number): void {
+    this.speedEl.style.opacity = String(k * 0.85);
   }
 
   hidePerks(): void {

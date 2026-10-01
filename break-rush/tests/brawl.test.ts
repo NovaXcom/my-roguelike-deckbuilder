@@ -294,14 +294,14 @@ describe('balance (bots)', () => {
     }
   });
 
-  it('defence matters: a pure masher takes clearly more damage than the defensive player', () => {
+  it('defence matters: against the tougher stage a pure masher takes clearly more damage than the defensive player', () => {
     let smart = 0;
     let masher = 0;
-    for (let seed = 1; seed <= 6; seed++) {
-      smart += play(1, 'smart', seed).damageTaken;
-      masher += play(1, 'masher', seed).damageTaken;
+    for (let seed = 1; seed <= 8; seed++) {
+      smart += play(2, 'smart', seed).damageTaken;
+      masher += play(2, 'masher', seed).damageTaken;
     }
-    expect(masher).toBeGreaterThan(smart * 1.15);
+    expect(masher).toBeGreaterThan(smart * 1.2);
   });
 
   it('the later stages are hard but clearable by the defensive bot at least sometimes', () => {
@@ -744,5 +744,106 @@ describe('style rank', () => {
     const w = arena([]);
     w.styleGain('a', 100);
     expect(w.drain().some((e) => e.type === 'rank' && e.by === 'up')).toBe(true);
+  });
+});
+
+describe('fast movement and jumping', () => {
+  const at = (t: number, T: number) => Math.abs(t - T) < 0.008;
+  it('running builds up speed: after half a second you are well above walking pace', () => {
+    const w = arena([]);
+    let v0 = 0;
+    run(w, 0.05, () => ({ moveX: 1 }));
+    v0 = Math.hypot(w.player.vx, w.player.vz);
+    run(w, 0.7, () => ({ moveX: 1 }));
+    const v1 = Math.hypot(w.player.vx, w.player.vz);
+    expect(v1).toBeGreaterThan(PLAYER.speed * 1.55);
+    expect(v1).toBeGreaterThan(v0 * 1.3);
+    run(w, 0.5, () => ({}));
+    expect(w.player.sprint).toBe(0);
+  });
+
+  it('jump goes up about 1.7m and comes back; releasing early makes a short hop', () => {
+    const tall = arena([]);
+    let top = 0;
+    run(tall, 1.2, (ww, t) => (top = Math.max(top, ww.player.y), { jump: at(t, 0), jumpHeld: t < 0.6 }));
+    expect(top).toBeGreaterThan(1.4);
+    expect(top).toBeLessThan(2.4);
+    expect(tall.player.y).toBe(0);
+    const hop = arena([]);
+    let hopTop = 0;
+    run(hop, 1.2, (ww, t) => (hopTop = Math.max(hopTop, ww.player.y), { jump: at(t, 0), jumpHeld: t < 0.05 }));
+    expect(hopTop).toBeLessThan(top * 0.75);
+    expect(hopTop).toBeGreaterThan(0.3);
+  });
+
+  it('a second press in the air double-jumps, a third does nothing', () => {
+    const w = arena([]);
+    let jumps = 0, djumps = 0;
+    let vyAtThird = 0;
+    run(w, 1.0, (ww, t) => {
+      for (const e of ww.drain()) { if (e.type === 'jump') jumps++; if (e.type === 'djump') djumps++; }
+      if (t > 0.3 && t < 0.32 && ww.player.jumps === 2) vyAtThird = ww.player.vy;
+      return { jump: at(t, 0) || at(t, 0.2) || at(t, 0.3), jumpHeld: true };
+    });
+    expect(jumps).toBe(1);
+    expect(djumps).toBe(1);
+    expect(vyAtThird).toBeLessThan(PLAYER.jumpV2);
+  });
+
+  it('double jump reaches higher than a single jump', () => {
+    const one = arena([]);
+    const two = arena([]);
+    let a = 0, b = 0;
+    run(one, 1.3, (ww, t) => (a = Math.max(a, ww.player.y), { jump: at(t, 0), jumpHeld: true }));
+    run(two, 1.3, (ww, t) => (b = Math.max(b, ww.player.y), { jump: at(t, 0) || at(t, 0.45), jumpHeld: true }));
+    expect(b).toBeGreaterThan(a + 0.8);
+  });
+
+  it('dodge in the air is an air dash that covers ground fast, limited to two per jump', () => {
+    const w = arena([]);
+    run(w, 0.1, (_w, t) => ({ jump: at(t, 0), jumpHeld: true }));
+    const x0 = w.player.x;
+    let dashes = 0;
+    run(w, 0.9, (ww, t) => {
+      dashes += ww.drain().filter((e) => e.type === 'airdash').length;
+      return { dodge: at(t, 0.0) || at(t, 0.3) || at(t, 0.6), moveX: 1, jumpHeld: true };
+    });
+    expect(dashes).toBe(2);
+    expect(w.player.x - x0).toBeGreaterThan(5);
+  });
+
+  it('jumping over a ground attack avoids it', () => {
+    const w = arena(['thug']);
+    const e = w.enemies[0];
+    e.x = 1.9; e.token = true;
+    let jumped = false;
+    run(w, 1.4, (ww) => {
+      if (!jumped && e.state === 'wind' && e.t > e.atk!.wind - 0.2) { jumped = true; return { jump: true, jumpHeld: true }; }
+      return { jumpHeld: true };
+    });
+    expect(w.player.hp).toBe(PLAYER.hp);
+  });
+
+  it('attacking an enemy far away dashes you across the gap (flash step) and hits', () => {
+    const w = arena(['thug']);
+    const e = w.enemies[0];
+    e.x = 8; e.cd = 99;
+    const ids = new Set<string>();
+    run(w, 0.6, (ww, t) => { if (ww.player.atk) ids.add(ww.player.atk.id); return { light: at(t, 0) }; });
+    expect(ids.has('flash')).toBe(true);
+    expect(w.player.x).toBeGreaterThan(4.5);
+    expect(e.hp).toBeLessThan(ENEMIES.thug.hp);
+  });
+
+  it('a dive attack from the air lands with a shockwave that knocks nearby enemies down', () => {
+    const w = arena(['thug', 'thug']);
+    w.enemies.forEach((e, i) => { e.x = 2.2 + i * 0.6; e.z = i ? 1.4 : -1.2; e.cd = 99; e.hp = 9999; });
+    let quake = false;
+    run(w, 1.5, (ww, t) => {
+      if (ww.drain().some((e) => e.type === 'airSlam')) quake = true;
+      return { jump: at(t, 0), jumpHeld: t < 0.3, heavy: at(t, 0.25) };
+    });
+    expect(quake).toBe(true);
+    expect(w.knockdowns).toBeGreaterThanOrEqual(1);
   });
 });

@@ -75,6 +75,7 @@ const ATTACKS: Record<string, Attack> = {
   slam: { wind: P({ aS: 2.8, bS: 2.8, aE: 0.7, bE: 0.7, lean: 0.35, y: -0.05, twist: 0 }), strike: P({ aS: 0.55, bS: 0.55, aE: 0.2, bE: 0.2, lean: -0.8, y: -0.42, fwd: 0.35, twist: 0, lH: 0.8, rH: -0.5 }) },
   bash: { wind: P({ aS: 1.2, aE: 0.5, bS: 0.8, bE: 1.4, lean: 0.12, y: -0.12, twist: 0.2 }), strike: P({ aS: 1.55, aE: 0.2, bS: 1.0, bE: 1.2, lean: -0.55, fwd: 0.42, y: -0.26, twist: -0.1, lH: 0.8, rH: -0.6 }) },
   stab: { wind: P({ bS: -0.1, bE: 1.1, aS: 0.8, lean: -0.5, y: -0.38, twist: 0.7, lH: 0.9, rH: -0.7 }), strike: P({ bS: 1.65, bE: 0.1, aS: -0.2, lean: -0.75, fwd: 0.55, y: -0.44, twist: 0.85, lH: 1.1, rH: -0.9 }) },
+  flash: { wind: P({ lean: -0.7, aS: -0.6, bS: -0.5, y: -0.3, lH: 1.0, lK: -0.8, rH: -0.9, rK: -0.5, fwd: -0.1 }), strike: P({ rH: 1.6, rK: -0.1, lean: 0.35, aS: 0.5, bS: 0.5, aX: 0.9, bX: 0.9, y: -0.1, fwd: 0.2 }) },
   shootP: { wind: P({ bS: 1.4, bE: 0.15, aS: 1.0, aE: 1.8, twist: 0.45, lean: -0.05 }), strike: P({ bS: 1.65, bE: 0.12, aS: 1.0, aE: 1.8, twist: 0.5, lean: 0.06 }) },
   throwW: { wind: P({ bS: 2.8, bE: 0.9, lean: 0.3, twist: 0.6, y: -0.1 }), strike: P({ bS: 1.0, bE: 0.1, lean: -0.45, twist: -0.3, fwd: 0.22, y: -0.18 }) },
   finish: { wind: P({ rH: 1.4, rK: -1.1, lean: 0.25, aS: 1.8, bS: 1.8, y: -0.05 }), strike: P({ rH: 0.2, rK: -0.1, y: -0.55, lean: -0.85, aS: 0.7, bS: 0.7, aE: 0.4, bE: 0.4, fwd: 0.32, lH: 0.9 }) },
@@ -119,6 +120,8 @@ export interface RigState {
   facing: number;
   x: number;
   y?: number;
+  vy?: number;
+  speed?: number;
   z: number;
   atk: { wind: number; strike: number; rec: number } | null;
   guardUp: boolean;
@@ -442,7 +445,12 @@ export class Rig {
         return { pose: p, rate: 12 };
       }
       case 'move': {
-        if (a === 'run') return { pose: locomotion(s.walk * 2.7, 1, -0.22, true), rate: 26 };
+        if (a === 'run') {
+          const k = Math.max(0, Math.min(1, ((s.speed ?? 5.8) - 5.8) / 4));
+          const p = locomotion(s.walk * 2.7, 1 + k * 0.15, -0.22 - 0.4 * k, k < 0.5);
+          if (k >= 0.5) { p.aS = -0.8 - k * 0.5 + Math.sin(s.walk * 2.7) * 0.5; p.bS = -0.8 - k * 0.5 - Math.sin(s.walk * 2.7) * 0.5; p.aE = 0.4; p.bE = 0.4; }
+          return { pose: p, rate: 26 };
+        }
         if (a === 'strafe') return { pose: locomotion(s.walk * 3.2, 0.45, -0.1, true), rate: 18 };
         if (a === 'back') return { pose: locomotion(-s.walk * 3.0, 0.6, 0.0, true), rate: 18 };
         return { pose: locomotion(s.walk * 3.0, 0.7, -0.12, false), rate: 20 };
@@ -469,6 +477,7 @@ export class Rig {
       }
       case 'dodge': {
         const u = Math.min(1, s.t / s.dur);
+        if (s.anim === 'airdash') return { pose: P({ lean: -0.95, aS: 2.7, bS: 2.7, aE: 0.1, bE: 0.1, lH: -0.5, rH: -0.7, lK: -0.2, rK: -0.2, y: -0.1, head: -0.4, twist: 0 }), rate: 60 };
         const tuck = P({ y: -0.46, aS: 1.4, aE: 2.4, bS: 1.4, bE: 2.4, lH: 1.4, lK: -2.1, rH: 1.4, rK: -2.1, lean: -0.5, head: 0.4, twist: 0, lHx: 0.1, rHx: 0.1 });
         tuck.pitch = -Math.PI * 2 * ease(u);
         return { pose: tuck, rate: 90 };
@@ -510,8 +519,17 @@ export class Rig {
         return { pose: p, rate: 40 };
       }
       case 'air': {
-        const p = P({ y: -0.18, lean: -0.25, aS: 1.3, aE: 1.2, bS: 1.1, bE: 1.4, lH: 0.8, lK: -1.0, rH: -0.3, rK: -1.3, twist: -0.2 + Math.sin(time * 5) * 0.08 });
-        return { pose: p, rate: 16 };
+        const vy = s.vy ?? 0;
+        if (s.anim === 'djump' && s.t < 0.42) {
+          const tuck = P({ y: -0.4, aS: 1.4, aE: 2.4, bS: 1.4, bE: 2.4, lH: 1.4, lK: -2.1, rH: 1.4, rK: -2.1, lean: -0.5, head: 0.4, twist: 0 });
+          tuck.pitch = -Math.PI * 2 * ease(s.t / 0.42);
+          return { pose: tuck, rate: 90 };
+        }
+        const p = vy > 1
+          ? P({ y: -0.12, lean: -0.1, aS: 2.3, aE: 0.8, bS: 1.5, bE: 1.5, lH: 0.9, lK: -1.2, rH: 0.1, rK: -0.7, twist: -0.2 })
+          : P({ y: -0.05, lean: -0.05, aS: 1.7, aX: 0.9, aE: 0.5, bS: 1.7, bX: 0.9, bE: 0.5, lH: 0.35, lK: -0.25, rH: -0.1, rK: -0.35, twist: 0 });
+        p.twist += Math.sin(time * 5) * 0.06;
+        return { pose: p, rate: 14 };
       }
       case 'launched': {
         const p = P({ y: -0.28, aS: 2.2, aX: 0.9, aE: 0.6, bS: 2.0, bX: 0.9, bE: 0.5, lH: 0.7, rH: 0.3, lK: -0.9, rK: -0.4, lean: 0.5, head: 0.5, twist: 0 });
@@ -544,7 +562,7 @@ export class Rig {
     const c = this.cur;
     for (const key of KEYS) {
       // angles that wrap are applied directly, everything else is smoothed
-      if (key === 'pitch' && (s.state === 'dodge' || s.state === 'thrown')) c[key] = tgt[key];
+      if (key === 'pitch' && ((s.state === 'dodge' && s.anim !== 'airdash') || s.state === 'thrown' || (s.state === 'air' && s.anim === 'djump' && s.t < 0.42))) c[key] = tgt[key];
       else if (key === 'yaw' && (s.state === 'rush' || s.anim === 'airKick')) c[key] = tgt[key];
       else if (key === 'roll' && s.state === 'thrown') c[key] = tgt[key];
       else c[key] += (tgt[key] - c[key]) * k;

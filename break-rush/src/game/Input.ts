@@ -11,6 +11,8 @@ export interface Intent {
   pickup: boolean;
   rush: boolean;
   throw: boolean;
+  jump: boolean;
+  jumpHeld: boolean;
   guardHeld: boolean;
   /** 1..3 when a number key was pressed (perk picks). */
   digit: number;
@@ -83,14 +85,16 @@ export class Input {
     let mx = (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0);
     let my = (k('KeyW') ? 1 : 0) - (k('KeyS') ? 1 : 0);
     let light = this.mousePressed.has(0) || kp('KeyJ');
-    let counter = this.mousePressed.has(2) || kp('KeyK') || kp('ShiftLeft');
+    let counter = this.mousePressed.has(2) || kp('KeyK');
     let heavy = kp('KeyE') || this.mousePressed.has(1);
-    let dodge = kp('Space');
+    let dodge = kp('ShiftLeft') || kp('ShiftRight') || kp('ControlLeft');
+    let jump = kp('Space');
+    let jumpHeld = k('Space');
     let grab = kp('KeyF');
     let pickup = kp('KeyQ');
     let rush = kp('KeyR');
     let thr = kp('KeyG');
-    let guardHeld = this.mouseDown.has(2) || k('KeyK') || k('ShiftLeft');
+    let guardHeld = this.mouseDown.has(2) || k('KeyK');
     const digit = kp('Digit1') ? 1 : kp('Digit2') ? 2 : kp('Digit3') ? 3 : 0;
     let pausePressed = kp('Escape') || kp('KeyP');
     const mouseScale = 0.0022 * this.sens;
@@ -111,13 +115,15 @@ export class Input {
       if (lx || ly || rx || ry || p.buttons.some((x) => x.pressed)) this.padActive = true;
       mx += lx;
       my += -ly;
-      dodge ||= edge(0);
+      jump ||= edge(0);
+      jumpHeld ||= b(0);
+      dodge ||= edge(6);
       counter ||= edge(1);
       light ||= edge(2);
       heavy ||= edge(3);
       pickup ||= edge(4);
       grab ||= edge(5);
-      rush ||= edge(7) || edge(6);
+      rush ||= edge(7);
       thr ||= edge(11);
       guardHeld ||= b(1);
       pausePressed ||= edge(9);
@@ -132,7 +138,7 @@ export class Input {
       mx /= l;
       my /= l;
     }
-    const out: Intent = { moveX: mx, moveY: my, light, heavy, dodge, counter, grab, pickup, rush, throw: thr, guardHeld, digit, pausePressed, lookYaw, lookPitch };
+    const out: Intent = { moveX: mx, moveY: my, light, heavy, dodge, counter, grab, pickup, rush, throw: thr, jump, jumpHeld, guardHeld, digit, pausePressed, lookYaw, lookPitch };
     this.pressed.clear();
     this.mousePressed.clear();
     this.dx = this.dy = 0;

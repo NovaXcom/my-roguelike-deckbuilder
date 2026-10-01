@@ -52,6 +52,10 @@ export interface Player extends Fighter {
   dodgeEnd: number;
   airHits: number;
   airSlam: boolean;
+  jumps: number;
+  airDashes: number;
+  sprint: number;
+  floatT: number;
   guardCd: number;
   hitAt: number;
   lungeT: number;
@@ -141,9 +145,11 @@ export interface PlayerCmd {
   throw: boolean;
   /** Guard button is being held (releasing ends the guard at once). */
   guardHeld: boolean;
+  jump: boolean;
+  jumpHeld: boolean;
 }
 
-export const emptyCmd = (): PlayerCmd => ({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0, light: false, heavy: false, dodge: false, counter: false, grab: false, pickup: false, rush: false, throw: false, guardHeld: false });
+export const emptyCmd = (): PlayerCmd => ({ moveX: 0, moveZ: 0, aimX: 1, aimZ: 0, light: false, heavy: false, dodge: false, counter: false, grab: false, pickup: false, rush: false, throw: false, guardHeld: false, jump: false, jumpHeld: false });
 
 export function angleDiff(a: number, b: number): number {
   let d = a - b;
@@ -227,7 +233,7 @@ export class World {
     return {
       id: 0, kind: 'player', x: -this.stage.w / 2 + 4, z: 0, y: 0, vy: 0, vx: 0, vz: 0, kx: 0, kz: 0, facing: 0, hp: PLAYER.hp, maxHp: PLAYER.hp, radius: PLAYER.radius,
       state: 'idle', t: 0, alive: true, flash: 0, anim: 'idle', dur: 0, walk: 0,
-      atk: null, step: 0, comboGap: 0, queued: null, hitDone: false, lungeV: 0, dodgeCd: 0, dodgeX: 1, dodgeZ: 0, meter: 0, weapon: null, uses: 0, dodgeEnd: -9, airHits: 0, airSlam: false, guardCd: 0, hitAt: 0, lungeT: 0, grabId: -1, stun: 0, downT: 0, invuln: 0,
+      atk: null, step: 0, comboGap: 0, queued: null, hitDone: false, lungeV: 0, dodgeCd: 0, dodgeX: 1, dodgeZ: 0, meter: 0, weapon: null, uses: 0, dodgeEnd: -9, airHits: 0, airSlam: false, jumps: 0, airDashes: 0, sprint: 0, floatT: 0, guardCd: 0, hitAt: 0, lungeT: 0, grabId: -1, stun: 0, downT: 0, invuln: 0,
     };
   }
 
@@ -488,7 +494,7 @@ export class World {
     p.dur = def.wind + def.strike + def.rec;
     p.hitDone = false;
     p.queued = null;
-    const tgt = id === 'ground' || id === 'finish' ? this.nearestDowned(p) : this.pickTarget(p, cmd.moveX, cmd.moveZ, id === 'cchain' || id === 'dash' ? 7 : 5);
+    const tgt = id === 'ground' || id === 'finish' ? this.nearestDowned(p) : this.pickTarget(p, cmd.moveX, cmd.moveZ, id === 'flash' ? 10 : id === 'cchain' || id === 'dash' ? 7 : 5);
     if (id[0] === 'a' && id.length === 2 && tgt) p.vy = Math.max(-5, Math.min(8, (tgt.y - p.y) * 7));
     let ax = Math.cos(p.facing), az = Math.sin(p.facing);
     let dist = 0;
@@ -503,11 +509,12 @@ export class World {
     p.facing = Math.atan2(az, ax);
     const reach = tgt ? Math.max(0, dist - tgt.radius - 0.9) : def.lunge * 0.35;
     const travel = Math.min(def.lunge, reach);
-    p.lungeT = def.wind + def.strike;
+    p.lungeT = Math.max(def.wind + def.strike, travel / 42);
     p.lungeV = travel / p.lungeT;
     // long lunges connect when we have mostly arrived, not at the first frame
-    p.hitAt = travel > 1.6 ? Math.max(def.wind, Math.min(0.12, p.lungeT * 0.8)) : def.wind;
-    if (id !== 'ground' && id !== 'finish' && id !== 'dash' && id !== 'cchain' && !(id[0] === 'a' && id.length === 2)) {
+    p.hitAt = travel > 1.6 ? Math.max(def.wind, Math.min(0.26, p.lungeT * 0.85)) : def.wind;
+    if (id === 'flash') p.step = 1;
+    if (id !== 'ground' && id !== 'finish' && id !== 'dash' && id !== 'cchain' && id !== 'flash' && !(id[0] === 'a' && id.length === 2)) {
       const i = COMBO_CHAIN.indexOf(id);
       p.step = i >= 0 ? (i + 1) % COMBO_CHAIN.length : 0;
     }
@@ -542,6 +549,8 @@ export class World {
     } else this.ev({ type: 'playerLand', x: p.x, z: p.z });
     if (p.state === 'air') { p.state = 'idle'; p.t = 0; }
     p.airHits = 0;
+    p.jumps = 0;
+    p.airDashes = 0;
   }
 
   private updatePlayer(dt: number, cmd: PlayerCmd): void {
@@ -557,7 +566,10 @@ export class World {
 
     // ---- vertical motion (air combos): floaty while fighting in the air, heavy otherwise ----
     if (p.y > 0.001 || p.vy > 0) {
-      const g = p.state === 'attack' || p.state === 'dodge' ? 7 : p.state === 'air' ? 15 : 24;
+      p.floatT = Math.max(0, p.floatT - dt);
+      const g = p.state === 'attack' || p.state === 'dodge' ? 7 : p.floatT > 0 ? 13 : PLAYER.jumpGravity;
+      // letting go of jump early makes a short hop
+      if (p.state === 'air' && !cmd.jumpHeld && p.vy > 3.2 && p.floatT <= 0) p.vy -= 55 * dt;
       p.vy -= g * dt;
       p.y += p.vy * dt;
       if (p.y <= 0) {
@@ -581,7 +593,10 @@ export class World {
       if (cmd.light) p.queued = 'light';
       if (cmd.heavy) p.queued = 'heavy';
     }
-    if (cmd.dodge && p.dodgeCd <= 0 && (canAct || p.state === 'guard' || p.state === 'hit' && p.t > 0.12 || p.state === 'attack' && p.atk && p.t > p.atk.wind + p.atk.strike * 0.5)) {
+    const jumped = cmd.jump && (free || inRec || guardOpen || dodgeCancel || (p.state === 'counter' && p.t > 0.1)) ? this.doJump(p) : false;
+    if (jumped) {
+      /* the jump used this frame's input */
+    } else if (cmd.dodge && p.dodgeCd <= 0 && (canAct || p.state === 'guard' || p.state === 'hit' && p.t > 0.12 || p.state === 'attack' && p.atk && p.t > p.atk.wind + p.atk.strike * 0.5)) {
       this.startDodge(p, cmd);
     } else if (cmd.counter && canAct && p.state !== 'guard' && p.guardCd <= 0 && !airborne) {
       p.state = 'guard';
@@ -616,6 +631,7 @@ export class World {
       else if (cmd.heavy && this.finishTarget(p)) this.startAttack(p, 'finish', cmd);
       else if (cmd.heavy) this.startAttack(p, 'heavy', cmd);
       else if (down && !standing) this.startAttack(p, 'ground', cmd);
+      else if (!cmd.heavy && !standing && this.farTarget(p, cmd)) this.startAttack(p, 'flash', cmd);
       else {
         const id = p.comboGap < 0.75 && p.step > 0 ? COMBO_CHAIN[p.step] : COMBO_CHAIN[0];
         this.startAttack(p, id, cmd);
@@ -627,11 +643,14 @@ export class World {
       case 'idle':
       case 'move':
       case 'air': {
-        const sp = PLAYER.speed * (p.state === 'air' ? 0.75 : 1);
+        const running = mlen > 0.15 && p.state !== 'air';
+        if (running) p.sprint = Math.min(1, p.sprint + dt / PLAYER.sprintTime);
+        else if (p.state !== 'air') p.sprint = Math.max(0, p.sprint - dt * 5);
+        const sp = PLAYER.speed * (1 + PLAYER.sprintGain * p.sprint) * (p.state === 'air' ? 0.92 : 1);
         p.vx = cmd.moveX * sp;
         p.vz = cmd.moveZ * sp;
         if (p.state === 'air') {
-          p.anim = 'air';
+          if (p.anim !== 'djump' || p.t > 0.45) p.anim = 'air';
           if (mlen > 0.15) p.facing += angleDiff(Math.atan2(cmd.moveZ, cmd.moveX), p.facing) * Math.min(1, dt * 12);
           if (p.y <= 0.001) { p.state = 'idle'; }
         } else if (mlen > 0.15) {
@@ -671,10 +690,10 @@ export class World {
       }
       case 'dodge': {
         const k = Math.max(0, 1 - p.t / PLAYER.dodgeTime);
-        const sp = PLAYER.dodgeSpeed * (0.35 + 0.65 * k) * (airborne ? 1.25 : 1);
+        const sp = airborne ? PLAYER.airDashSpeed * (0.5 + 0.5 * k) : PLAYER.dodgeSpeed * (0.35 + 0.65 * k);
         p.vx = p.dodgeX * sp;
         p.vz = p.dodgeZ * sp;
-        if (p.t >= (airborne ? 0.25 : PLAYER.dodgeTime)) { p.state = p.y > 0.05 ? 'air' : 'idle'; p.dodgeCd = PLAYER.dodgeCd; p.dodgeEnd = this.time; }
+        if (p.t >= (p.anim === 'airdash' ? PLAYER.airDashTime : PLAYER.dodgeTime)) { p.state = p.y > 0.05 ? 'air' : 'idle'; p.dodgeCd = PLAYER.dodgeCd; p.dodgeEnd = this.time; }
         break;
       }
       case 'guard': {
@@ -719,6 +738,36 @@ export class World {
     if (p.state !== 'attack' && p.state !== 'idle' && p.state !== 'move' && p.state !== 'air') p.comboGap = Math.min(p.comboGap, 0.3);
   }
 
+  private doJump(p: Player): boolean {
+    const grounded = p.y <= 0.05 && p.vy <= 0;
+    if (grounded) {
+      p.vy = PLAYER.jumpV;
+      p.y = 0.06;
+      p.jumps = 1;
+      p.airDashes = 0;
+      p.floatT = 0;
+      p.anim = 'air';
+      this.ev({ type: 'jump', x: p.x, z: p.z });
+    } else if (p.jumps < 2) {
+      p.vy = PLAYER.jumpV2;
+      p.jumps = 2;
+      p.anim = 'djump';
+      p.floatT = 0;
+      this.ev({ type: 'djump', x: p.x, y: p.y, z: p.z });
+    } else return false;
+    p.state = 'air';
+    p.t = 0;
+    p.atk = null;
+    p.queued = null;
+    this.styleGain('jump', 6);
+    return true;
+  }
+
+  private farTarget(p: Player, cmd: PlayerCmd): Enemy | null {
+    const t = this.pickTarget(p, cmd.moveX, cmd.moveZ, 10);
+    return t && Math.hypot(t.x - p.x, t.z - p.z) > 3.4 ? t : null;
+  }
+
   private startDodge(p: Player, cmd: PlayerCmd): void {
     let dx = cmd.moveX, dz = cmd.moveZ;
     const l = Math.hypot(dx, dz);
@@ -730,12 +779,18 @@ export class World {
     const k = Math.hypot(dx, dz) || 1;
     p.dodgeX = dx / k; p.dodgeZ = dz / k;
     p.facing = Math.atan2(p.dodgeZ, p.dodgeX);
+    const air = p.y > 0.35;
+    if (air) {
+      if (p.airDashes >= PLAYER.maxAirDashes) return;
+      p.airDashes++;
+      p.vy = Math.max(p.vy, 1.5);
+    }
     p.state = 'dodge';
     p.t = 0;
-    p.anim = 'roll';
-    p.dur = PLAYER.dodgeTime;
+    p.anim = air ? 'airdash' : 'roll';
+    p.dur = air ? PLAYER.airDashTime : PLAYER.dodgeTime;
     p.atk = null;
-    this.ev({ type: 'dodge', x: p.x, z: p.z });
+    this.ev({ type: air ? 'airdash' : 'dodge', x: p.x, z: p.z });
   }
 
   private tryPickup(p: Player): void {
@@ -918,11 +973,12 @@ export class World {
       if (isAir && a.id !== 'a4') { p.vy = Math.max(p.vy, 3.4); p.airHits++; }
       if (a.id === 'heavy' && e.state === 'launched' && p.state === 'attack') {
         // follow them up
-        p.state = 'air'; p.t = 0; p.vy = 8.2; p.y = Math.max(p.y, 0.06); p.atk = null; p.queued = null; p.airHits = 0;
+        p.state = 'air'; p.t = 0; p.vy = 8.2; p.y = Math.max(p.y, 0.06); p.atk = null; p.queued = null; p.airHits = 0; p.floatT = 1.6; p.jumps = 1;
         this.ev({ type: 'airUp', x: p.x, z: p.z });
       }
       if (a.id === 'a4' && air) { p.vy = -19; p.airSlam = true; }
     }
+    if (a.id === 'a4' && !p.airSlam) { p.vy = -19; p.airSlam = true; }
     for (const b of this.barrels) {
       if (!b.alive || !b.explosive) continue;
       const dx = b.x - p.x, dz = b.z - p.z;
@@ -1455,7 +1511,7 @@ export class World {
         if (Math.abs(b.x - pr.x) < pr.hw && Math.abs(b.z - pr.z) < pr.hd) { dead = true; break; }
       }
       if (!dead && Math.abs(b.x) > this.stage.w / 2 + 12) dead = true;
-      if (!dead && !b.reflected && !b.friendly && p.alive && Math.hypot(b.x - p.x, b.z - p.z) < 0.6) {
+      if (!dead && !b.reflected && !b.friendly && p.alive && p.y < 1.1 && Math.hypot(b.x - p.x, b.z - p.z) < 0.6) {
         const l = Math.hypot(b.vx, b.vz) || 1;
         const r = this.hurtPlayer(null, { id: 'bullet', icon: 'yellow', wind: 0, strike: 0, rec: 0, dmg: b.dmg, range: 0, arc: 0, lunge: 0, kb: 2, anim: '' }, b.dmg, b.vx / l, b.vz / l, b);
         if (r !== 'evade' && r !== 'counter') dead = true;

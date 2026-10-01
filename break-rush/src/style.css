@@ -108,3 +108,5 @@ button.big:hover:not(:disabled) { background: #e8452f; }
 .style .sl.up { animation: rankup .4s ease-out; } .style .sl.down { animation: rankdown .4s ease-out; }
 @keyframes rankup { 0% { transform: scale(1.9) rotate(-6deg); } 100% { transform: scale(1); } }
 @keyframes rankdown { 0% { transform: scale(.7); opacity: .4; } 100% { transform: scale(1); opacity: 1; } }
+
+#speedlines { position: absolute; inset: 0; opacity: 0; background: repeating-conic-gradient(from 0deg at 50% 52%, rgba(255,255,255,0) 0deg, rgba(255,255,255,0) 4.2deg, rgba(255,255,255,.10) 4.6deg, rgba(255,255,255,0) 5.2deg); -webkit-mask-image: radial-gradient(ellipse at center, transparent 38%, #000 88%); mask-image: radial-gradient(ellipse at center, transparent 38%, #000 88%); }

@@ -176,6 +176,8 @@ export class CityView {
   shake = 0;
   fovKick = 0;
   private fovBase = 58;
+  /** Extra field of view from running fast (set by the game). */
+  speedFov = 0;
   private ceilY = 99;
 
   constructor(private container: HTMLElement) {
@@ -802,7 +804,7 @@ export class CityView {
     const pa = p.state === 'attack' ? p.atk : null;
     this.playerRig.setWeapon(p.weapon === 'gun' ? 'pistol' : p.weapon);
     this.playerRig.root.visible = !playerHidden;
-    this.playerRig.update({ state: p.state, anim: p.anim, t: p.t, dur: p.dur, walk: p.walk, facing: p.facing, x: p.x, y: p.y, z: p.z, atk: pa ? { wind: pa.wind, strike: pa.strike, rec: pa.rec } : null, guardUp: p.state === 'guard' }, dt, time);
+    this.playerRig.update({ state: p.state, anim: p.anim, t: p.t, dur: p.dur, walk: p.walk, facing: p.facing, x: p.x, y: p.y, z: p.z, vy: p.vy, speed: Math.hypot(p.vx, p.vz), atk: pa ? { wind: pa.wind, strike: pa.strike, rec: pa.rec } : null, guardUp: p.state === 'guard' }, dt, time);
     this.playerRig.setGlow(0xffffff, p.flash > 0 ? 0.6 : p.invuln > 0.35 ? 0.15 + Math.sin(time * 40) * 0.1 : 0);
 
     const seen = new Set<number>();
@@ -927,7 +929,7 @@ export class CityView {
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const fx = cp * Math.cos(yaw), fy = sp, fz = cp * Math.sin(yaw);
     const rx = -Math.sin(yaw), rz = Math.cos(yaw);
-    const dist = 6.4;
+    const dist = 6.4 + this.speedFov * 0.06;
     const ox = this.focus.x + rx * 0.9, oy = this.focus.y + 0.1, oz = this.focus.z + rz * 0.9;
     let dx = ox - fx * dist, dy = oy - fy * dist, dz = oz - fz * dist;
     dy = Math.max(0.5, Math.min(dy, this.ceilY - 0.4));
@@ -942,7 +944,7 @@ export class CityView {
     const sh = this.shake;
     this.camera.position.set(dx + (Math.random() - 0.5) * sh, dy + (Math.random() - 0.5) * sh, dz + (Math.random() - 0.5) * sh);
     this.camera.lookAt(ox + fx * 8, oy + fy * 8, oz + fz * 8);
-    const fov = this.fovBase + this.fovKick;
+    const fov = this.fovBase + this.fovKick + this.speedFov;
     if (Math.abs(this.camera.fov - fov) > 0.03) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     this.fovKick *= Math.pow(0.002, dt);
     this.shake *= Math.pow(0.001, dt);
