@@ -8,12 +8,11 @@ export class Grunt extends Enemy {
   readonly speed = GRUNT.speed;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
-    super(scene, x, y, 'grunt', GRUNT.maxHp);
+    super(scene, x, y, 'grunt', GRUNT.maxHp, GRUNT.maxBreak);
     this.setCollideWorldBounds(true);
   }
 
-  tick(target: Phaser.GameObjects.Components.Transform): void {
-    if (this.stunned) return;
+  protected ai(target: Phaser.GameObjects.Components.Transform): void {
     const dir = Math.sign(target.x - this.x);
     this.setVelocityX(dir * this.speed);
     this.setFlipX(dir < 0);

@@ -24,3 +24,9 @@ export function burst(scene: Phaser.Scene, x: number, y: number, color: number, 
 export function deathEffect(scene: Phaser.Scene, x: number, y: number): void {
   burst(scene, x, y, 0xff5566, 18, 160);
 }
+
+/** Fading ghost rectangle used for dodge / RUSH trails. */
+export function afterImage(scene: Phaser.Scene, x: number, y: number, w: number, h: number, color: number): void {
+  const g = scene.add.rectangle(x, y, w, h, color, 0.45).setDepth(20);
+  scene.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
+}

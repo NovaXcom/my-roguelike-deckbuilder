@@ -1,3 +1,5 @@
+import { BREAK, COMBO, DODGE } from '../config';
+
 /** Pure combat helpers (no Phaser dependency) so they stay easy to extend/test. */
 
 export interface Rect {
@@ -25,4 +27,21 @@ export function applyDamage(target: Health, amount: number): number {
 
 export function isDead(target: Health): boolean {
   return target.hp <= 0;
+}
+
+export function comboDamageMultiplier(hits: number): number {
+  return 1 + (Math.min(hits, COMBO.bonusCapHits) / COMBO.bonusCapHits) * COMBO.maxDamageBonus;
+}
+
+export interface DamageContext {
+  comboHits: number;
+  broken: boolean;
+  counter: boolean;
+}
+
+export function calcDamage(base: number, ctx: DamageContext): number {
+  let m = comboDamageMultiplier(ctx.comboHits);
+  if (ctx.broken) m *= BREAK.damageMult;
+  if (ctx.counter) m *= DODGE.counterMult;
+  return Math.round(base * m);
 }
