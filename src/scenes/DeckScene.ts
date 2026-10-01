@@ -6,6 +6,7 @@ import {
 } from '../core/run';
 import { game } from '../game';
 import { drawBackground, txt } from '../ui/art';
+import { FX_MS, playSheetFx } from '../ui/fx';
 import { hex, makeButton } from '../ui/widgets';
 import { H, W } from './TitleScene';
 
@@ -33,8 +34,8 @@ export class DeckScene extends Phaser.Scene {
   create(): void {
     const run = game.run;
     if (!run) { this.scene.start('Town'); return; }
-    drawBackground(this, W, H);
     const m = this.d.mode;
+    drawBackground(this, W, H, m === 'fuse' || m === 'buy-fuse' ? 'bg_fusion' : undefined);
     const fusing = m === 'fuse' || m === 'buy-fuse';
     const sel = this.d.sel ?? null;
     txt(this, W / 2, 36, m === 'view' ? 'デッキ' : fusing ? 'カード融合' : 'カード削除', 36, '#f6e3b4', { fontStyle: 'bold', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5);
@@ -73,7 +74,10 @@ export class DeckScene extends Phaser.Scene {
           const done = (res: string | null): void => {
             if (!res) { audio.play('deny'); return; }
             audio.play('equip');
-            this.scene.start(this.d.returnTo.scene, this.d.returnTo.data);
+            // 融合演出: 光が収束してはじける
+            playSheetFx(this, 'fx_fusion', W / 2, 330, 3.2, { depth: 100 });
+            this.cameras.main.flash(260, 200, 230, 255);
+            this.time.delayedCall(FX_MS + 300, () => this.scene.start(this.d.returnTo.scene, this.d.returnTo.data));
           };
           if (!sel) {
             makeButton(this, x0 + 530, y + 14, 90, 36, '選ぶ', () => {

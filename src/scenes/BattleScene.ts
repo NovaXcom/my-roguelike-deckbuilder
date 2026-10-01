@@ -15,6 +15,7 @@ import type { Element, SkillDef } from '../core/types';
 import { COLORS, drawBackground, drawHero, drawShield, drawEnemy, drawSword, txt } from '../ui/art';
 import { ENEMY_DISPLAY_H, HERO_DISPLAY_H, HERO_SPRITE, bgKeyFor, enemySpriteKey, skillIconKey, type HeroPose } from '../ui/assetMap';
 import { hasImg } from '../ui/assets';
+import { playSheetFx } from '../ui/fx';
 import { makeButton, onTap, padHitArea, type Button } from '../ui/widgets';
 import { compact } from '../ui/device';
 import { skillSummary } from '../ui/skillText';
@@ -121,6 +122,10 @@ export class BattleScene extends Phaser.Scene {
   private lastHandSig = '';
   private linkBtns: { uid: number; defId: string; c: Phaser.GameObjects.Container; paint: (hover: boolean) => void }[] = [];
   private lastLinkSig = '';
+  private pendingFx: 'chase' | 'aoe' | null = null;
+  private aoeTint = 0xffffff;
+  private apImgs: Phaser.GameObjects.Image[] = [];
+  private pileUi: { icons: Phaser.GameObjects.Image[]; nums: Phaser.GameObjects.Text[] }[] = [];
   private breatheTw: (Phaser.Tweens.Tween | undefined)[] = [];
   private linkLabel!: Phaser.GameObjects.Text;
   private bars!: Phaser.GameObjects.Graphics;
@@ -162,6 +167,9 @@ export class BattleScene extends Phaser.Scene {
     this.waitBtns = [];
     this.linkBtns = [];
     this.breatheTw = [];
+    this.apImgs = [];
+    this.pileUi = [];
+    this.pendingFx = null;
     this.lastLinkSig = '';
     this.plan = [];
     this.executing = false;
@@ -214,6 +222,17 @@ export class BattleScene extends Phaser.Scene {
       // デッキ戦闘では待機は手札のカード。ヘッダーの待機ボタンは旧方式のみ
       this.tags.push(txt(this, px + PANEL_W - (s.deckMode ? 0 : 104), 488, '', compact() ? 15 : 13, '#9fb0c8').setOrigin(1, 0.5));
       if (!s.deckMode) this.buildWait(mi, px + PANEL_W - 48, 487);
+      // 山札/捨て札/疲労の枚数(アイコンがあれば絵＋数字、無ければ文字)
+      const ui: { icons: Phaser.GameObjects.Image[]; nums: Phaser.GameObjects.Text[] } = { icons: [], nums: [] };
+      if (s.deckMode && hasImg(this, 'icon_ui_pile_draw')) {
+        ['draw', 'discard', 'fatigue'].forEach((k, n) => {
+          const x = px + PANEL_W - 3 * 58 + n * 58;
+          ui.icons.push(this.add.image(x + 12, 487, `icon_ui_pile_${k}`).setDisplaySize(compact() ? 28 : 24, compact() ? 28 : 24));
+          ui.nums.push(txt(this, x + 28, 488, '0', compact() ? 16 : 14, '#e8dfd3', { fontStyle: 'bold' }).setOrigin(0, 0.5));
+        });
+        this.tags[mi].setX(px + PANEL_W - 3 * 58 - 6);
+      }
+      this.pileUi.push(ui);
       txt(this, px, 486, `${m.def.name}（${m.def.position}）`, 17, hex(m.def.color), { fontStyle: 'bold' }).setOrigin(0, 0.5);
     });
     this.rebuildHand();
@@ -364,7 +383,8 @@ export class BattleScene extends Phaser.Scene {
       const bg = this.add.graphics();
       const name = txt(this, 0, -12, def.name, compact() ? 16 : 15, '#ffffff', { fontStyle: 'bold' }).setOrigin(0.5);
       const sub = txt(this, 0, 12, '', compact() ? 14 : 11, '#ffd9a0').setOrigin(0.5);
-      const c = this.add.container(x, 413, [bg, name, sub]).setSize(w, h).setDepth(6);
+      const sealIcon = card.sealed > 0 && hasImg(this, 'icon_status_seal') ? this.add.image(w / 2 - 20, -h / 2 + 4, 'icon_status_seal').setDisplaySize(30, 30) : null;
+      const c = this.add.container(x, 413, [bg, name, sub, ...(sealIcon ? [sealIcon] : [])]).setSize(w, h).setDepth(6);
       padHitArea(c, w, h);
       const paint = (hover: boolean) => {
         const planned = this.plan.filter((st) => st.member === LINK && st.skillId === card.defId).length;
@@ -435,21 +455,6 @@ export class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: im, alpha: 1, y: y - 40, duration: 260, onComplete: () => this.tweens.add({ targets: im, alpha: 0, duration: 500, onComplete: () => im.destroy() }) });
   }
 
-  /** 横並びスプライトシート(256×256×N)のエフェクトを1回再生する。画像が無ければ何もしない */
-  private playFx(key: string, x: number, y: number, scale: number): void {
-    if (!hasImg(this, key)) return;
-    const tex = this.textures.get(key);
-    const src = tex.getSourceImage() as HTMLImageElement;
-    const n = Math.max(1, Math.floor(src.width / src.height));
-    const fs = src.height;
-    for (let i = 0; i < n; i++) if (!tex.has(String(i))) tex.add(String(i), 0, i * fs, 0, fs, fs);
-    const im = this.add.image(x, y, key, '0').setScale(scale).setDepth(2700).setBlendMode(Phaser.BlendModes.ADD);
-    let f = 0;
-    this.time.addEvent({
-      delay: 70, repeat: n - 1,
-      callback: () => { im.setFrame(String(Math.min(f, n - 1))); f += 1; if (f >= n) this.time.delayedCall(70, () => im.destroy()); },
-    });
-  }
 
   /** 手札の署名(変わったら手札ボタンを作り直す) */
   private handSig(): string {
@@ -495,14 +500,18 @@ export class BattleScene extends Phaser.Scene {
     const cd = txt(this, BTN_W / 2 - 6, chipY + chipH / 2, `${level > 1 ? `Lv${level}${brName ? '★' : ''} ` : ''}${this.state.deckMode ? (skill.cooldown > 0 ? `疲労${skill.cooldown}` : '') : `CD${skill.cooldown}`}`, 11, level > 1 ? '#ffe066' : '#9fb0c8').setOrigin(1, 0.5);
     // 説明: 通常は全文 / コンパクトは要点のみ（全文はタップ時にツールチップで表示）
     const hasCond = !!skill.conds?.length && BTN_W >= 130;
-    const bodyText = cmp ? skillSummary(skill).join('\n') : (level > 1 ? skillSummary(skill).join(' / ') : skill.text) + (hasCond ? '\n◆条件で強化' : '');
+    const bodyText = cmp ? skillSummary(skill).join('\n') : (level > 1 ? skillSummary(skill).join(' / ') : skill.fusion ? skill.text.replace(/（[^）]*＋[^）]*）$/, '') : skill.text) + (hasCond ? '\n◆条件で強化' : '');
     const body = txt(this, 0, chipY + chipH + 8, bodyText, cmp ? 16 : BTN_W < 130 ? 11 : 12, cmp ? '#ffd9a0' : '#e8dfd3', {
       align: cmp ? 'center' : 'left', fontStyle: cmp ? 'bold' : 'normal', wordWrap: { width: BTN_W - 14, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
     const status = txt(this, 0, BTN_H / 2 - 16, '', 13, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
     const badgeKey = level >= 3 ? 'ui_skillbtn_badge_lv3' : level === 2 ? 'ui_skillbtn_badge_lv2' : '';
     const badge = badgeKey && hasImg(this, badgeKey) ? this.add.image(BTN_W / 2 - 18, -BTN_H / 2 + 18, badgeKey).setDisplaySize(32, 32) : null;
-    const c = this.add.container(x, BTN_Y, [bg, ...(icon ? [icon] : []), ...(badge ? [badge] : []), title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
+    // 融合カードは水色の枠、封印されたカードは鎖のアイコンを重ねる
+    const frame = icon && skill.fusion && hasImg(this, 'ui_card_frame_fusion') ? this.add.image(icon.x, icon.y, 'ui_card_frame_fusion').setDisplaySize(iconSize + 6, iconSize + 6) : null;
+    const sealedCard = this.state.party[member].deck.hand.find((cc) => cc.uid === uid);
+    const seal = icon && sealedCard && sealedCard.sealed > 0 && hasImg(this, 'icon_status_seal') ? this.add.image(icon.x, icon.y, 'icon_status_seal').setDisplaySize(iconSize, iconSize) : null;
+    const c = this.add.container(x, BTN_Y, [bg, ...(icon ? [icon] : []), ...(frame ? [frame] : []), ...(seal ? [seal] : []), ...(badge ? [badge] : []), title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
     c.setInteractive({ useHandCursor: true });
     const btn: SkillBtn = { member, uid, skill: baseSkill, c, bg, status, w: BTN_W, hover: false };
     this.buttons.push(btn);
@@ -649,8 +658,11 @@ export class BattleScene extends Phaser.Scene {
       const buff = [m.focus ? '集中' : '', m.charged ? '帯電' : ''].filter(Boolean).join('・');
       const dk = m.deck;
       const nx = nextDraw(this.state, i);
+      const ui = this.pileUi[i];
+      const withIcons = !!ui && ui.icons.length > 0;
+      if (withIcons) [dk.draw.length, dk.discard.length, dk.fatigued.length].forEach((n, k) => ui.nums[k].setText(String(n)));
       const pile = this.state.deckMode
-        ? `山${dk.draw.length} 捨${dk.discard.length} 疲${dk.fatigued.length}${!compact() && nx ? ` 次:${SKILLS[nx].name}` : ''}`
+        ? (withIcons ? (!compact() && nx ? `次:${SKILLS[nx].name}` : '') : `山${dk.draw.length} 捨${dk.discard.length} 疲${dk.fatigued.length}${!compact() && nx ? ` 次:${SKILLS[nx].name}` : ''}`)
         : '';
       this.tags[i].setText([!alive(m) ? '戦闘不能' : '', buff, pile].filter(Boolean).join('  '))
         .setColor(!alive(m) ? '#ff7a7a' : '#ffe066');
@@ -756,6 +768,9 @@ export class BattleScene extends Phaser.Scene {
         this.replan();
       });
     }
+    if (hasImg(this, 'icon_ui_ap')) {
+      for (let i = 0; i < this.state.apMax; i++) this.apImgs.push(this.add.image(cx + 30 + i * 26, 108, 'icon_ui_ap').setDisplaySize(24, 24).setDepth(5));
+    }
     this.planSummary = txt(this, cx, 134 + MAX_PLAN * 46 - 8, '', compact() ? 15 : 13, '#9ff0c0', { align: 'center', fontStyle: 'bold', wordWrap: { width: 250, useAdvancedWrap: true } })
       .setOrigin(0.5, 0).setDepth(5);
   }
@@ -774,6 +789,7 @@ export class BattleScene extends Phaser.Scene {
     for (let i = 0; i < apMax; i++) {
       const x = cx + 30 + i * 26;
       const free = i < left;
+      if (this.apImgs[i] && hasImg(this, 'icon_ui_ap_empty')) { this.apImgs[i].setTexture(free ? 'icon_ui_ap' : 'icon_ui_ap_empty'); continue; }
       g.fillStyle(free ? COLORS.energy : 0x6b7686, free ? 1 : 0.5).fillCircle(x, 108, 9);
       g.lineStyle(2, 0xffffff, 0.8).strokeCircle(x, 108, 9);
     }
@@ -864,6 +880,7 @@ export class BattleScene extends Phaser.Scene {
       let key = base;
       if (de.broken && hasImg(this, `${base}_stunned`)) { key = `${base}_stunned`; useStunned = true; }
       else if (isEnraged(e) && hasImg(this, `${base}_enraged`)) key = `${base}_enraged`;
+      else if (e.phase === 1 && hasImg(this, `${base}_phase2`)) key = `${base}_phase2`;
       if (v.gfx.texture.key !== key) v.gfx.setTexture(key);
     }
     v.gfx.setAlpha(de.broken && !useStunned ? 0.75 : 1);
@@ -904,6 +921,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawBars();
     this.refreshButtons();
     this.refreshIntent();
+    this.drawPlan();
     this.refreshHint();
   }
 
@@ -1190,6 +1208,8 @@ export class BattleScene extends Phaser.Scene {
     const EY = V.pos.y;
     switch (e.type) {
       case 'damage': {
+        if (this.pendingFx === 'chase') { playSheetFx(this, 'fx_chase', EX, EY - 90, 1.4); this.pendingFx = null; }
+        else if (this.pendingFx === 'aoe') playSheetFx(this, 'fx_aoe_wave', EX, EY - 70, 1.3, { tint: this.aoeTint });
         if (e.chain) break; // チェインは cut-in 側で演出
         de.hp -= e.amount;
         de.guard -= e.absorbed;
@@ -1228,6 +1248,7 @@ export class BattleScene extends Phaser.Scene {
         break;
       case 'disrupt': {
         const hp = HERO_POS[e.member];
+        playSheetFx(this, 'fx_seal', hp.x, hp.y - 100, 1.3);
         audio.play('deny');
         this.popup(hp.x, hp.y - 230, `封印! ${SKILLS[e.skillId].name}`, '#d9a8ff', 30);
         this.shockwave(hp.x, hp.y - 100, 0xc58bff);
@@ -1296,7 +1317,7 @@ export class BattleScene extends Phaser.Scene {
         const col = this.state.enemies[en].lastElement ? ELEMENT_COLOR[this.state.enemies[en].lastElement] : 0xffe066;
         audio.play('hit_weak');
         this.popup(EX, EY - 215, e.name + '!', '#ffffff', 44);
-        this.playFx(`fx_reaction_${e.id}`, EX, EY - 100, 1.6);
+        playSheetFx(this, `fx_reaction_${e.id}`, EX, EY - 100, 1.6);
         this.shockwave(EX, EY - 90, col);
         this.sparks(EX, EY - 90, col, 24);
         break;
@@ -1351,6 +1372,7 @@ export class BattleScene extends Phaser.Scene {
         de.broken = false;
         audio.play('en_dragon_breath');
         audio.duck(0.3, 1.6);
+        playSheetFx(this, 'fx_phase_roar', EX, EY - 100, 2.6);
         this.cameras.main.flash(260, 255, 120, 60);
         this.cameras.main.shake(600, 0.02);
         this.shockwave(EX, EY - 90, 0xff7043);
@@ -1364,6 +1386,9 @@ export class BattleScene extends Phaser.Scene {
         break;
       }
       case 'skill':
+        this.pendingFx = null;
+        if (e.member === LINK && e.skillId === 'chase') this.pendingFx = 'chase';
+        else if (e.member !== LINK && SKILLS[e.skillId].aoe) { this.pendingFx = 'aoe'; this.aoeTint = ELEMENT_COLOR[SKILLS[e.skillId].element] ?? 0xffffff; }
         if (e.member === LINK) {
           audio.play('ui_select');
           this.popup(W / 2 + 20, 392, SKILLS[e.skillId].name, '#d9b8ff', 26);
@@ -1371,6 +1396,7 @@ export class BattleScene extends Phaser.Scene {
         }
         break;
       case 'counter':
+        playSheetFx(this, 'fx_counter', EX, EY - 90, 1.4);
         audio.play('hit_enemy');
         this.popup(EX, EY - 150, `反撃! -${e.amount}`, '#9cc7ff', 34);
         de.hp -= e.amount;

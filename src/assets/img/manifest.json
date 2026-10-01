@@ -287,11 +287,19 @@
   "w": 512,
   "h": 512
  },
+ "bg_fusion": {
+  "w": 1920,
+  "h": 1080
+ },
  "enemy_bat_stunned": {
   "w": 160,
   "h": 139
  },
  "enemy_dragon_enraged": {
+  "w": 256,
+  "h": 176
+ },
+ "enemy_dragon_phase2": {
   "w": 256,
   "h": 176
  },
@@ -310,6 +318,26 @@
  "enemy_slime_stunned": {
   "w": 96,
   "h": 80
+ },
+ "fx_aoe_wave": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_chase": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_counter": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_fusion": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_phase_roar": {
+  "w": 1024,
+  "h": 171
  },
  "fx_reaction_melt": {
   "w": 1024,
@@ -332,6 +360,10 @@
   "h": 171
  },
  "fx_reaction_superconduct": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_seal": {
   "w": 1024,
   "h": 171
  },
@@ -443,6 +475,154 @@
   "w": 192,
   "h": 192
  },
+ "icon_skill_arcane_ward": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_barrier": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_bastion": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_blaze": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_bulwark_guard": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_chain_bolt": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_chase": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_convert": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_counter": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_crush": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_crush_slash": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_defend": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_ember_bolt": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_enchant": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_flame_burst": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_flare_thunder": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_focus_mana": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_frost_lance": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_frost_nova": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_frost_thunder": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_guard_slash": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_ice_storm": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_iron_wall": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_mana_heal": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_oath": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_overcharge": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_power_strike": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_rally": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_shatter_bash": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_steam_bolt": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_storm_bolt": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_taunt_strike": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_thunderbolt": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_twin_slash": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_unison": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_wait": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_skill_whirlwind": {
+  "w": 192,
+  "h": 192
+ },
  "icon_status_bleed": {
   "w": 128,
   "h": 128
@@ -455,7 +635,19 @@
   "w": 128,
   "h": 128
  },
+ "icon_status_convert": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_counter": {
+  "w": 128,
+  "h": 128
+ },
  "icon_status_curse": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_enchant": {
   "w": 128,
   "h": 128
  },
@@ -487,6 +679,10 @@
   "w": 128,
   "h": 128
  },
+ "icon_status_seal": {
+  "w": 128,
+  "h": 128
+ },
  "icon_status_skillpoint": {
   "w": 128,
   "h": 128
@@ -506,6 +702,26 @@
  "icon_status_weaken": {
   "w": 128,
   "h": 128
+ },
+ "icon_ui_ap": {
+  "w": 48,
+  "h": 48
+ },
+ "icon_ui_ap_empty": {
+  "w": 48,
+  "h": 48
+ },
+ "icon_ui_pile_discard": {
+  "w": 48,
+  "h": 48
+ },
+ "icon_ui_pile_draw": {
+  "w": 48,
+  "h": 48
+ },
+ "icon_ui_pile_fatigue": {
+  "w": 48,
+  "h": 48
  },
  "icon_ui_wait": {
   "w": 96,
@@ -531,9 +747,21 @@
   "w": 256,
   "h": 96
  },
+ "ui_card_back": {
+  "w": 192,
+  "h": 256
+ },
  "ui_card_common": {
   "w": 360,
   "h": 420
+ },
+ "ui_card_frame_fusion": {
+  "w": 192,
+  "h": 192
+ },
+ "ui_card_frame_link": {
+  "w": 192,
+  "h": 192
  },
  "ui_card_legendary": {
   "w": 360,

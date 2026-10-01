@@ -6,21 +6,7 @@ import type { Element } from '../core/types';
  */
 
 /** スキルID → アイコン（スキルごとに1キー。元絵が足りないスキルは同系統の絵を流用している） */
-/** 専用アイコンが無いカードは近い既存アイコンを流用する */
-const SKILL_ICON_ALIAS: Record<string, string> = {
-  defend: 'icon_skill_guardian', wait: 'icon_ui_wait', focus_mana: 'icon_status_charge',
-  power_strike: 'icon_skill_slash', iron_wall: 'icon_skill_guardian', rally: 'icon_skill_provoke', whirlwind: 'icon_skill_cleave',
-  crush: 'icon_skill_shield_bash', flame_burst: 'icon_skill_firebolt', chain_bolt: 'icon_skill_thunder', arcane_ward: 'icon_skill_guardian',
-  shatter_bash: 'icon_skill_shield_bash', ember_bolt: 'icon_skill_inferno', bulwark_guard: 'icon_skill_guardian',
-  frost_lance: 'icon_skill_ice_lance', storm_bolt: 'icon_skill_thunderstorm', guard_slash: 'icon_skill_sword_guard',
-  crush_slash: 'icon_skill_shield_bash', twin_slash: 'icon_skill_slash', bastion: 'icon_skill_guardian', oath: 'icon_skill_provoke',
-  taunt_strike: 'icon_skill_shield_bash', steam_bolt: 'icon_skill_firebolt', flare_thunder: 'icon_skill_thunder', frost_thunder: 'icon_skill_ice_lance',
-  blaze: 'icon_skill_inferno', thunderbolt: 'icon_skill_thunderstorm', ice_storm: 'icon_skill_blizzard', mana_heal: 'icon_skill_heal',
-  chase: 'icon_status_intent_attack', enchant: 'icon_status_focus', convert: 'icon_status_freeze', counter: 'icon_status_guard',
-  barrier: 'icon_skill_guardian', unison: 'icon_status_charge',
-  frost_nova: 'icon_skill_blizzard', overcharge: 'icon_skill_thunderstorm',
-};
-export const skillIconKey = (skillId: string): string => SKILL_ICON_ALIAS[skillId] ?? `icon_skill_${skillId}`;
+export const skillIconKey = (skillId: string): string => `icon_skill_${skillId}`;
 
 /** 装備 → アイコン（固有の絵がある装備だけ個別、他は 部位×レア度） */
 export function equipIconKey(item: { templateId: string; slot: string; rarity: string }): string {

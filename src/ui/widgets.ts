@@ -174,6 +174,8 @@ export function cardPanel(scene: Phaser.Scene, x: number, y: number, w: number, 
   const top = -h / 2;
   const key = skillIconKey(cardId);
   if (hasImg(scene, key)) c.add(scene.add.image(0, top + 54, key).setDisplaySize(72, 72));
+  const frameKey = sk.fusion ? 'ui_card_frame_fusion' : sk.link ? 'ui_card_frame_link' : '';
+  if (frameKey && hasImg(scene, frameKey)) c.add(scene.add.image(0, top + 54, frameKey).setDisplaySize(80, 80));
   c.add(txt(scene, 0, top + 98, sk.name, 20, '#ffffff', { fontStyle: 'bold' }).setOrigin(0.5, 0));
   const owner = sk.reward ? (sk.reward.owner === 'knight' ? 'ナイト' : sk.reward.owner === 'link' ? '連携(2人共通)' : 'エレメンタリスト') : '';
   c.add(txt(scene, 0, top + 126, `${owner}${owner ? ' ・ ' : ''}${rare ? 'Rare' : 'Common'}`, 12, rare ? '#4aa3ff' : '#9fb0c8', { fontStyle: 'bold' }).setOrigin(0.5, 0));
