@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { AutoPilot } from '../src/game/AutoPilot';
 import { generateLevel, Level } from '../src/level/Generator';
 import { Controller } from '../src/physics/Controller';
+import { Crumbler } from '../src/physics/Crumbler';
 
 function fly(level: Level, maxT = 240) {
   const c = new Controller(level.boxes);
   c.reset(level.start.x, level.start.y + 0.001, level.start.z, 0);
   const ap = new AutoPilot(level.route);
+  const cr = new Crumbler();
   const dt = 1 / 120;
   let t = 0;
   let prevJ = false;
@@ -19,6 +21,7 @@ function fly(level: Level, maxT = 240) {
     prevJ = raw.jumpPressed;
     prevD = raw.dashPressed;
     const ev = c.step(dt, inp);
+    cr.update(dt, c.groundBox);
     t += dt;
     maxIndex = Math.max(maxIndex, ap.index);
     if (ev.fell) { death = `fell at x=${c.x.toFixed(1)} y=${c.y.toFixed(1)} wp=${ap.index}/${JSON.stringify(level.route[ap.index])}`; break; }
@@ -41,6 +44,22 @@ describe('level generator', () => {
     expect(l.checkpoints.length).toBeGreaterThan(1);
     expect(l.finish.x).toBeGreaterThan(80);
     expect(l.parTime).toBeGreaterThan(10);
+  });
+
+  it('uses every module kind somewhere across stages', () => {
+    const seen = new Set<string>();
+    for (let st = 1; st <= 5; st++) for (let sd = 1; sd <= 30; sd++) generateLevel(sd, { stage: st }).modules.forEach((m) => seen.add(m));
+    for (const m of ['run', 'gap', 'dashgap', 'climb', 'slide', 'wallrun', 'pillars', 'laser', 'highlaser', 'arena', 'drop', 'pad', 'crumble']) expect(seen.has(m)).toBe(true);
+  });
+
+  it('arenas lock their exit while enemies are listed', () => {
+    const l = generateLevel(3, { stage: 4 });
+    expect(l.arenas.length).toBeGreaterThan(0);
+    for (const a of l.arenas) {
+      expect(l.boxes[a.gate].tag).toBe('gate');
+      expect(a.ids.length).toBeGreaterThan(0);
+      for (const id of a.ids) expect(l.enemies[id]).toBeDefined();
+    }
   });
 
   for (const stage of [1, 2, 3, 4, 5]) {

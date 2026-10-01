@@ -380,3 +380,15 @@ describe('Controller: grounded jump landing', () => {
     expect(grounded(c) || c.y > 0).toBe(true);
   });
 });
+
+describe('Controller: jump pad', () => {
+  it('launches the player upward on landing, and is reachable by just running onto it', () => {
+    const pad: Box = { minX: 10, maxX: 12, minY: -1, maxY: 0.2, minZ: -2, maxZ: 2, pad: true };
+    const c = new Controller([floor(-10, 100), pad]);
+    c.reset(0, 0.001, 0, 0);
+    let top = 0;
+    const r = sim(c, 3, (cc) => (top = Math.max(top, cc.y), { moveX: 1 }));
+    expect(anyEvent(r, 'padded')).toBe(true);
+    expect(top).toBeGreaterThan(MOVE.padSpeed ** 2 / (2 * MOVE.gravity) * 0.9);
+  });
+});

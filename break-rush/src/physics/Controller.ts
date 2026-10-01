@@ -14,7 +14,11 @@ export interface Box {
   /** Decoration only: no collision. */
   ghost?: boolean;
   /** Rendering hint only. */
-  tag?: 'floor' | 'cover' | 'ceiling' | 'pillar';
+  /** Launches whoever lands on it. */
+  pad?: boolean;
+  /** Falls away shortly after being stood on (see Crumbler). */
+  crumble?: boolean;
+  tag?: 'floor' | 'cover' | 'ceiling' | 'pillar' | 'pad' | 'crumble' | 'gate';
 }
 
 export interface MoveInput {
@@ -39,9 +43,10 @@ export interface MoveEvents {
   wallRunStarted: boolean;
   hitHazard: boolean;
   fell: boolean;
+  padded: boolean;
 }
 
-const noEvents = (): MoveEvents => ({ jumped: false, landed: false, landSpeed: 0, wallJumped: false, dashed: false, slideStarted: false, wallRunStarted: false, hitHazard: false, fell: false });
+const noEvents = (): MoveEvents => ({ jumped: false, landed: false, landSpeed: 0, wallJumped: false, dashed: false, slideStarted: false, wallRunStarted: false, hitHazard: false, fell: false, padded: false });
 
 /**
  * First-principles platforming controller: AABB vs boxes, with coyote time, jump buffering, variable
@@ -61,6 +66,8 @@ export class Controller {
   yaw = 0;
   dashCharges: number = MOVE.dashCharges;
   /** Wall normal while wall-running (points away from the wall). */
+  /** The box we are standing on, if any. */
+  groundBox: Box | null = null;
   wallNx = 0;
   wallNz = 0;
   wallRunTime = 0;
@@ -76,6 +83,7 @@ export class Controller {
   private reattachCd = 0;
   private lastWallBox: Box | null = null;
   private spentWall: Box | null = null;
+  private noCut = false;
   private wallDir = 1;
 
   constructor(public boxes: Box[]) {}
@@ -174,6 +182,7 @@ export class Controller {
         this.yaw = Math.atan2(this.vz, this.vx);
       } else if (this.onGround || this.coyoteLeft > 0) {
         this.vy = MOVE.jumpSpeed;
+        this.noCut = false;
         this.onGround = false;
         this.coyoteLeft = 0;
         this.bufferLeft = 0;
@@ -186,7 +195,8 @@ export class Controller {
         ev.jumped = true;
       }
     }
-    if (!inp.jumpHeld && this.vy > 0 && this.state === 'air') this.vy *= Math.pow(MOVE.jumpCut, dt * 14);
+    if (this.onGround) this.noCut = false;
+    if (!inp.jumpHeld && this.vy > 0 && this.state === 'air' && !this.noCut) this.vy *= Math.pow(MOVE.jumpCut, dt * 14);
 
     // ---- gravity --------------------------------------------------------
     if (this.state === 'wallrun') this.vy -= MOVE.wallRunGravity * dt;
@@ -197,6 +207,16 @@ export class Controller {
     const wasGround = this.onGround;
     const impact = this.vy;
     this.moveAndCollide(dt, ev);
+    if (this.onGround && this.groundBox?.pad && this.state !== 'dash') {
+      this.vy = MOVE.padSpeed;
+      this.onGround = false;
+      this.state = 'air';
+      this.coyoteLeft = 0;
+      this.dashCharges = MOVE.dashCharges;
+      ev.padded = true;
+      this.noCut = true;
+      this.y += 0.02;
+    }
     if (this.onGround && !wasGround) {
       ev.landed = true;
       ev.landSpeed = -impact;
@@ -440,6 +460,7 @@ export class Controller {
     // vertical
     this.y += this.vy * dt;
     let grounded = false;
+    let gb: Box | null = null;
     for (const b of this.boxes) {
       if (b.ghost || b.hazard) continue;
       if (this.x + hw > b.minX && this.x - hw < b.maxX && this.y + this.height > b.minY && this.y < b.maxY && this.z + hw > b.minZ && this.z - hw < b.maxZ) {
@@ -447,6 +468,7 @@ export class Controller {
           this.y = b.maxY;
           this.vy = 0;
           grounded = true;
+          gb = b;
         } else {
           this.y = b.minY - this.height;
           this.vy = 0;
@@ -459,11 +481,13 @@ export class Controller {
         if (b.ghost || b.hazard) continue;
         if (this.x + hw > b.minX && this.x - hw < b.maxX && this.z + hw > b.minZ && this.z - hw < b.maxZ && Math.abs(this.y - b.maxY) < 0.02) {
           grounded = true;
+          gb = b;
           break;
         }
       }
     }
     this.onGround = grounded;
+    this.groundBox = grounded ? gb : null;
     if (grounded) this.airCap = 0;
     else if (this.airCap === 0) this.airCap = Math.max(this.speed, MOVE.runSpeed);
     if (this.hazardTouch()) ev.hitHazard = true;

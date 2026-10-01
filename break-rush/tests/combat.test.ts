@@ -170,3 +170,84 @@ describe('checkpoints', () => {
     expect(evs.some((e) => e.playerHit)).toBe(false);
   });
 });
+
+describe('shielder', () => {
+  const sh = () => new Combat([floor], [{ type: 'shield', x: 5, y: 0, z: 0 }]);
+  it('cannot be slashed from the front, but can from behind', () => {
+    const c = sh();
+    c.enemies[0].face = Math.PI; // shield faces -x, toward the player at x=2
+    c.startSlash();
+    let blocked = false;
+    let kills = 0;
+    for (let i = 0; i < 6; i++) {
+      const ev = c.update(1 / 60, body(3.5), false, true);
+      blocked ||= ev.blocked.length > 0;
+      kills += ev.kills.length;
+    }
+    expect(blocked).toBe(true);
+    expect(kills).toBe(0);
+    // now the player is behind it (x=8, shield still facing -x for a moment)
+    const d = sh();
+    d.enemies[0].face = Math.PI;
+    d.startSlash();
+    const ev = d.update(1 / 60, body(6.5), false, true);
+    expect(ev.kills.length).toBe(1);
+  });
+
+  it('turns slowly, so circling around exposes the back', () => {
+    const c = sh();
+    const p = body(2);
+    run(c, 0.3, p, false, true);
+    const before = c.enemies[0].face;
+    p.x = 8; // jumped over to the far side
+    run(c, 0.1, p, false, true);
+    expect(Math.abs(c.enemies[0].face - before)).toBeLessThan(0.4);
+  });
+
+  it('bashes a player who stays in front, and walks toward them', () => {
+    const c = sh();
+    const evs = run(c, 5, body(-5), false, false);
+    expect(evs.some((e) => e.playerHit)).toBe(true);
+  });
+
+  it('reflected bullets kill it even from the front', () => {
+    const g = new Combat([floor], [spawn('gunner', 25), { type: 'shield', x: 18, y: 0, z: 0 }]);
+    g.enemies[1].face = Math.PI; // faces the player
+    const p = body(0);
+    // fire at the player, deflect, and the reflected shot flies back along the same line through the shielder
+    let killedShield = false;
+    for (let i = 0; i < 60 * 6; i++) {
+      const b = g.projectiles[0];
+      if (b && b.owner === 'enemy' && b.x < 6) g.startDeflect();
+      const ev = g.update(1 / 60, p, false, true);
+      if (ev.kills.some((k) => k.type === 'shield')) killedShield = true;
+    }
+    expect(killedShield || g.enemies[0].alive === false).toBe(true);
+  });
+});
+
+describe('shuriken', () => {
+  it('flies straight and kills what is on the aim line, homing slightly', () => {
+    const c = new Combat([floor], [spawn('gunner', 20, 1.5)]);
+    c.throwStar(body(0), 1, 0, 0);
+    let killed = false;
+    for (let i = 0; i < 60 * 2; i++) killed ||= c.update(1 / 60, body(0), false, true).kills.length > 0;
+    expect(killed).toBe(true);
+  });
+  it('misses when aimed away, and is stopped by a front shield', () => {
+    const c = new Combat([floor], [spawn('gunner', 20)]);
+    c.throwStar(body(0), 0, 0, 1);
+    for (let i = 0; i < 120; i++) c.update(1 / 60, body(0), false, true);
+    expect(c.aliveCount).toBe(1);
+    const s = new Combat([floor], [{ type: 'shield', x: 15, y: 0, z: 0 }]);
+    s.enemies[0].face = Math.PI;
+    s.throwStar(body(0), 1, 0, 0);
+    let blocked = false;
+    for (let i = 0; i < 120; i++) {
+      const ev = s.update(1 / 60, body(0), false, true);
+      blocked ||= ev.blocked.length > 0;
+    }
+    expect(blocked).toBe(true);
+    expect(s.aliveCount).toBe(1);
+  });
+});

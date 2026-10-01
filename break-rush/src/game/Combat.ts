@@ -16,7 +16,10 @@ export interface Enemy {
   minZ: number;
   maxZ: number;
   alive: boolean;
-  state: 'idle' | 'aim' | 'windup' | 'charge' | 'cool';
+  state: 'idle' | 'aim' | 'windup' | 'charge' | 'cool' | 'advance';
+  /** Shielders: direction the shield points (radians, 0 = +x). */
+  face: number;
+  blockCd: number;
   t: number;
   /** Direction locked in at the start of a charge / aim. */
   dirX: number;
@@ -38,6 +41,7 @@ export interface Projectile {
   vz: number;
   /** 'enemy' bullets hurt the player; 'player' (reflected) bullets kill enemies. */
   owner: 'enemy' | 'player';
+  kind: 'bullet' | 'reflect' | 'star';
   life: number;
   shooter: number;
 }
@@ -57,6 +61,8 @@ export interface CombatEvents {
   fired: { x: number; y: number; z: number }[];
   deflected: { x: number; y: number; z: number }[];
   telegraphs: { id: number }[];
+  /** Attacks that hit a shield head-on. */
+  blocked: { x: number; y: number; z: number; dx: number; dz: number }[];
 }
 
 export const COMBAT = {
@@ -77,6 +83,12 @@ export const COMBAT = {
   deflectTime: 0.32,
   deflectCooldown: 0.5,
   deflectRadius: 3.2,
+  shieldArc: 1.6,
+  shieldTurn: 1.8,
+  shieldSpeed: 3.4,
+  shieldWindup: 0.75,
+  starSpeed: 36,
+  maxStars: 3,
 };
 
 export function segmentBlocked(boxes: Box[], ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
@@ -128,7 +140,7 @@ export class Combat {
       this.enemies.push({
         id: i, type: s.type, x: s.x, y: s.y, z: s.z, homeX: s.x, homeY: s.y, homeZ: s.z,
         minX: b ? b.minX + 0.6 : s.x - 3, maxX: b ? b.maxX - 0.6 : s.x + 3, minZ: b ? b.minZ + 0.6 : s.z - 3, maxZ: b ? b.maxZ - 0.6 : s.z + 3,
-        alive: true, state: 'idle', t: 0, dirX: 0, dirY: 0, dirZ: 0, facing: Math.PI, telegraph: 0, bob: i * 1.7,
+        alive: true, state: 'idle', t: 0, face: Math.PI, blockCd: 0, dirX: 0, dirY: 0, dirZ: 0, facing: Math.PI, telegraph: 0, bob: i * 1.7,
       });
     });
   }
@@ -147,6 +159,7 @@ export class Combat {
       e.state = 'idle';
       e.t = 0;
       e.telegraph = 0;
+      e.face = Math.PI;
       e.x = e.homeX; e.y = e.homeY; e.z = e.homeZ;
     }
   }
@@ -200,7 +213,7 @@ export class Combat {
   }
 
   update(dt: number, p: PlayerBody, lunging: boolean, invulnerable: boolean): CombatEvents {
-    const ev: CombatEvents = { playerHit: false, kills: [], fired: [], deflected: [], telegraphs: [] };
+    const ev: CombatEvents = { playerHit: false, kills: [], fired: [], deflected: [], telegraphs: [], blocked: [] };
     this.slashLeft = Math.max(0, this.slashLeft - dt);
     this.deflectLeft = Math.max(0, this.deflectLeft - dt);
     this.deflectCd = Math.max(0, this.deflectCd - dt);
@@ -214,7 +227,15 @@ export class Combat {
         if (!e.alive) continue;
         const d = Math.hypot(e.x - px, e.z - pz);
         const dy = e.y + 0.9 - py;
-        if (d < reach && Math.abs(dy) < 2.2) this.kill(e, lunging ? 'lunge' : 'slash', ev);
+        if (d < reach && Math.abs(dy) < 2.2) {
+          if (e.type === 'shield' && this.shieldBlocks(e, px, pz)) {
+            if (e.blockCd <= 0) {
+              e.blockCd = 0.45;
+              const l = Math.hypot(px - e.x, pz - e.z) || 1;
+              ev.blocked.push({ x: e.x, y: e.y + 1.2, z: e.z, dx: (px - e.x) / l, dz: (pz - e.z) / l });
+            }
+          } else this.kill(e, lunging ? 'lunge' : 'slash', ev);
+        }
       }
     }
 
@@ -225,9 +246,11 @@ export class Combat {
       const dist = Math.hypot(dx, dz);
       e.facing = Math.atan2(dz, dx);
       e.bob += dt;
+      e.blockCd = Math.max(0, e.blockCd - dt);
       if (dist > COMBAT.activateRange) { e.state = 'idle'; e.t = 0; e.telegraph = 0; continue; }
       const los = !segmentBlocked(this.boxes, e.x, e.y + 1.2, e.z, px, py, pz);
       if (e.type === 'charger') this.updateCharger(e, dt, dist, los, p, ev, invulnerable);
+      else if (e.type === 'shield') this.updateShield(e, dt, dist, los, p, ev, invulnerable);
       else this.updateShooter(e, dt, dist, los, px, py, pz, ev);
     }
 
@@ -251,6 +274,7 @@ export class Combat {
           const sp = COMBAT.bulletSpeed * 1.9;
           b.vx = ((tx - b.x) / dd) * sp; b.vy = ((ty - b.y) / dd) * sp; b.vz = ((tz - b.z) / dd) * sp;
           b.owner = 'player';
+          b.kind = 'reflect';
           b.life = 3;
           ev.deflected.push({ x: b.x, y: b.y, z: b.z });
         } else if (d < COMBAT.bulletRadius + 0.35) {
@@ -260,12 +284,78 @@ export class Combat {
       } else if (!dead && b.owner === 'player') {
         for (const e of this.enemies) {
           if (!e.alive) continue;
-          if (Math.hypot(b.x - e.x, b.y - (e.y + 1), b.z - e.z) < 1.1) { this.kill(e, 'reflect', ev); dead = true; break; }
+          if (Math.hypot(b.x - e.x, b.y - (e.type === 'drone' ? e.y : e.y + 1), b.z - e.z) < 1.1) {
+            if (b.kind === 'star' && e.type === 'shield' && this.shieldBlocks(e, b.x - b.vx, b.z - b.vz)) {
+              ev.blocked.push({ x: b.x, y: b.y, z: b.z, dx: -b.vx / COMBAT.starSpeed, dz: -b.vz / COMBAT.starSpeed });
+            } else this.kill(e, 'reflect', ev);
+            dead = true;
+            break;
+          }
         }
       }
       if (dead) this.projectiles.splice(i, 1);
     }
     return ev;
+  }
+
+  /** True when an attack coming from (ax, az) hits the front of this enemy's shield. */
+  shieldBlocks(e: Enemy, ax: number, az: number): boolean {
+    const a = Math.atan2(az - e.z, ax - e.x);
+    let d = a - e.face;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    return Math.abs(d) < COMBAT.shieldArc;
+  }
+
+  /** Throw a shuriken along (dx,dy,dz); it homes slightly onto an enemy near the aim line. */
+  throwStar(p: PlayerBody, dx: number, dy: number, dz: number): Projectile {
+    const ox = p.x, oy = p.y + p.height * 0.7, oz = p.z;
+    let l = Math.hypot(dx, dy, dz) || 1;
+    dx /= l; dy /= l; dz /= l;
+    let best = 0.3;
+    let tx = dx, ty = dy, tz = dz;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const vx = e.x - ox, vy = (e.type === 'drone' ? e.y : e.y + 1) - oy, vz = e.z - oz;
+      const d = Math.hypot(vx, vy, vz);
+      if (d < 1 || d > 50) continue;
+      const ang = Math.acos(Math.min(1, (vx * dx + vy * dy + vz * dz) / d));
+      if (ang < best && !segmentBlocked(this.boxes, ox, oy, oz, e.x, e.y + 1, e.z)) { best = ang; tx = vx / d; ty = vy / d; tz = vz / d; }
+    }
+    l = COMBAT.starSpeed;
+    const b: Projectile = { id: this.nextProj++, x: ox, y: oy, z: oz, vx: tx * l, vy: ty * l, vz: tz * l, owner: 'player', kind: 'star', life: 1.5, shooter: -1 };
+    this.projectiles.push(b);
+    return b;
+  }
+
+  private updateShield(e: Enemy, dt: number, dist: number, los: boolean, p: PlayerBody, ev: CombatEvents, invulnerable: boolean): void {
+    // turn the shield toward the player, but not instantly: circle around it to expose its back
+    let d = Math.atan2(p.z - e.z, p.x - e.x) - e.face;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    const turn = COMBAT.shieldTurn * dt;
+    e.face += Math.max(-turn, Math.min(turn, d));
+    e.facing = e.face;
+    if (e.state === 'idle' || e.state === 'advance') {
+      if (los && dist < 24) {
+        e.state = 'advance';
+        if (dist > 2.6) {
+          const l = Math.hypot(p.x - e.x, p.z - e.z) || 1;
+          e.x = Math.min(e.maxX, Math.max(e.minX, e.x + ((p.x - e.x) / l) * COMBAT.shieldSpeed * dt));
+          e.z = Math.min(e.maxZ, Math.max(e.minZ, e.z + ((p.z - e.z) / l) * COMBAT.shieldSpeed * dt));
+        } else { e.state = 'windup'; e.t = 0; ev.telegraphs.push({ id: e.id }); }
+      }
+    } else if (e.state === 'windup') {
+      e.t += dt;
+      e.telegraph = Math.min(1, e.t / COMBAT.shieldWindup);
+      if (e.t >= COMBAT.shieldWindup) {
+        if (Math.hypot(p.x - e.x, p.z - e.z) < 3.1 && Math.abs(p.y - e.y) < 1.8 && !invulnerable) ev.playerHit = true;
+        e.state = 'cool';
+        e.t = 0;
+        e.telegraph = 0;
+      }
+    } else {
+      e.t += dt;
+      if (e.t >= 1.1) { e.state = 'idle'; e.t = 0; }
+    }
   }
 
   private kill(e: Enemy, by: 'slash' | 'reflect' | 'lunge', ev: CombatEvents): void {
@@ -278,7 +368,7 @@ export class Combat {
     const dx = px - ox, dy = py - oy, dz = pz - oz;
     const d = Math.hypot(dx, dy, dz) || 1;
     const s = COMBAT.bulletSpeed;
-    this.projectiles.push({ id: this.nextProj++, x: ox, y: oy, z: oz, vx: (dx / d) * s, vy: (dy / d) * s, vz: (dz / d) * s, owner: 'enemy', life: 4, shooter: e.id });
+    this.projectiles.push({ id: this.nextProj++, x: ox, y: oy, z: oz, vx: (dx / d) * s, vy: (dy / d) * s, vz: (dz / d) * s, owner: 'enemy', kind: 'bullet', life: 4, shooter: e.id });
     ev.fired.push({ x: ox, y: oy, z: oz });
   }
 

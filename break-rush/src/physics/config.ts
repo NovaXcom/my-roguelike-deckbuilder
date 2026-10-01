@@ -31,7 +31,7 @@ export const MOVE = {
   wallProbe: 0.14,
   /** Air dashes available before touching ground or a wall again. */
   dashCharges: 1,
-  killY: -30,
+  killY: -30, padSpeed: 19, crumbleDelay: 0.5,
 } as const;
 
 /** Flat-ground distance covered by a running jump (feet leave and return to the same height). */

@@ -3,7 +3,7 @@ import { MOVE } from '../physics/config';
 import { Rng } from '../game/Rng';
 import { DASH_GAP, MAX_STEP_UP, SAFE_GAP } from './limits';
 
-export type EnemyType = 'gunner' | 'charger' | 'drone';
+export type EnemyType = 'gunner' | 'charger' | 'drone' | 'shield';
 export interface EnemySpawn {
   type: EnemyType;
   x: number;
@@ -34,9 +34,12 @@ export interface Level {
   /** Seconds a clean run should take; used for ranks. */
   parTime: number;
   modules: string[];
+  /** Arenas lock their exit (boxes[gate]) until every listed enemy is dead. */
+  arenas: { gate: number; ids: number[] }[];
+  themeId: number;
 }
 
-export type ModuleName = 'run' | 'gap' | 'dashgap' | 'climb' | 'slide' | 'wallrun' | 'pillars' | 'laser' | 'highlaser' | 'arena' | 'drop';
+export type ModuleName = 'pad' | 'crumble' | 'run' | 'gap' | 'dashgap' | 'climb' | 'slide' | 'wallrun' | 'pillars' | 'laser' | 'highlaser' | 'arena' | 'drop';
 
 interface Cursor {
   x: number;
@@ -47,18 +50,29 @@ const FLOOR_DEPTH = 4;
 const LANE = 3;
 
 export interface GenOptions {
-  stage: number; // 1..
+  stage: number; // 1..5 (daily runs pass 5)
   modules?: number;
   enemies?: boolean;
+  theme?: number;
 }
 
-/** Which modules may appear at a given stage. */
+/** Which modules may appear at a given stage. Each stage has its own flavour. */
 export function poolForStage(stage: number): ModuleName[] {
-  const p: ModuleName[] = ['run', 'gap', 'climb', 'laser'];
-  if (stage >= 1) p.push('slide', 'pillars');
-  if (stage >= 2) p.push('dashgap', 'drop', 'highlaser', 'arena');
-  if (stage >= 3) p.push('wallrun');
-  return p;
+  switch (stage) {
+    case 1: return ['run', 'gap', 'gap', 'climb', 'laser', 'slide', 'pillars', 'arena'];
+    case 2: return ['gap', 'climb', 'slide', 'highlaser', 'laser', 'pad', 'pad', 'drop', 'arena', 'dashgap'];
+    case 3: return ['gap', 'climb', 'pillars', 'crumble', 'crumble', 'wallrun', 'pad', 'slide', 'arena', 'drop', 'highlaser'];
+    case 4: return ['dashgap', 'crumble', 'pad', 'wallrun', 'wallrun', 'drop', 'highlaser', 'arena', 'pillars', 'climb'];
+    default: return ['run', 'gap', 'dashgap', 'climb', 'drop', 'slide', 'laser', 'highlaser', 'pillars', 'wallrun', 'pad', 'crumble', 'arena', 'arena'];
+  }
+}
+
+/** Enemy kinds that can appear at a stage. */
+export function enemyKinds(stage: number): EnemyType[] {
+  if (stage <= 1) return ['gunner'];
+  if (stage === 2) return ['gunner', 'charger'];
+  if (stage === 3) return ['gunner', 'charger', 'drone'];
+  return ['gunner', 'charger', 'drone', 'shield'];
 }
 
 export function generateLevel(seed: number, opts: GenOptions): Level {
@@ -85,8 +99,12 @@ export function generateLevel(seed: number, opts: GenOptions): Level {
   cur.x = 8;
   wp(8, 0);
 
-  const enemyAt = (type: EnemyType, x: number, y: number, z: number) => {
-    if (withEnemies) enemies.push({ type, x, y, z });
+  const arenas: { gate: number; ids: number[] }[] = [];
+  const kinds = enemyKinds(opts.stage);
+  const enemyAt = (type: EnemyType, x: number, y: number, z: number): number => {
+    if (!withEnemies) return -1;
+    enemies.push({ type, x, y, z });
+    return enemies.length - 1;
   };
 
   const mods: Record<ModuleName, () => void> = {
@@ -202,6 +220,36 @@ export function generateLevel(seed: number, opts: GenOptions): Level {
       cur.x = x0 + lead + chasm + tail;
       wp(cur.x - 1, 0);
     },
+    pad: () => {
+      const lead = rng.range(7, 9);
+      floor(cur.x, cur.x + lead, cur.y);
+      boxes.push({ minX: cur.x + lead - 1.5, maxX: cur.x + lead, minY: cur.y - 1, maxY: cur.y + 0.25, minZ: -1.6, maxZ: 1.6, pad: true, tag: 'pad' });
+      wp(cur.x + lead - 0.5, 0);
+      const rise = rng.range(1, 3);
+      cur.x += lead + 7;
+      cur.y += rise;
+      const len = rng.range(11, 13);
+      floor(cur.x, cur.x + len, cur.y);
+      cur.x += len;
+      wp(cur.x - 1, 0);
+    },
+    crumble: () => {
+      const n = rng.int(4, 6);
+      const w = 3.2;
+      for (let i = 0; i < n; i++) {
+        if (i === 0) wp(cur.x, 0, 'jump');
+        cur.x += i === 0 ? rng.range(2.5, 3) : rng.range(2.6, SAFE_GAP * 0.8);
+        boxes.push({ minX: cur.x, maxX: cur.x + w, minY: cur.y - FLOOR_DEPTH, maxY: cur.y, minZ: -2.5, maxZ: 2.5, crumble: true, tag: 'crumble' });
+        wp(cur.x + w * 0.3, 0);
+        wp(cur.x + w, 0, 'jump');
+        cur.x += w;
+      }
+      cur.x += rng.range(2.6, SAFE_GAP * 0.8);
+      const len = rng.range(7, 9);
+      floor(cur.x, cur.x + len, cur.y);
+      cur.x += len;
+      wp(cur.x - 1, 0);
+    },
     arena: () => {
       const len = 24;
       const hw = 8;
@@ -212,10 +260,16 @@ export function generateLevel(seed: number, opts: GenOptions): Level {
         const bz = rng.pick([-4, 4]);
         boxes.push({ minX: bx, maxX: bx + 1.6, minY: cur.y, maxY: cur.y + 1.4, minZ: bz - 0.8, maxZ: bz + 0.8, tag: 'cover' });
       }
-      const n = Math.min(2 + opts.stage, 6);
+      const n = Math.min(2 + opts.stage, 7);
+      const ids: number[] = [];
       for (let i = 0; i < n; i++) {
-        const t = i % 3 === 2 ? 'drone' : i % 3 === 1 ? 'charger' : 'gunner';
-        enemyAt(t, cur.x + 8 + (i * 14) / n, cur.y + (t === 'drone' ? 2.6 : 0), rng.range(-6, 6));
+        const t = kinds[(i + rng.int(0, 2)) % kinds.length];
+        ids.push(enemyAt(t, cur.x + 8 + (i * 14) / n, cur.y + (t === 'drone' ? 2.6 : 0), rng.range(-6, 6)));
+      }
+      if (withEnemies) {
+        // the exit stays shut until the arena is clear
+        boxes.push({ minX: cur.x + len - 1.2, maxX: cur.x + len - 0.8, minY: cur.y, maxY: cur.y + 7, minZ: -hw, maxZ: hw, tag: 'gate' });
+        arenas.push({ gate: boxes.length - 1, ids });
       }
       cur.x += len;
       wp(cur.x - 0.5, 0);
@@ -228,7 +282,7 @@ export function generateLevel(seed: number, opts: GenOptions): Level {
   let last: ModuleName | null = null;
   for (let i = 0; i < count; i++) {
     let m = rng.pick(pool);
-    if (m === last && m !== 'run') m = rng.pick(pool);
+    for (let k = 0; k < 4 && m === last; k++) m = rng.pick(pool);
     // each special module needs a solid approach: make sure we begin on a platform
     mods[m]();
     modules.push(m);
@@ -253,5 +307,5 @@ export function generateLevel(seed: number, opts: GenOptions): Level {
   let pathLen = 0;
   for (let i = 1; i < route.length; i++) pathLen += Math.hypot(route[i].x - route[i - 1].x, route[i].z - route[i - 1].z);
   const parTime = pathLen / (MOVE.runSpeed * 0.85) + 6;
-  return { seed, boxes, route, enemies, checkpoints, start, finish, length: finish.x, parTime, modules };
+  return { seed, boxes, route, enemies, checkpoints, start, finish, length: finish.x, parTime, modules, arenas, themeId: opts.theme ?? (opts.stage - 1) % 5 };
 }
