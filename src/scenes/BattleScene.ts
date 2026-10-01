@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { audio } from '../audio';
 import { bgmForScene, castCue, deathCue, enemyAttackCue, hurtCue, impactCues, type Cue } from '../audio/cues';
 import {
-  BattleEvent, BattleState, HAND_SIZE, LINK, LINK_HAND, nextDraw, canUse, canWait, currentIntent, defaultTarget, effectiveFor, levelOf, branchOf, endPlayerTurn, skillCost, intentValue, isEnraged,
+  BattleEvent, BattleState, HAND_SIZE, LINK, LINK_HAND, nextDraw, canUse, canWait, currentIntent, defaultTarget, enemyResist, enemyWeak, effectiveFor, levelOf, branchOf, endPlayerTurn, skillCost, intentValue, isEnraged,
   nextIntent, previewSkill, resolveTarget, usePotion, useSkill, wait,
 } from '../core/battle';
 import { recommend } from '../core/hint';
@@ -49,6 +49,7 @@ interface EnemyView {
   intentLabel: Phaser.GameObjects.Text;
   intentHint: Phaser.GameObjects.Text;
   marker: Phaser.GameObjects.Text;
+  weakText: Phaser.GameObjects.Text;
   barW: number;
   dead: boolean;
 }
@@ -85,7 +86,7 @@ interface SkillBtn {
 const EVENT_MS: Record<BattleEvent['type'], number> = {
   skill: 0, damage: 260, shield: 0, break: 600, chain: 1450, stunned: 550, recover: 500,
   guard: 250, heal: 300, taunt: 250, enemyAttack: 380, hurt: 450, down: 450,
-  enemyDown: 300, disrupt: 650, counter: 500, reaction: 700, status: 350, dot: 450, wait: 300, enemyCharge: 650, enemyGuard: 600, canceled: 700, enemyHeal: 350,
+  enemyDown: 300, phase: 2100, disrupt: 650, counter: 500, reaction: 700, status: 350, dot: 450, wait: 300, enemyCharge: 650, enemyGuard: 600, canceled: 700, enemyHeal: 350,
 };
 
 const STATUS_TEXT: Record<'burn' | 'bleed' | 'freeze' | 'weaken' | 'charge' | 'focus' | 'enchant' | 'convert' | 'counter', [string, string]> = {
@@ -120,6 +121,7 @@ export class BattleScene extends Phaser.Scene {
   private lastHandSig = '';
   private linkBtns: { uid: number; defId: string; c: Phaser.GameObjects.Container; paint: (hover: boolean) => void }[] = [];
   private lastLinkSig = '';
+  private breatheTw: (Phaser.Tweens.Tween | undefined)[] = [];
   private linkLabel!: Phaser.GameObjects.Text;
   private bars!: Phaser.GameObjects.Graphics;
   private hpTexts: Phaser.GameObjects.Text[] = [];
@@ -159,6 +161,7 @@ export class BattleScene extends Phaser.Scene {
     this.tags = [];
     this.waitBtns = [];
     this.linkBtns = [];
+    this.breatheTw = [];
     this.lastLinkSig = '';
     this.plan = [];
     this.executing = false;
@@ -295,10 +298,10 @@ export class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: stars, angle: 360, duration: 1400, repeat: -1 });
     stars.setVisible(false);
     const fs = (n: number): number => (compact() ? Math.max(16, Math.round(n * k)) : Math.max(11, Math.round(n * k)));
-    const traitLines = en.def.traits?.text ?? [];
+    const traitLines = [...(en.def.traits?.text ?? []), ...(en.def.phases ?? []).map((p) => `HP${Math.round(p.below * 100)}%以下「${p.name}」: ${p.text}`)];
     const tag = multi ? `${ENEMY_TAG[i]} ` : '';
     txt(this, x, y + 98, tag + en.def.name + (traitLines.length ? ' ⓘ' : ''), fs(18), '#e8dfd3').setOrigin(0.5);
-    txt(this, x, y + 98 + fs(18) + 4, `弱点:${ELEMENT_LABEL[en.def.weak]} 耐性:${ELEMENT_LABEL[en.def.resist]}`, fs(14), '#f6c453').setOrigin(0.5);
+    const weakText = txt(this, x, y + 98 + fs(18) + 4, `弱点:${ELEMENT_LABEL[enemyWeak(en)]} 耐性:${ELEMENT_LABEL[enemyResist(en)]}`, fs(14), '#f6c453').setOrigin(0.5);
     // 敵の選択/特性表示(クリック・タップ): 狙う敵を切り替える
     const zone = this.add.zone(x, y - 90 * k, 300 * k, 330 * k).setInteractive({ useHandCursor: true });
     zone.on('pointerover', () => { if (!this.dragBtn && traitLines.length) this.showTipText(`${en.def.name}の特性`, traitLines.join('\n')); });
@@ -331,7 +334,7 @@ export class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: intentBox, y: intentBox.y - 10, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     this.ev.push({
       pos: { x, y }, k, base, gfx, stars, hpText, shieldText, statusText, intentBox, intentGfx, intentImg, intentValue, intentLabel, intentHint,
-      marker, barW, dead: false,
+      marker, weakText, barW, dead: false,
     });
   }
 
@@ -877,6 +880,8 @@ export class BattleScene extends Phaser.Scene {
     if (e.frozen) parts.push('凍結');
     if (e.weakened) parts.push('弱体');
     if (isEnraged(e)) parts.push('激昂');
+    if (e.phase > 0) parts.push(`第${e.phase + 1}形態`);
+    this.ev[i].weakText.setText(`弱点:${ELEMENT_LABEL[enemyWeak(e)]} 耐性:${ELEMENT_LABEL[enemyResist(e)]}`);
     if (e.def.traits?.protects && !de.broken && this.state.enemies.length > 1) parts.push('守護');
     this.ev[i].statusText.setText(parts.join(' '));
   }
@@ -1340,6 +1345,24 @@ export class BattleScene extends Phaser.Scene {
       case 'enemyDown':
         this.enemyDie(en);
         break;
+      case 'phase': {
+        // 形態変化: 咆哮・全画面フラッシュ・シールド全回復を見せる
+        de.shield = this.state.enemies[en].maxShield;
+        de.broken = false;
+        audio.play('en_dragon_breath');
+        audio.duck(0.3, 1.6);
+        this.cameras.main.flash(260, 255, 120, 60);
+        this.cameras.main.shake(600, 0.02);
+        this.shockwave(EX, EY - 90, 0xff7043);
+        this.sparks(EX, EY - 90, 0xff7043, 40);
+        this.zoomPunch(1.06);
+        const banner = txt(this, W / 2, 250, `第${e.index + 1}形態「${e.name}」`, 54, '#ffb86b', { fontStyle: 'bold', stroke: '#000', strokeThickness: 10 }).setOrigin(0.5).setDepth(5200).setScale(1.8).setAlpha(0);
+        const sub = txt(this, W / 2, 312, e.text, 22, '#ffe9c4', { fontStyle: 'bold', stroke: '#000', strokeThickness: 6, align: 'center', wordWrap: { width: 900, useAdvancedWrap: true } }).setOrigin(0.5).setDepth(5200).setAlpha(0);
+        this.tweens.add({ targets: banner, scale: 1, alpha: 1, duration: 260, ease: 'Back.out' });
+        this.tweens.add({ targets: sub, alpha: 1, duration: 300, delay: 200 });
+        this.tweens.add({ targets: [banner, sub], alpha: 0, duration: 400, delay: 1500, onComplete: () => { banner.destroy(); sub.destroy(); } });
+        break;
+      }
       case 'skill':
         if (e.member === LINK) {
           audio.play('ui_select');
@@ -1389,7 +1412,8 @@ export class BattleScene extends Phaser.Scene {
   private breatheHero(i: number, duration: number): void {
     const a = this.heroes[i];
     const b = this.heroBase[i];
-    this.tweens.add({ targets: a, scaleY: b * 1.02, duration, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    this.breatheTw[i]?.stop();
+    this.breatheTw[i] = this.tweens.add({ targets: a, scaleY: b * 1.02, duration, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
   }
 
   /**
@@ -1401,7 +1425,8 @@ export class BattleScene extends Phaser.Scene {
     const sprite = HERO_SPRITE[this.state.party[i].def.id];
     const key = sprite?.[pose];
     if (!(a instanceof Phaser.GameObjects.Image) || !sprite || !hasImg(this, key)) return;
-    this.tweens.killTweensOf(a);
+    // 呼吸の揺れだけを止める(突進・被弾の動きのTweenを巻き込んで止めると、キャラが元の位置に戻らなくなる)
+    this.breatheTw[i]?.stop();
     a.setTexture(key).setScale(this.heroBase[i]);
     if (pose === 'idle') { this.breatheHero(i, 1300 + i * 200); return; }
     if (pose === 'down' || revertMs <= 0) return;

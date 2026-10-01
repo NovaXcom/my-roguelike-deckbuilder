@@ -11,6 +11,9 @@ import {
 } from '../../src/core/run';
 
 /** 1戦闘を単純な貪欲AIで最後まで進める（バランス確認・不変条件テスト用） */
+/** バランス確認用: 戦闘ごとの結果 */
+export const botLog: { row: number; type: string; ids: string[]; won: boolean; turns: number }[] = [];
+
 export const botOptions = { allowWait: true, alwaysWait: false, cardThreshold: 21 };
 
 export function autoBattle(run: RunState, node: MapNode): BattleState {
@@ -135,6 +138,7 @@ export function autoRun(meta: MetaState, seed: number): RunState {
     enterNode(run, node.id);
     if (node.type === 'battle' || node.type === 'boss' || node.type === 'elite') {
       const s = autoBattle(run, node);
+      botLog.push({ row: node.row, type: node.type, ids: s.enemies.map((e) => e.def.id), won: s.phase === 'won', turns: s.turn });
       const r = finishBattle(run, s, node);
       if (r.item) autoEquip(run, r.item);
       autoPickCard(run, r.cards);

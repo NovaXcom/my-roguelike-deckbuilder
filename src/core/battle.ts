@@ -1,6 +1,6 @@
 import { ENEMIES, MEMBERS, PARTY_ORDER, SKILLS } from './data';
 import type {
-  CardInst, DeckState, Element, EnemyIntent, EnemyState, EquipEffectId, MemberState, Role, RunMods, SkillBonus, SkillBranch, SkillCond, SkillDef,
+  CardInst, DeckState, Element, EnemyIntent, EnemyPhase, EnemyState, EquipEffectId, MemberState, Role, RunMods, SkillBonus, SkillBranch, SkillCond, SkillDef,
 } from './types';
 
 export const CHAIN_MULT = 2;
@@ -153,6 +153,7 @@ export type BattleEvent =
   | { type: 'enemyCharge'; enemy: number; intent: EnemyIntent }
   | { type: 'enemyGuard'; enemy: number; amount: number }
   | { type: 'canceled'; enemy: number; intent: EnemyIntent }
+  | { type: 'phase'; enemy: number; index: number; name: string; text: string }
   | { type: 'enemyHeal'; enemy: number; amount: number }
   | { type: 'disrupt'; enemy: number; member: number; skillId: string }
   | { type: 'hurt'; member: number; amount: number; blocked: number }
@@ -180,7 +181,7 @@ export function makeEnemy(enemyId: string, scale: EnemyScale = { hp: 1, atk: 1 }
   const maxHp = Math.round(def.maxHp * scale.hp);
   return {
     def, hp: maxHp, maxHp, shield: def.maxShield, maxShield: def.maxShield, broken: false, patternIndex: 0, atkMult: scale.atk,
-    guard: 0, burn: null, bleed: null, frozen: false, weakened: false, lastElement: null,
+    guard: 0, burn: null, bleed: null, frozen: false, weakened: false, lastElement: null, phase: 0,
   };
 }
 
@@ -257,10 +258,37 @@ export const livingEnemies = (s: BattleState): number[] => s.enemies.map((e, i) 
 /** 狙う敵の既定(先頭の生存者) */
 export const defaultTarget = (s: BattleState): number => Math.max(0, s.enemies.findIndex((e) => e.hp > 0));
 
+/** 現在の形態(第1形態なら null) */
+export const currentPhase = (e: EnemyState): EnemyPhase | null => (e.phase > 0 ? e.def.phases?.[e.phase - 1] ?? null : null);
+export const enemyPattern = (e: EnemyState): EnemyIntent[] => currentPhase(e)?.pattern ?? e.def.pattern;
+/** 形態変化を含めた現在の弱点/耐性属性 */
+export const enemyWeak = (e: EnemyState): Element => currentPhase(e)?.weak ?? e.def.weak;
+export const enemyResist = (e: EnemyState): Element => currentPhase(e)?.resist ?? e.def.resist;
+
 export function currentIntent(s: BattleState, ei = 0): EnemyIntent {
   const e = s.enemies[ei];
-  const p = e.def.pattern;
+  const p = enemyPattern(e);
   return p[e.patternIndex % p.length];
+}
+
+/** HPが形態変化の閾値を下回ったら移行する: シールド全回復(ブレイク解除)・パターンの置換・弱点/耐性の変更・攻撃力上昇 */
+function checkPhase(s: BattleState, ei: number, ev: BattleEvent[]): void {
+  const e = s.enemies[ei];
+  const phases = e.def.phases;
+  if (!phases || e.hp <= 0) return;
+  while (e.phase < phases.length && e.hp <= e.maxHp * phases[e.phase].below) {
+    const ph = phases[e.phase];
+    e.phase += 1;
+    e.patternIndex = 0;
+    e.shield = e.maxShield;
+    e.broken = false;
+    e.frozen = false;
+    e.weakened = false;
+    e.guard = 0;
+    e.lastElement = null;
+    if (ph.atkMult) e.atkMult *= ph.atkMult;
+    ev.push({ type: 'phase', enemy: ei, index: e.phase, name: ph.name, text: ph.text });
+  }
 }
 
 /** 階層補正込みの実際の攻撃値（UI表示・ダメージ計算で共通） */
@@ -276,7 +304,7 @@ export function intentValue(s: BattleState, intent: EnemyIntent = currentIntent(
 /** 次の次の行動（UIの「次→」表示用） */
 export function nextIntent(s: BattleState, ei = 0): EnemyIntent {
   const e = s.enemies[ei];
-  const p = e.def.pattern;
+  const p = enemyPattern(e);
   return p[(e.patternIndex + 1) % p.length];
 }
 
@@ -290,7 +318,9 @@ export function protectionMult(s: BattleState, ei: number): number {
   return m;
 }
 
-export const isEnraged = (e: EnemyState): boolean => !!e.def.traits?.enrage && e.hp <= e.maxHp * e.def.traits.enrage.below;
+/** 激昂している(従来の激昂、またはボスが最終形態) */
+export const isEnraged = (e: EnemyState): boolean =>
+  (!!e.def.traits?.enrage && e.hp <= e.maxHp * e.def.traits.enrage.below) || (!!e.def.phases && e.phase >= e.def.phases.length);
 
 /** インテントの実際の標的（後衛狙いも前衛のヘイトで逸れる。倒れていれば生存者へ）。全体攻撃は -1 */
 export function resolveTarget(s: BattleState, intent: EnemyIntent): number {
@@ -495,8 +525,8 @@ export function previewSkill(s: BattleState, baseSkill: SkillDef, member = 0, ti
   const e = s.enemies[ti];
   const m = s.party[member];
   const skill = withEnchant(s, skillFor(m, baseSkill));
-  const weak = skill.element !== 'none' && e.def.weak === skill.element;
-  const resist = skill.element !== 'none' && e.def.resist === skill.element;
+  const weak = skill.element !== 'none' && enemyWeak(e) === skill.element;
+  const resist = skill.element !== 'none' && enemyResist(e) === skill.element;
   const chain = skill.kind === 'magic' && e.broken && !!skill.damage;
   const tr = e.def.traits;
 
@@ -675,6 +705,7 @@ function useLink(s: BattleState, skillId: string, target?: number): BattleEvent[
       e.hp = Math.max(0, e.hp - (total - absorbed));
       ev.push({ type: 'damage', enemy: h.enemy, amount: total - absorbed, absorbed, element: 'none', weak: false, resist: false, chain: false });
       if (e.hp <= 0) onEnemyDown(s, h.enemy, ev);
+      else checkPhase(s, h.enemy, ev);
       break;
     }
     case 'enchant':
@@ -735,6 +766,7 @@ function strike(s: BattleState, member: number, skill: SkillDef, p: DamagePrevie
     if (skill.element !== 'none') e.lastElement = skill.element;
   }
   if (e.hp <= 0) onEnemyDown(s, ti, ev);
+  else checkPhase(s, ti, ev);
 }
 
 /** 敵が倒れた: 通知し、仲間が「奮起」持ちなら攻撃力が上がる */
@@ -864,6 +896,7 @@ export function endPlayerTurn(s: BattleState): BattleEvent[] {
       if (d.turns <= 0) e[kind] = null;
     }
     if (e.hp <= 0) onEnemyDown(s, ei, ev);
+    else checkPhase(s, ei, ev);
   });
   if (s.enemies.every((e) => e.hp <= 0)) {
     s.phase = 'won';
@@ -947,6 +980,7 @@ function enemyAct(s: BattleState, e: EnemyState, ei: number, ev: BattleEvent[]):
       e.hp = Math.max(0, e.hp - amount);
       ev.push({ type: 'counter', enemy: ei, amount });
       if (e.hp <= 0) onEnemyDown(s, ei, ev);
+      else checkPhase(s, ei, ev);
     }
     const ls = e.def.traits?.lifesteal;
     if (ls && dealt > 0 && e.hp > 0) {

@@ -18,6 +18,14 @@ export function recommend(s: BattleState): string | null {
   const name = (i: number): string => s.enemies[i].def.name;
   const canBreak = (ei: number): boolean => usable.some(({ mi, id }) => previewSkill(s, SKILLS[id], mi, ei).breaks);
 
+  // ボスの形態変化が近いとき: 変化でシールドが全回復するので、ブレイクの使いどころを考えさせる
+  const nearPhase = alive_.find((i) => {
+    const e = s.enemies[i];
+    const nxt = e.def.phases?.[e.phase];
+    return !!nxt && !e.broken && e.hp <= e.maxHp * (nxt.below + 0.12);
+  });
+  if (nearPhase !== undefined) return `${name(nearPhase)}の形態変化が近い。変化でシールドが全回復するので、ブレイクは変化の後に取っておこう`;
+
   const brokenIdx = alive_.find((i) => s.enemies[i].broken);
   if (brokenIdx !== undefined) {
     return hasMagic ? `今がチャンス! ${multi ? name(brokenIdx) + 'に' : ''}魔法でチェイン` : 'ブレイク中。魔法が使えるターンを待とう';

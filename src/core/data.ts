@@ -226,12 +226,36 @@ export const ENEMIES: Record<string, EnemyDef> = {
     weak: 'ice',
     resist: 'fire',
     color: 0xb5473a,
-    traits: { enrage: { below: 0.5, mult: 1.25 }, text: ['HP半分以下で激昂（攻撃力+25%）', '咆哮の後の「灼熱の息吹」は全体の大技'] },
+    traits: { text: ['3つの形態: HPが60%・25%以下で変化する', '形態が変わるとシールドが全回復し、弱点・攻撃パターンが変わる', '咆哮の後の大技は、ブレイクで阻止できる'] },
     pattern: [
       { name: '爪撃', value: 13, target: 'front' },
       { name: '炎のブレス', value: 11, target: 'all' },
       { name: '咆哮', value: 0, target: 'front', kind: 'charge' },
       { name: '灼熱の息吹', value: 24, target: 'all', kind: 'heavy' },
+    ],
+    phases: [
+      {
+        below: 0.6, name: '翼を広げる', text: '空へ舞い上がる! 弱点が雷に変わり、後衛を狙う急降下が加わる',
+        weak: 'thunder', resist: 'ice', atkMult: 1.1,
+        pattern: [
+          { name: '急降下', value: 14, target: 'back' },
+          { name: '炎の渦', value: 10, target: 'all' },
+          { name: '咆哮', value: 0, target: 'front', kind: 'charge' },
+          { name: '業火', value: 26, target: 'all', kind: 'heavy' },
+        ],
+      },
+      {
+        below: 0.25, name: '灼熱', text: '全身が燃え上がる! 攻撃力が上がり、大技を連発する',
+        weak: 'ice', resist: 'none', atkMult: 1.3,
+        pattern: [
+          { name: '灼熱爪', value: 16, target: 'front' },
+          { name: '咆哮', value: 0, target: 'front', kind: 'charge' },
+          { name: '終焉の炎', value: 30, target: 'all', kind: 'heavy' },
+          { name: '灼熱の息吹', value: 14, target: 'all' },
+          { name: '咆哮', value: 0, target: 'front', kind: 'charge' },
+          { name: '終焉の炎', value: 30, target: 'all', kind: 'heavy' },
+        ],
+      },
     ],
   },
 };

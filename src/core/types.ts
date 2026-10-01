@@ -126,6 +126,22 @@ export interface EnemyTraits {
   text: string[];
 }
 
+/** ボスの形態(HPが一定割合を下回ると移行する)。プレイヤーの「ビルド」を試す */
+export interface EnemyPhase {
+  /** HPがこの割合以下で移行(0〜1) */
+  below: number;
+  name: string;
+  /** 移行時の演出テキスト・攻略のヒント */
+  text: string;
+  /** 行動パターンを置き換える */
+  pattern?: EnemyIntent[];
+  /** 弱点/耐性の属性が変わる */
+  weak?: Element;
+  resist?: Element;
+  /** 攻撃力に掛ける倍率(累積) */
+  atkMult?: number;
+}
+
 export interface EnemyDef {
   id: string;
   name: string;
@@ -136,6 +152,8 @@ export interface EnemyDef {
   color: number;
   pattern: EnemyIntent[];
   traits?: EnemyTraits;
+  /** 形態変化(HPの割合が高い順に並べる) */
+  phases?: EnemyPhase[];
 }
 
 export interface MemberState {
@@ -235,4 +253,6 @@ export interface EnemyState {
   weakened: boolean;
   /** 最後に命中した属性（チェイン反応の起点） */
   lastElement: Element | null;
+  /** 現在の形態(0=第1形態)。def.phases[phase-1] が現在の形態 */
+  phase: number;
 }

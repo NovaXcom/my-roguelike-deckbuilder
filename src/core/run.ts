@@ -287,7 +287,7 @@ export const GROUP_SCALE: Record<number, EnemyScale> = { 1: { hp: 1, atk: 1 }, 2
 export function enemyScale(node: MapNode, mods: RunMods | null = null, count = 1): EnemyScale {
   let hp: number;
   let atk: number;
-  if (node.type === 'boss') { hp = 5.5; atk = 2.6; }
+  if (node.type === 'boss') { hp = 4.0; atk = 1.8; }
   else {
     hp = 1 + 1.2 * node.row;
     atk = 1 + 0.7 * node.row;

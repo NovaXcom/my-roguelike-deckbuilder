@@ -7,6 +7,7 @@ import {
   priceOf, rest, shopStock, usePotionOnMap,
 } from '../src/core/run';
 import { autoRun } from './helpers/bot';
+import { ENEMIES } from '../src/core/data';
 
 describe('ラン進行', () => {
   it('開始階層のノードのみ選べ、隣接ノード以外へは進めない', () => {
@@ -192,9 +193,10 @@ describe('難易度カーブ', () => {
     expect(enemyScale(at(5)).hp).toBeGreaterThan(enemyScale(at(2)).hp);
     expect(enemyScale(at(5)).atk).toBeGreaterThan(enemyScale(at(2)).atk);
     const boss = run.map.nodes.find((n) => n.type === 'boss')!;
-    // 実HP比較: ボスは終盤の最強通常敵(ゴーレム)より硬い
+    // ボスは中盤の通常敵より硬く、3つの形態(シールド全回復×2)を持つので実質の戦闘量は終盤の通常敵を上回る
     const hp = (id: string, n: typeof boss) => createBattle(id, undefined, enemyScale(n)).enemy.maxHp;
-    expect(hp('dragon', boss)).toBeGreaterThan(hp('golem', at(7)));
+    expect(hp('dragon', boss)).toBeGreaterThan(hp('golem', at(5)));
+    expect(hp('dragon', boss) * (1 + ENEMIES.dragon.phases!.length)).toBeGreaterThan(hp('golem', at(7)));
   });
   it('階層補正は敵HPと実ダメージ(インテント値)に反映される', () => {
     const s = createBattle('slime', undefined, { hp: 2, atk: 1.5 });

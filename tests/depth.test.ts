@@ -196,10 +196,13 @@ describe('敵の予告行動と特性', () => {
     expect(ev.some((e) => e.type === 'enemyHeal')).toBe(true);
     expect(s.enemy.hp).toBeGreaterThan(before);
   });
-  it('竜はHP半分以下で激昂し、攻撃力が上がる', () => {
+  it('竜は形態が変わるたび攻撃力が上がる(激昂)', () => {
     const s = fresh('dragon');
     const v = intentValue(s);
-    s.enemy.hp = Math.floor(s.enemy.maxHp * 0.4);
+    useSkill(s, E, 'firebolt'); // 形態変化を直接起こす
+    s.enemy.hp = Math.floor(s.enemy.maxHp * 0.2);
+    useSkill(s, K, 'slash');
+    expect(s.enemy.phase).toBe(2);
     expect(intentValue(s)).toBeGreaterThan(v);
   });
   it('全ての敵に特性の説明がある', () => {
