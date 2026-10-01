@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "build:local": "tsc --noEmit && vite build --mode singlefile",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "pack:itch": "npm run build && cd dist && python3 -m zipfile -c ../last-day-itch.zip index.html assets"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

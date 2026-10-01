@@ -76,3 +76,10 @@ tests/        Vitest
 現状の収録は、住民12人・場所9か所・イベント75・情報84・推理7種・「伝える」への反応23種。
 プレイ時間は未計測だが、リファレンスルート（8周）を初見で探索しながら進めるなら **3〜5時間程度** と見込んでいる。
 企画の8〜15時間には、イベント・周回ごとの変化の増量が必要（仕組みはそのまま `src/data/` にデータを足せば拡張できる）。
+
+## itch.io への投稿
+
+1. `npm run pack:itch` で `last-day-itch.zip`（`index.html` が zip 直下、アセットは相対パス）を作る。
+2. itch.io で新規プロジェクト → Kind of project: **HTML** → zip をアップロードし「This file will be played in the browser」にチェック。
+3. Embed options: 表示サイズは **幅 980 × 高さ 900 程度**（または「Click to launch in fullscreen」）を推奨。「Mobile friendly」は任意。
+4. セーブは localStorage（iframe内でも動作。無効な環境でも遊べるが保存されない）。
