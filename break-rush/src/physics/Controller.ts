@@ -125,6 +125,16 @@ export class Controller {
     void speed;
   }
 
+  /** Hard knock-back (e.g. bouncing off a shield): cancels dashes and lunges. */
+  knock(vx: number, vy: number, vz: number): void {
+    this.vx = vx; this.vy = vy; this.vz = vz;
+    this.dashTimeLeft = 0;
+    this.dashVy = null;
+    this.onGround = false;
+    this.state = 'air';
+    this.airCap = Math.max(MOVE.runSpeed, Math.hypot(vx, vz));
+  }
+
   step(dt: number, inp: MoveInput): MoveEvents {
     const ev = noEvents();
     this.dashCd = Math.max(0, this.dashCd - dt);

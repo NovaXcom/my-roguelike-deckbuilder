@@ -3,6 +3,8 @@ import { HitStop } from '../combat/HitStop';
 import { SlowMo } from '../combat/SlowMo';
 import { generateLevel, Level } from '../level/Generator';
 import { Controller, MoveInput } from '../physics/Controller';
+import { Crumbler } from '../physics/Crumbler';
+import { THEMES } from './Theme';
 import { MOVE } from '../physics/config';
 import { AutoPilot } from './AutoPilot';
 import { Combat, COMBAT } from './Combat';
@@ -14,7 +16,7 @@ import { SceneView } from './SceneView';
 type Mode = 'title' | 'play' | 'pause' | 'results';
 
 const STEP = 1 / 120;
-export const STAGE_NAMES = ['NEON GATE', 'SKY RAIL', 'DEEP CIRCUIT', 'WALL SPRINT', 'ZERO HOUR'];
+export const STAGE_NAMES = THEMES.map((t) => t.name);
 
 export interface RunInfo {
   key: string;
@@ -49,6 +51,8 @@ export class Game {
   invuln = 0;
   lungeLeft = 0;
   focus = 1;
+  stars = COMBAT.maxStars;
+  crumbler = new Crumbler();
   focusing = false;
   finished = false;
   combatDeflectCd(): number {
@@ -105,6 +109,8 @@ export class Game {
     this.ctrl.reset(level.start.x, level.start.y + 0.001, level.start.z, 0);
     this.combat = new Combat(level.boxes, enemies ? level.enemies : []);
     this.combat.checkpoint();
+    this.crumbler = new Crumbler();
+    this.stars = COMBAT.maxStars;
     this.view.buildLevel(level);
     this.view.buildEnemies(this.combat);
     this.view.snapCamera();
@@ -254,6 +260,7 @@ export class Game {
       steps++;
       const inp = this.pilot!.input(c);
       const ev = c.step(STEP, inp);
+      this.crumbler.update(STEP, c.groundBox);
       if (ev.fell || ev.hitHazard || (Math.abs(c.x - this.level.finish.x) < 1.5 && c.onGround)) {
         this.demoLevelSeed = (this.demoLevelSeed % 40) + 1;
         this.setupLevel(generateLevel(this.demoLevelSeed, { stage: 2, enemies: false, modules: 10 }), false);
@@ -267,6 +274,7 @@ export class Game {
     this.view.updateCamera(c, this.yaw, this.pitch, dt, this.level.boxes);
     this.view.syncEnemies(this.combat, c.x, c.y, c.z, this.clock);
     this.view.syncProjectiles(this.combat, this.clock);
+    this.view.syncDynamic(this.crumbler, dt);
     this.emitMoveFx(c, dt);
   }
 
@@ -308,12 +316,21 @@ export class Game {
     if (intent.dashPressed) this.pendingDash = true;
     if (!this.dead && !this.finished) {
       if (intent.attackPressed) this.doAttack(intent);
+      if (intent.starPressed && this.stars > 0) {
+        this.stars--;
+        const cp = Math.cos(this.pitch);
+        const body0 = { x: c.x, y: c.y, z: c.z, vx: 0, vz: 0, height: c.height };
+        this.combat.throwStar(body0, cp * Math.cos(this.yaw), Math.sin(this.pitch) + 0.04, cp * Math.sin(this.yaw));
+        audio.play('swing', 1.9);
+      }
       if (intent.deflectPressed && this.combat.startDeflect()) {
         audio.play('swing', 1.5);
         const fx = Math.cos(this.yaw), fz = Math.sin(this.yaw);
         this.view.fx.ring(c.x + fx * 0.9, c.y + 1.1, c.z + fz * 0.9, 1.6, 0xffe14a, 0.3, new THREE.Vector3(fx, 0, fz));
       }
     }
+
+    this.updateGates();
 
     // ---- fixed-step movement ---------------------------------------------------------------------
     this.acc += dt;
@@ -341,6 +358,7 @@ export class Game {
         this.pendingJump = this.pendingDash = false;
       }
       const ev = c.step(STEP, inp);
+      this.crumbler.update(STEP, c.groundBox);
       this.lungeLeft = Math.max(0, this.lungeLeft - STEP);
       this.handleMoveEvents(ev);
       if (this.dead) break;
@@ -363,6 +381,7 @@ export class Game {
         audio.play('swing', 0.7);
       }
       for (const d of ev.deflected) this.onDeflect(d);
+      for (const b of ev.blocked) this.onBlocked(b);
       if (ev.playerHit) this.hurt();
     } else this.combat.update(dt, { ...body, y: -9999 }, false, true);
 
@@ -403,16 +422,17 @@ export class Game {
     this.lungeLeft = time + 0.05;
     this.yaw = this.yaw; // camera keeps the player's look
     const ang = Math.atan2(dirz, dirx);
-    this.view.fx.slash(c.x + dirx * 0.8, c.y + 1.1, c.z + dirz * 0.8, ang, 2.2, 0xaaf6ff, 0.25 + Math.random() * 0.3);
-    this.view.particles.spray(c.x, c.y + 1.1, c.z, -dirx, 0.2, -dirz, 8, 6, 0x66f6ff);
+    this.view.fx.slash(c.x + dirx * 0.8, c.y + 1.1, c.z + dirz * 0.8, ang, 2.2, 0xffffff, 0.25 + Math.random() * 0.3);
+    this.view.particles.spray(c.x, c.y + 1.1, c.z, -dirx, 0.2, -dirz, 8, 6, 0xffffff);
     this.view.shake = Math.max(this.view.shake, 0.06);
   }
 
   private onKill(k: { type: string; x: number; y: number; z: number; by: string }): void {
-    const color = k.type === 'gunner' ? 0xff3366 : k.type === 'charger' ? 0xffa21f : 0x44ccff;
+    const color = 0xff7a2a;
     const p = this.view.particles;
     p.burst(k.x, k.y, k.z, 36, 11, color, 0.22, 0.7);
     p.burst(k.x, k.y, k.z, 20, 14, 0xffffff, 0.14, 0.4);
+    p.burst(k.x, k.y, k.z, 14, 7, 0x3a3d44, 0.3, 0.9, 22);
     this.view.fx.flash(k.x, k.y, k.z, 1.8, 0xffffff, 0.16);
     this.view.fx.ring(k.x, k.y, k.z, 3.2, color, 0.4, new THREE.Vector3().subVectors(this.view.camera.position, new THREE.Vector3(k.x, k.y, k.z)).normalize());
     this.hitStop.trigger(performance.now(), 85);
@@ -421,6 +441,7 @@ export class Game {
     audio.play('kill', 1 + Math.min(0.5, this.kills * 0.03));
     audio.play('hit', 0.9);
     this.kills++;
+    this.stars = Math.min(COMBAT.maxStars, this.stars + 1);
     this.focus = Math.min(1, this.focus + 0.2);
     this.combat.resetAttack();
     this.ctrl.dashCharges = MOVE.dashCharges;
@@ -435,6 +456,33 @@ export class Game {
     this.view.shake = Math.max(this.view.shake, 0.25);
     audio.play('counter', 1.1);
     this.focus = Math.min(1, this.focus + 0.1);
+  }
+
+  private onBlocked(b: { x: number; y: number; z: number; dx: number; dz: number }): void {
+    const c = this.ctrl;
+    if (Math.hypot(c.x - b.x, c.z - b.z) < 4) c.knock(b.dx * 9, 6, b.dz * 9);
+    this.lungeLeft = 0;
+    this.view.particles.burst(b.x, b.y, b.z, 22, 8, 0xffe9a0, 0.12, 0.4, 10);
+    this.view.fx.flash(b.x, b.y, b.z, 0.9, 0xffffff, 0.1);
+    this.hitStop.trigger(performance.now(), 60);
+    this.view.shake = Math.max(this.view.shake, 0.3);
+    audio.play('hit', 0.6);
+    audio.play('counter', 0.7);
+    this.hud.toast('BLOCKED — GET BEHIND IT', 1.1);
+  }
+
+  private updateGates(): void {
+    for (const a of this.level.arenas) {
+      const open = a.ids.every((id) => !this.combat.enemies[id]?.alive);
+      const g = this.level.boxes[a.gate];
+      if (g.ghost !== open) {
+        g.ghost = open;
+        if (open && this.mode === 'play') {
+          this.hud.toast('AREA CLEAR', 1);
+          audio.play('milestone', 1.4);
+        }
+      }
+    }
   }
 
   private hurt(): void {
@@ -457,8 +505,8 @@ export class Game {
     this.deadTimer = why === 'fell' ? 0.45 : 0.7;
     this.deaths++;
     const c = this.ctrl;
-    this.view.particles.burst(c.x, c.y + 1, c.z, 60, 10, 0x22e6ff, 0.2, 0.9);
-    this.view.particles.burst(c.x, c.y + 1, c.z, 30, 12, 0xff3df0, 0.16, 0.7);
+    this.view.particles.burst(c.x, c.y + 1, c.z, 60, 10, 0xff7a1a, 0.2, 0.9);
+    this.view.particles.burst(c.x, c.y + 1, c.z, 30, 12, 0x2d323d, 0.26, 0.9, 20);
     this.view.shake = 0.9;
     this.hud.flash('death');
     audio.play('hurt', 0.8);
@@ -469,6 +517,8 @@ export class Game {
     const cp = this.level.checkpoints[this.cpIndex];
     this.ctrl.reset(cp.x, cp.y + 0.001, cp.z, 0);
     this.combat.respawn();
+    this.crumbler.reset(this.level.boxes);
+    this.stars = COMBAT.maxStars;
     this.dead = false;
     this.invuln = 0.9;
     this.hearts = this.maxHearts;
@@ -499,9 +549,15 @@ export class Game {
     if (ev.dashed) {
       audio.play('dodge', 1);
       const dx = Math.cos(c.yaw), dz = Math.sin(c.yaw);
-      p.spray(c.x, c.y + 1, c.z, -dx, 0.1, -dz, 18, 9, 0x22e6ff);
-      this.view.fx.ring(c.x, c.y + 1, c.z, 2.0, 0x22e6ff, 0.3, new THREE.Vector3(dx, 0, dz));
+      p.spray(c.x, c.y + 1, c.z, -dx, 0.1, -dz, 18, 9, 0xeaf4ff);
+      this.view.fx.ring(c.x, c.y + 1, c.z, 2.0, 0xffffff, 0.3, new THREE.Vector3(dx, 0, dz));
       this.view.shake = Math.max(this.view.shake, 0.12);
+    }
+    if (ev.padded) {
+      audio.play('skill', 1.2);
+      p.burst(c.x, c.y + 0.2, c.z, 24, 7, 0x5bff9a, 0.16, 0.5, 4);
+      this.view.fx.ring(c.x, c.y + 0.3, c.z, 2.4, 0x5bff9a, 0.35);
+      this.view.shake = Math.max(this.view.shake, 0.2);
     }
     if (ev.slideStarted) audio.play('swing', 0.6);
     if (ev.wallRunStarted) audio.play('swing', 1.3);
@@ -520,7 +576,7 @@ export class Game {
     }
     if (this.trailTimer <= 0 && c.speed > 11) {
       this.trailTimer = 0.03;
-      p.emit(c.x, c.y + 0.9 + (Math.random() - 0.5) * 0.8, c.z + (Math.random() - 0.5) * 0.4, 0, 0, 0, 0.35, 0.16, 0x66f6ff, 0);
+      p.emit(c.x, c.y + 0.9 + (Math.random() - 0.5) * 0.8, c.z + (Math.random() - 0.5) * 0.4, 0, 0, 0, 0.35, 0.12, 0xffffff, 0);
     }
   }
 
@@ -582,10 +638,11 @@ export class Game {
     v.updateCamera(c, this.yaw, this.pitch, realDt, this.level.boxes);
     v.syncEnemies(this.combat, c.x, c.y, c.z, this.clock);
     v.syncProjectiles(this.combat, this.clock);
+    v.syncDynamic(this.crumbler, realDt);
     this.emitMoveFx(c, realDt);
     // bullet trails
     if (dt > 0) for (const b of this.combat.projectiles) {
-      if (Math.random() < 0.6) v.particles.emit(b.x, b.y, b.z, 0, 0, 0, 0.25, 0.2, b.owner === 'enemy' ? 0xff3355 : 0x55f0ff, 0);
+      if (Math.random() < 0.6) v.particles.emit(b.x, b.y, b.z, 0, 0, 0, 0.25, 0.2, b.owner === 'enemy' ? 0xff7733 : 0xaaf0ff, 0);
     }
   }
 }

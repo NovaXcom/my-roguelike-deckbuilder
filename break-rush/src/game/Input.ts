@@ -9,6 +9,7 @@ export interface Intent {
   dashPressed: boolean;
   attackPressed: boolean;
   deflectPressed: boolean;
+  starPressed: boolean;
   focusHeld: boolean;
   respawnPressed: boolean;
   pausePressed: boolean;
@@ -85,6 +86,7 @@ export class Input {
     let dashPressed = kp('ShiftLeft') || kp('ShiftRight');
     let attackPressed = this.mousePressed.has(0) || kp('KeyJ');
     let deflectPressed = this.mousePressed.has(2) || kp('KeyK');
+    let starPressed = kp('KeyE') || this.mousePressed.has(1);
     let focusHeld = k('KeyQ') || k('KeyF');
     const respawnPressed = kp('KeyR');
     let pausePressed = kp('Escape') || kp('KeyP');
@@ -111,7 +113,8 @@ export class Input {
       slideHeld ||= b(1) || b(10);
       attackPressed ||= edge(2) || edge(7);
       dashPressed ||= edge(5);
-      deflectPressed ||= edge(6) || edge(4);
+      deflectPressed ||= edge(6);
+      starPressed ||= edge(4);
       focusHeld ||= b(3);
       pausePressed ||= edge(9);
       lookYaw += rx * 2.9 * dt * this.sens;
@@ -125,7 +128,7 @@ export class Input {
       mx /= l;
       my /= l;
     }
-    const out: Intent = { moveX: mx, moveY: my, jumpHeld, jumpPressed, slideHeld, dashPressed, attackPressed, deflectPressed, focusHeld, respawnPressed, pausePressed, lookYaw, lookPitch };
+    const out: Intent = { moveX: mx, moveY: my, jumpHeld, jumpPressed, slideHeld, dashPressed, attackPressed, deflectPressed, starPressed, focusHeld, respawnPressed, pausePressed, lookYaw, lookPitch };
     this.pressed.clear();
     this.mousePressed.clear();
     this.dx = this.dy = 0;

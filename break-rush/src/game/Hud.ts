@@ -30,6 +30,7 @@ export class Hud {
   private dashEl!: HTMLElement;
   private deflectEl!: HTMLElement;
   private focusEl!: HTMLElement;
+  private starEl!: HTMLElement;
   private heartsEl!: HTMLElement;
   private toastEl!: HTMLElement;
   private flashEl!: HTMLElement;
@@ -55,6 +56,7 @@ export class Hud {
         <div class="bottom">
           <div class="chip" id="dash"><b>DASH</b><i></i></div>
           <div class="chip" id="deflect"><b>DEFLECT</b><i></i></div>
+          <div class="chip" id="star"><b>STAR</b><i></i></div>
           <div class="chip" id="focus"><b>FOCUS</b><i></i></div>
           <div class="chip hearts" id="hearts"></div>
         </div>
@@ -75,6 +77,7 @@ export class Hud {
     this.dashEl = q('#dash');
     this.deflectEl = q('#deflect');
     this.focusEl = q('#focus');
+    this.starEl = q('#star');
     this.heartsEl = q('#hearts');
     this.toastEl = q('#toast');
     this.flashEl = q('#flash');
@@ -120,8 +123,8 @@ export class Hud {
       </div>
       <div class="keys">
         <b>WASD</b> move · <b>SPACE</b> jump (hold higher) · <b>SHIFT</b> air dash · <b>CTRL/C</b> slide<br>
-        <b>L-CLICK</b> slash &amp; lunge · <b>R-CLICK</b> deflect bullets · <b>Q</b> focus slow-mo · <b>R</b> retry checkpoint<br>
-        Run into a <i class="o">wall</i> mid-air to wall-run, jump to leap off. Gamepad supported.
+        <b>L-CLICK</b> slash &amp; lunge · <b>R-CLICK</b> deflect bullets · <b>E</b> throw star · <b>Q</b> focus slow-mo · <b>R</b> retry checkpoint<br>
+        Run into an <i class="o">orange-striped wall</i> mid-air to wall-run, jump to leap off. Green pads launch you. Shield guards: get behind them. Gamepad supported.
       </div>`;
     this.title.classList.remove('hidden');
     this.bindTitle();
@@ -226,6 +229,8 @@ export class Hud {
     (this.deflectEl.querySelector('i') as HTMLElement).style.width = `${Math.round((1 - Math.min(1, dcd / 0.5)) * 100)}%`;
     (this.focusEl.querySelector('i') as HTMLElement).style.width = `${Math.round(g.focus * 100)}%`;
     this.focusEl.classList.toggle('active', g.focusing);
+    this.starEl.classList.toggle('ready', g.stars > 0);
+    this.set(this.starEl.querySelector('b') as HTMLElement, 'stars', `STAR ${'●'.repeat(g.stars)}${'○'.repeat(3 - g.stars)}`);
     if (g.maxHearts > 1) {
       let h = '';
       for (let i = 0; i < g.maxHearts; i++) h += i < g.hearts ? '♥' : '♡';
