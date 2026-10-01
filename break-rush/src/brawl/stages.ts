@@ -11,6 +11,8 @@ export interface Prop {
   hd: number;
   rot?: number;
   color?: number;
+  /** Barrels only: blows up when hit. */
+  explosive?: boolean;
   /** False for decoration the fighters can walk through. */
   solid?: boolean;
 }
@@ -45,7 +47,7 @@ export const STAGES: StageDef[] = [
     id: 1, name: 'BACK ALLEY', blurb: '雨上がりの路地裏。まずは数を減らせ。', look: 'alley', w: 30, d: 11, tokens: 2,
     props: [
       P('dumpster', -8, -4.6, 1.1, 0.7), P('dumpster', 6, 4.7, 1.1, 0.7), P('crate', 11, -4.5, 0.7, 0.7), P('crate', 12.2, -4.4, 0.6, 0.6),
-      P('bin', -12, 4.8, 0.35, 0.35), P('barrel', 3, -4.7, 0.45, 0.45), P('lamp', -4, 5.1, 0.2, 0.2, { solid: false }), P('lamp', 9, -5.1, 0.2, 0.2, { solid: false }),
+      P('bin', -12, 4.8, 0.35, 0.35), P('barrel', 3, -4.7, 0.45, 0.45, { explosive: true }), P('barrel', 13.4, 4.5, 0.45, 0.45), P('lamp', -4, 5.1, 0.2, 0.2, { solid: false }), P('lamp', 9, -5.1, 0.2, 0.2, { solid: false }),
     ],
     weapons: [{ kind: 'pipe', x: -9.5, z: -3.9 }],
     waves: [[{ kind: 'thug', n: 3 }], [{ kind: 'thug', n: 3 }, { kind: 'knife', n: 1 }], [{ kind: 'thug', n: 2 }, { kind: 'knife', n: 2 }]],
@@ -56,31 +58,31 @@ export const STAGES: StageDef[] = [
     props: [
       car(-9, 6.2, true, 0x2f4f8a), car(7, 6.2, true, 0xb8b8b8), car(-1, -6.4, true, 0x1c1c1c),
       P('vending', 14, -7.1, 0.5, 0.45), P('bench', -14, 7, 0.9, 0.35), P('bin', 17, 7, 0.35, 0.35), P('barrier', 0, 1.2, 1.4, 0.3),
-      P('lamp', -12, -7.4, 0.2, 0.2, { solid: false }), P('lamp', 3, 7.6, 0.2, 0.2, { solid: false }), P('lamp', 16, -7.4, 0.2, 0.2, { solid: false }),
+      P('barrel', -17, 7.2, 0.45, 0.45, { explosive: true }), P('barrel', 11, -7.2, 0.45, 0.45), P('lamp', -12, -7.4, 0.2, 0.2, { solid: false }), P('lamp', 3, 7.6, 0.2, 0.2, { solid: false }), P('lamp', 16, -7.4, 0.2, 0.2, { solid: false }),
     ],
     weapons: [{ kind: 'bat', x: -15, z: -5.5 }, { kind: 'pipe', x: 15, z: 4.5 }],
-    waves: [[{ kind: 'thug', n: 3 }, { kind: 'bat', n: 1 }], [{ kind: 'knife', n: 3 }, { kind: 'thug', n: 2 }], [{ kind: 'bat', n: 2 }, { kind: 'gunman', n: 1 }, { kind: 'thug', n: 2 }]],
-    hints: ['Gunmen show a YELLOW laser — dodge, or counter to reflect the bullet', 'Press F next to an enemy to GRAB and throw'],
+    waves: [[{ kind: 'thug', n: 3 }, { kind: 'bat', n: 1 }], [{ kind: 'knife', n: 3 }, { kind: 'thug', n: 2 }], [{ kind: 'bat', n: 1 }, { kind: 'shield', n: 1 }, { kind: 'gunman', n: 1 }, { kind: 'thug', n: 2 }]],
+    hints: ['Gunmen show a YELLOW laser — dodge, or counter to reflect the bullet', 'Press F next to an enemy to GRAB and throw', 'RIOT SHIELDS block your punches — circle behind them or grab them', 'E launches enemies — keep hitting to juggle, E again to slam'],
   },
   {
     id: 3, name: 'UNDERPASS', blurb: '高架下の駐車場。柱を盾に撃ってくる。', look: 'garage', w: 42, d: 18, tokens: 3,
     props: [
       P('pillar', -10, -4, 0.6, 0.6), P('pillar', -10, 4, 0.6, 0.6), P('pillar', 4, -4, 0.6, 0.6), P('pillar', 4, 4, 0.6, 0.6), P('pillar', 16, -4, 0.6, 0.6), P('pillar', 16, 4, 0.6, 0.6),
-      car(-16, -7.4, true, 0x6a6a2a), car(-4, 7.6, true, 0x1b3a2a), car(10, -7.4, true, 0x7a1a1a), P('barrier', 1, 0, 0.3, 1.8), P('barrel', 19, 7, 0.45, 0.45), P('barrel', 19.9, 6.4, 0.45, 0.45),
+      car(-16, -7.4, true, 0x6a6a2a), car(-4, 7.6, true, 0x1b3a2a), car(10, -7.4, true, 0x7a1a1a), P('barrier', 1, 0, 0.3, 1.8), P('barrel', 19, 7, 0.45, 0.45, { explosive: true }), P('barrel', 19.9, 6.4, 0.45, 0.45, { explosive: true }), P('barrel', -19, -7.4, 0.45, 0.45, { explosive: true }),
     ],
     weapons: [{ kind: 'pipe', x: 12, z: 7.5 }],
-    waves: [[{ kind: 'gunman', n: 2 }, { kind: 'thug', n: 3 }], [{ kind: 'brute', n: 1 }, { kind: 'knife', n: 2 }], [{ kind: 'bat', n: 2 }, { kind: 'gunman', n: 2 }, { kind: 'knife', n: 2 }]],
-    hints: ['BRUTE: red slam can only be dodged. Counter his blue hook to stagger him'],
+    waves: [[{ kind: 'gunman', n: 2 }, { kind: 'thug', n: 3 }], [{ kind: 'brute', n: 1 }, { kind: 'knife', n: 2 }, { kind: 'assassin', n: 1 }], [{ kind: 'shield', n: 2 }, { kind: 'gunman', n: 2 }, { kind: 'assassin', n: 2 }]],
+    hints: ['BRUTE: red slam can only be dodged. Counter his blue hook to stagger him', 'ASSASSINS charge with RED stabs — roll!', 'Hit a red barrel to blow up everything near it', 'G: shoot a gun / throw your weapon. Press E over a weakened, downed enemy to FINISH'],
   },
   {
     id: 4, name: 'CENTRAL PLAZA', blurb: '街の中心。親玉が待っている。', look: 'plaza', w: 44, d: 28, tokens: 3,
     props: [
       P('planter', -10, -8, 1.6, 0.8), P('planter', -10, 8, 1.6, 0.8), P('planter', 10, -8, 1.6, 0.8), P('planter', 10, 8, 1.6, 0.8),
-      P('bench', -4, -11.5, 0.9, 0.35), P('bench', 4, 11.5, 0.9, 0.35), P('stall', 15, 0, 1.2, 1.0), P('stall', -16, 3, 1.2, 1.0),
+      P('bench', -4, -11.5, 0.9, 0.35), P('bench', 4, 11.5, 0.9, 0.35), P('stall', 15, 0, 1.2, 1.0), P('barrel', -6, 11.5, 0.45, 0.45, { explosive: true }), P('barrel', 6, -11.5, 0.45, 0.45, { explosive: true }), P('stall', -16, 3, 1.2, 1.0),
       P('planter', 0, 0, 2.2, 2.2), P('lamp', -18, -12.4, 0.2, 0.2, { solid: false }), P('lamp', 0, 12.6, 0.2, 0.2, { solid: false }), P('lamp', 18, -12.4, 0.2, 0.2, { solid: false }),
     ],
     weapons: [{ kind: 'bat', x: 0, z: -11 }, { kind: 'pipe', x: -17, z: -4 }],
-    waves: [[{ kind: 'thug', n: 4 }, { kind: 'knife', n: 2 }], [{ kind: 'brute', n: 1 }, { kind: 'gunman', n: 2 }, { kind: 'bat', n: 2 }], [{ kind: 'boss', n: 1 }, { kind: 'thug', n: 3 }]],
+    waves: [[{ kind: 'thug', n: 4 }, { kind: 'knife', n: 2 }], [{ kind: 'brute', n: 1 }, { kind: 'gunman', n: 2 }, { kind: 'shield', n: 2 }, { kind: 'assassin', n: 1 }], [{ kind: 'boss', n: 1 }, { kind: 'thug', n: 3 }]],
     hints: ['BOSS: counter the blue combo, dodge the red smash and charge'],
   },
 ];
@@ -90,7 +92,7 @@ export function endlessWave(n: number, rng: Rng): WaveSpec[] {
   const out: WaveSpec[] = [];
   const budget = 3 + n * 1.2;
   let spent = 0;
-  const pool: [EnemyKind, number, number][] = [['thug', 1, 0], ['knife', 1.3, 1], ['bat', 1.6, 2], ['gunman', 1.5, 3], ['brute', 4, 5]];
+  const pool: [EnemyKind, number, number][] = [['thug', 1, 0], ['knife', 1.3, 1], ['bat', 1.6, 2], ['gunman', 1.5, 3], ['shield', 2, 3], ['assassin', 1.6, 4], ['brute', 4, 5]];
   while (spent < budget) {
     const avail = pool.filter((p) => p[2] <= n);
     const [k, cost] = rng.pick(avail);

@@ -1,4 +1,4 @@
-export type EnemyKind = 'thug' | 'knife' | 'bat' | 'brute' | 'gunman' | 'boss';
+export type EnemyKind = 'thug' | 'knife' | 'bat' | 'brute' | 'gunman' | 'boss' | 'shield' | 'assassin';
 
 /** Blue = can be countered, red = unblockable (dodge it), yellow = ranged. */
 export type Icon = 'blue' | 'red' | 'yellow';
@@ -61,6 +61,14 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
     kind: 'gunman', hp: 26, speed: 3.4, radius: 0.42, armored: false, cd: [2.0, 3.2], ring: 9.5, pts: 150, scale: 1,
     attacks: [A({ id: 'shoot', icon: 'yellow', wind: 1.0, strike: 0.1, rec: 0.6, dmg: 10, range: 22, arc: 0.3, lunge: 0, ranged: true, kb: 2, anim: 'shoot' })],
   },
+  shield: {
+    kind: 'shield', hp: 74, speed: 2.7, radius: 0.55, armored: false, cd: [1.3, 2.1], ring: 3.0, pts: 220, scale: 1.05,
+    attacks: [A({ id: 'bash', icon: 'blue', wind: 0.62, strike: 0.14, rec: 0.7, dmg: 11, range: 1.9, arc: 1.0, lunge: 1.0, kb: 3.5, anim: 'bash' })],
+  },
+  assassin: {
+    kind: 'assassin', hp: 30, speed: 6.4, radius: 0.4, armored: false, cd: [1.1, 1.9], ring: 5.2, pts: 180, scale: 0.96,
+    attacks: [A({ id: 'stab', icon: 'red', wind: 0.55, strike: 0.2, rec: 0.55, dmg: 13, range: 1.7, arc: 0.8, lunge: 6.5, kb: 3, anim: 'stab' })],
+  },
   boss: {
     kind: 'boss', hp: 420, speed: 3.6, radius: 0.8, armored: true, cd: [0.8, 1.5], ring: 3.4, pts: 1500, scale: 1.4,
     attacks: [
@@ -94,6 +102,11 @@ export const PLAYER_ATTACKS: Record<string, AttackDef> = {
   l3: { id: 'l3', icon: 'blue', wind: 0.09, strike: 0.09, rec: 0.24, dmg: 10, range: 2.1, arc: 1.0, lunge: 2.4, kb: 1.8, anim: 'hook' },
   l4: { id: 'l4', icon: 'blue', wind: 0.12, strike: 0.1, rec: 0.36, dmg: 16, range: 2.3, arc: 1.3, lunge: 2.6, kb: 4.5, knock: true, anim: 'kick' },
   heavy: { id: 'heavy', icon: 'blue', wind: 0.28, strike: 0.12, rec: 0.4, dmg: 24, range: 2.5, arc: 1.2, lunge: 2.4, kb: 5.5, knock: true, anim: 'heavy' },
+  dash: { id: 'dash', icon: 'blue', wind: 0.04, strike: 0.1, rec: 0.3, dmg: 14, range: 2.4, arc: 1.1, lunge: 4.8, kb: 3.5, anim: 'kick' },
+  cchain: { id: 'cchain', icon: 'blue', wind: 0.05, strike: 0.1, rec: 0.32, dmg: 18, range: 2.3, arc: 1.3, lunge: 5.0, kb: 4.5, knock: true, anim: 'kick' },
+  finish: { id: 'finish', icon: 'blue', wind: 0.2, strike: 0.12, rec: 0.45, dmg: 999, range: 2.0, arc: 1.6, lunge: 1.0, kb: 0, anim: 'finish' },
+  shoot: { id: 'shoot', icon: 'yellow', wind: 0.06, strike: 0.04, rec: 0.22, dmg: 0, range: 0, arc: 0, lunge: 0, kb: 0, anim: 'shootP' },
+  throwW: { id: 'throwW', icon: 'blue', wind: 0.1, strike: 0.04, rec: 0.25, dmg: 0, range: 0, arc: 0, lunge: 0, kb: 0, anim: 'throwW' },
   ground: { id: 'ground', icon: 'blue', wind: 0.1, strike: 0.1, rec: 0.28, dmg: 12, range: 1.9, arc: 1.4, lunge: 1.2, kb: 0, anim: 'stomp' },
 };
 

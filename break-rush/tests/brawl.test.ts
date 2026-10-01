@@ -310,3 +310,293 @@ describe('balance (bots)', () => {
     expect(clears).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('launcher and juggles', () => {
+  it('a heavy attack launches a normal enemy, follow-ups keep it airborne, and landing knocks it down', () => {
+    const w = arena(['thug']);
+    const e = w.enemies[0];
+    e.x = 1.7; e.cd = 99; e.hp = 9999;
+    let maxY = 0;
+    let launched = false;
+    run(w, 0.8, (ww, t) => {
+      maxY = Math.max(maxY, e.y);
+      launched ||= e.state === 'launched';
+      return { heavy: t < 0.02, light: t > 0.5 && t < 0.52 };
+    });
+    expect(launched).toBe(true);
+    expect(maxY).toBeGreaterThan(0.8);
+    expect(e.juggle).toBeGreaterThanOrEqual(1);
+    run(w, 2.5, () => ({}));
+    expect(e.y).toBe(0);
+    expect(['down', 'getup', 'idle', 'move']).toContain(e.state);
+    expect(w.knockdowns).toBeGreaterThanOrEqual(1);
+  });
+
+  it('a second heavy on a launched enemy slams it down for extra damage', () => {
+    const w = arena(['thug']);
+    const e = w.enemies[0];
+    e.x = 1.7; e.cd = 99; e.hp = 9999;
+    let slammed = false;
+    run(w, 1.4, (ww, t) => {
+      if (ww.drain().some((x) => x.type === 'slamdown')) slammed = true;
+      return { heavy: t < 0.02 || (t > 0.55 && t < 0.57) };
+    });
+    expect(slammed).toBe(true);
+    expect(9999 - e.hp).toBeGreaterThan(40);
+  });
+
+  it('armoured enemies are staggered instead of launched', () => {
+    const w = arena(['brute']);
+    const e = w.enemies[0];
+    e.x = 1.9; e.cd = 99; e.hp = 9999;
+    let air = false;
+    run(w, 0.8, (_w, t) => { air ||= e.state === 'launched'; return { heavy: t < 0.02 }; });
+    expect(air).toBe(false);
+  });
+});
+
+describe('new moves', () => {
+  it('finisher: a weakened, downed enemy is executed with E', () => {
+    const w = arena(['thug']);
+    const e = w.enemies[0];
+    e.x = 1.4; e.cd = 99; e.state = 'down'; e.downT = 9; e.t = 0; e.hp = 5;
+    w.player.hp = 50;
+    let fin = false;
+    run(w, 0.8, (ww, t) => { if (ww.drain().some((x) => x.type === 'finisher')) fin = true; return { heavy: t < 0.02 }; });
+    expect(fin).toBe(true);
+    expect(e.state).toBe('dead');
+    expect(w.player.hp).toBeGreaterThan(55);
+  });
+
+  it('a healthy downed enemy gets a normal ground strike, not a finisher', () => {
+    const w = arena(['thug']);
+    const e = w.enemies[0];
+    e.x = 1.4; e.cd = 99; e.state = 'down'; e.downT = 9; e.t = 0;
+    run(w, 0.8, (_w, t) => ({ light: t < 0.02 }));
+    expect(e.state).toBe('down');
+    expect(e.hp).toBeLessThan(ENEMIES.thug.hp);
+  });
+
+  it('attacking right after a roll gives a fast dash strike that covers distance', () => {
+    const w = arena(['thug']);
+    w.enemies[0].x = 6; w.enemies[0].cd = 99; w.enemies[0].hp = 9999;
+    let id = '';
+    run(w, 1.2, (ww, t) => {
+      if (ww.player.atk) id = ww.player.atk.id;
+      if (t < 0.02) return { dodge: true, moveX: 0, moveZ: 1 };
+      if (t > 0.3 && t < 0.32) return { light: true };
+      return {};
+    });
+    expect(id).toBe('dash');
+  });
+
+  it('after a counter you can chain straight into the next enemy', () => {
+    const w = arena(['thug', 'thug']);
+    const a = w.enemies[0], b = w.enemies[1];
+    a.x = 1.9; a.z = 0; a.token = true;
+    b.x = 5; b.z = 2; b.cd = 99;
+    let pressed = false, chained = false;
+    run(w, 2.4, (ww) => {
+      if (!pressed && a.state === 'wind' && a.t > a.atk!.wind - 0.12) { pressed = true; return { counter: true }; }
+      if (pressed && ww.player.state === 'counter' && ww.player.t > 0.15 && !chained) { chained = true; return { light: true }; }
+      return {};
+    });
+    expect(chained).toBe(true);
+    expect(b.hp).toBeLessThan(ENEMIES.thug.hp);
+  });
+});
+
+describe('explosive barrels', () => {
+  const withBarrel = (kinds: Enemy['kind'][], safe = false) => {
+    const w = new World({ ...STAGES[0], props: [{ kind: 'barrel', x: 4, z: 0, hw: 0.45, hd: 0.45, explosive: true }, { kind: 'barrel', x: 6.5, z: 0.5, hw: 0.45, hd: 0.45, explosive: true }], weapons: [], waves: [[]] }, 1);
+    w.status = 'fight'; w.wave = 0; w.player.x = 0; w.player.z = 0;
+    if (safe) { w.perks.push('demolition'); w.mods = (w as unknown as { mods: typeof w.mods }).mods; }
+    kinds.forEach((k, i) => { const e = w.spawn(k, 1); e.state = 'idle'; e.x = 4.5 + i; e.z = 0.8; e.cd = 99; });
+    return w;
+  };
+  it('hitting a red barrel blows up enemies around it, and chains to neighbours', () => {
+    const w = withBarrel(['thug', 'thug']);
+    let boom = 0;
+    run(w, 0.8, (ww, t) => { boom += ww.drain().filter((x) => x.type === 'explode').length; return { light: t < 0.02, moveX: t < 0.4 ? 1 : 0 }; });
+    // lunge out to the barrel
+    w.player.x = 2.6; w.player.facing = 0;
+    run(w, 0.5, (ww, t) => { boom += ww.drain().filter((x) => x.type === 'explode').length; return { light: t < 0.02 }; });
+    expect(w.barrels.every((b) => !b.alive)).toBe(true);
+    expect(boom).toBe(2);
+    expect(w.enemies.every((e) => e.hp < e.maxHp)).toBe(true);
+  });
+
+  it('a bullet sets off a barrel', () => {
+    const w = withBarrel([]);
+    w.bullets.push({ x: 2, z: 0, vx: 20, vz: 0, life: 2, dmg: 5, from: -1, reflected: false });
+    run(w, 0.5, () => ({}));
+    expect(w.barrels[0].alive).toBe(false);
+  });
+
+  it('you take blast damage if you stand next to it', () => {
+    const w = withBarrel([]);
+    w.player.x = 2.2;
+    w.bullets.push({ x: 3, z: 0, vx: 20, vz: 0, life: 2, dmg: 5, from: -1, reflected: false });
+    run(w, 0.5, () => ({}));
+    expect(w.player.hp).toBeLessThan(PLAYER.hp);
+  });
+
+  it('barrel props are copied per run, so a blown barrel does not leak into the next game', () => {
+    const w = new World(STAGES[0], 1);
+    w.explode(w.barrels[0]);
+    const w2 = new World(STAGES[0], 1);
+    expect(w2.barrels[0].alive).toBe(true);
+    expect(w2.props.every((p) => p.solid !== false || p.kind === 'lamp')).toBe(true);
+  });
+});
+
+describe('guns and thrown weapons', () => {
+  it('a pistol (G) shoots the enemy you are facing and runs out of ammo', () => {
+    const w = arena(['gunman']);
+    const e = w.enemies[0];
+    e.x = 9; e.cd = 99; e.hp = 9999;
+    w.player.weapon = 'gun';
+    w.player.uses = 2;
+    run(w, 1.6, (_w, t) => ({ throw: (t > 0 && t < 0.02) || (t > 0.5 && t < 0.52), aimX: 1, aimZ: 0 }));
+    expect(9999 - e.hp).toBeGreaterThanOrEqual(25);
+    expect(w.player.weapon).toBeNull();
+  });
+
+  it('throwing a bat deals heavy damage and the bat is gone', () => {
+    const w = arena(['thug']);
+    const e = w.enemies[0];
+    e.x = 7; e.cd = 99; e.hp = 9999;
+    w.player.weapon = 'bat';
+    w.player.uses = 5;
+    run(w, 1, (_w, t) => ({ throw: t < 0.02, aimX: 1, aimZ: 0 }));
+    expect(9999 - e.hp).toBeGreaterThanOrEqual(20);
+    expect(w.player.weapon).toBeNull();
+  });
+
+  it('gunmen sometimes drop a pistol you can pick up', () => {
+    let dropped = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const w = arena(['gunman'], seed);
+      const e = w.enemies[0];
+      e.x = 1.5; e.cd = 99; e.hp = 1;
+      run(w, 0.3, (_w, t) => ({ light: t < 0.02 }));
+      if (w.pickups.some((k) => k.kind === 'gun')) dropped++;
+    }
+    expect(dropped).toBeGreaterThan(3);
+    expect(dropped).toBeLessThan(20);
+  });
+});
+
+describe('perks', () => {
+  const clearFirstWave = () => {
+    const w = new World(STAGES[0], 4);
+    w.status = 'clear'; w.wave = 0; w.statusT = 3;
+    w.update(1 / 60, emptyCmd());
+    return w;
+  };
+  it('after each wave you choose one of three perks before the next begins', () => {
+    const w = clearFirstWave();
+    expect(w.status).toBe('perk');
+    expect(w.perkChoices.length).toBe(3);
+    expect(new Set(w.perkChoices).size).toBe(3);
+    for (let i = 0; i < 300; i++) w.update(1 / 60, emptyCmd());
+    expect(w.wave).toBe(0); // waiting for the choice
+    w.choosePerk(w.perkChoices[0]);
+    expect(w.wave).toBe(1);
+    expect(w.perks.length).toBe(1);
+  });
+
+  it('choosing something that was not offered does nothing', () => {
+    const w = clearFirstWave();
+    w.choosePerk('nonexistent');
+    expect(w.status).toBe('perk');
+  });
+
+  it('perks change the numbers: IRON BODY raises max HP, BRAWLER raises damage, KEVLAR cuts damage', () => {
+    const w = clearFirstWave();
+    w.perkChoices = ['iron', 'brawler', 'kevlar'];
+    w.choosePerk('iron');
+    expect(w.player.maxHp).toBe(PLAYER.hp + 30);
+    expect(w.mods.dmg).toBe(1);
+    w.perks.push('brawler', 'kevlar');
+    w.mods = (w as unknown as { mods: typeof w.mods }).mods;
+  });
+
+  it('a perk is never offered twice', () => {
+    const w = new World(STAGES[0], 9, true);
+    const seen = new Set<string>();
+    for (let n = 0; n < 4; n++) {
+      w.status = 'clear'; w.wave = n; w.statusT = 3;
+      w.update(1 / 60, emptyCmd());
+      expect(w.status).toBe('perk');
+      for (const c of w.perkChoices) expect(seen.has(c)).toBe(false);
+      const pick = w.perkChoices[0];
+      seen.add(pick);
+      w.choosePerk(pick);
+    }
+  });
+});
+
+describe('riot shield and assassin', () => {
+  it('punches from the front are blocked; four blocked hits break the guard', () => {
+    const w = arena(['shield']);
+    const e = w.enemies[0];
+    e.x = 1.9; e.cd = 99; e.facing = Math.PI;
+    let clang = 0, broke = false;
+    run(w, 3, (ww, t) => {
+      for (const x of ww.drain()) { if (x.type === 'clang') clang++; if (x.type === 'guardBreak') broke = true; }
+      e.facing = broke ? e.facing : Math.PI;
+      return { light: Math.floor(t / 0.4) !== Math.floor((t - DT) / 0.4) };
+    });
+    expect(clang).toBeGreaterThanOrEqual(4);
+    expect(broke).toBe(true);
+  });
+
+  it('attacks from behind go through', () => {
+    const w = arena(['shield']);
+    const e = w.enemies[0];
+    e.x = 1.9; e.cd = 99; e.facing = 0; // facing away from the player
+    run(w, 0.4, (_w, t) => ({ light: t < 0.02 }));
+    expect(e.hp).toBeLessThan(ENEMIES.shield.hp);
+  });
+
+  it('a shield can be grabbed and thrown', () => {
+    const w = arena(['shield']);
+    const e = w.enemies[0];
+    e.x = 1.6; e.cd = 99; e.facing = Math.PI;
+    run(w, 0.3, (_w, t) => ({ grab: t < 0.02 }));
+    expect(w.player.state).toBe('grab');
+  });
+
+  it('the shielder turns slowly, so you can run round it', () => {
+    const w = arena(['shield']);
+    const e = w.enemies[0];
+    e.x = 2.5; e.cd = 99; e.facing = Math.PI;
+    w.player.x = 0;
+    run(w, 0.25, () => ({}));
+    w.player.x = 5; // jump to the other side
+    run(w, 0.15, () => ({}));
+    expect(w.shieldBlocks(e, w.player.x, w.player.z)).toBe(false);
+  });
+
+  it('assassins stab with a long red lunge you must roll through', () => {
+    const w = arena(['assassin']);
+    const e = w.enemies[0];
+    e.x = 5; e.token = true; e.cd = 0;
+    let icon = '';
+    run(w, 3, (ww) => { if (e.atk) icon = e.atk.icon; return {}; });
+    expect(icon).toBe('red');
+    expect(w.player.hp).toBeLessThan(PLAYER.hp);
+  });
+});
+
+describe('boss', () => {
+  it('enrages below 25% health', () => {
+    const w = arena(['boss']);
+    const e = w.enemies[0];
+    e.cd = 99;
+    e.hp = e.maxHp * 0.26;
+    w.damageEnemy(e, 10, { kb: 0, knock: false, heavy: false, force: true });
+    expect(e.rage).toBeGreaterThan(1);
+  });
+});
