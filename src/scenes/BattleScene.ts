@@ -260,7 +260,9 @@ export class BattleScene extends Phaser.Scene {
     const h = compact() ? 34 : 28;
     const bg = this.add.graphics();
     const label = txt(this, 0, 0, '待機', compact() ? 17 : 14, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
-    const c = this.add.container(x, y, [bg, label]).setSize(w, h);
+    const waitIcon = hasImg(this, 'icon_ui_wait') ? this.add.image(-w / 2 + 16, 0, 'icon_ui_wait').setDisplaySize(h - 8, h - 8) : null;
+    if (waitIcon) label.setX(10);
+    const c = this.add.container(x, y, [bg, label, ...(waitIcon ? [waitIcon] : [])]).setSize(w, h);
     const paint = (hover: boolean) => {
       const ok = !this.busy && canWait(this.state, member);
       bg.clear();
@@ -282,6 +284,29 @@ export class BattleScene extends Phaser.Scene {
     });
     this.waitBtns.push(c);
     paint(false);
+  }
+
+  /** アイコンが一瞬ふくらんで消える */
+  private iconPop(key: string, x: number, y: number, size: number): void {
+    if (!hasImg(this, key)) return;
+    const im = this.add.image(x, y, key).setDisplaySize(size, size).setDepth(3000).setAlpha(0);
+    this.tweens.add({ targets: im, alpha: 1, y: y - 40, duration: 260, onComplete: () => this.tweens.add({ targets: im, alpha: 0, duration: 500, onComplete: () => im.destroy() }) });
+  }
+
+  /** 横並びスプライトシート(256×256×N)のエフェクトを1回再生する。画像が無ければ何もしない */
+  private playFx(key: string, x: number, y: number, scale: number): void {
+    if (!hasImg(this, key)) return;
+    const tex = this.textures.get(key);
+    const src = tex.getSourceImage() as HTMLImageElement;
+    const n = Math.max(1, Math.floor(src.width / src.height));
+    const fs = src.height;
+    for (let i = 0; i < n; i++) if (!tex.has(String(i))) tex.add(String(i), 0, i * fs, 0, fs, fs);
+    const im = this.add.image(x, y, key, '0').setScale(scale).setDepth(2700).setBlendMode(Phaser.BlendModes.ADD);
+    let f = 0;
+    this.time.addEvent({
+      delay: 70, repeat: n - 1,
+      callback: () => { im.setFrame(String(Math.min(f, n - 1))); f += 1; if (f >= n) this.time.delayedCall(70, () => im.destroy()); },
+    });
   }
 
   private doWait(member: number): void {
@@ -323,7 +348,9 @@ export class BattleScene extends Phaser.Scene {
       align: cmp ? 'center' : 'left', fontStyle: cmp ? 'bold' : 'normal', wordWrap: { width: BTN_W - 14, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
     const status = txt(this, 0, BTN_H / 2 - 16, '', 13, '#fff', { fontStyle: 'bold' }).setOrigin(0.5);
-    const c = this.add.container(x, BTN_Y, [bg, ...(icon ? [icon] : []), title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
+    const badgeKey = level >= 3 ? 'ui_skillbtn_badge_lv3' : level === 2 ? 'ui_skillbtn_badge_lv2' : '';
+    const badge = badgeKey && hasImg(this, badgeKey) ? this.add.image(BTN_W / 2 - 18, -BTN_H / 2 + 18, badgeKey).setDisplaySize(32, 32) : null;
+    const c = this.add.container(x, BTN_Y, [bg, ...(icon ? [icon] : []), ...(badge ? [badge] : []), title, chip, chipText, cd, body, status]).setSize(BTN_W, BTN_H);
     c.setInteractive({ useHandCursor: true });
     const btn: SkillBtn = { member, skill: baseSkill, c, bg, status, w: BTN_W, hover: false };
     this.buttons.push(btn);
@@ -507,7 +534,8 @@ export class BattleScene extends Phaser.Scene {
     const ring = kind === 'heavy' ? 0xff2d2d : kind === 'charge' ? 0xffa23c : kind === 'guard' ? 0x6fa8ff : 0xff5c5c;
     g.lineStyle(kind === 'heavy' ? 6 : 3, ring, 1).strokeCircle(0, 0, kind === 'heavy' ? 38 : 34);
     if (kind === 'attack' || kind === 'heavy') {
-      const iconKey = it.target === 'all' ? 'icon_status_intent_attack_all' : 'icon_status_intent_attack';
+      const iconKey = kind === 'heavy' && hasImg(this, 'icon_status_intent_heavy') ? 'icon_status_intent_heavy'
+        : it.target === 'all' ? 'icon_status_intent_attack_all' : 'icon_status_intent_attack';
       if (hasImg(this, iconKey)) this.intentImg.setTexture(iconKey).setDisplaySize(50, 50).setVisible(true);
       else drawSword(g, 0, 0, 52, 0xff8a8a);
       this.intentValue.setText(String(intentValue(s, it))).setColor(kind === 'heavy' ? '#ff5c5c' : '#ff9a9a').setFontSize(kind === 'heavy' ? 28 : 24);
@@ -515,12 +543,14 @@ export class BattleScene extends Phaser.Scene {
       if (kind === 'heavy') this.intentHint.setText('ブレイクで阻止!').setColor('#ffe066');
       else if (next.kind === 'heavy' || next.kind === 'charge') this.intentHint.setText(`次→${next.name}`).setColor('#ffb86b');
     } else if (kind === 'charge') {
-      drawSword(g, 0, 0, 40, 0xffa23c);
+      if (hasImg(this, 'icon_status_intent_charge')) this.intentImg.setTexture('icon_status_intent_charge').setDisplaySize(50, 50).setVisible(true);
+      else drawSword(g, 0, 0, 40, 0xffa23c);
       this.intentValue.setText('溜め').setColor('#ffb86b').setFontSize(22);
       this.intentLabel.setText(`${it.name} → 次は${next.name}`);
       this.intentHint.setText('溜め中にブレイクで両方阻止').setColor('#ffe066');
     } else {
-      drawShield(g, 0, 0, 40, 0x6fa8ff);
+      if (hasImg(this, 'icon_status_intent_guard')) this.intentImg.setTexture('icon_status_intent_guard').setDisplaySize(50, 50).setVisible(true);
+      else drawShield(g, 0, 0, 40, 0x6fa8ff);
       this.intentValue.setText(`+${it.guard ?? 0}`).setColor('#9cc7ff').setFontSize(24);
       this.intentLabel.setText(`${it.name}(防御)`);
       this.intentHint.setText(`次→${next.name}`).setColor('#ffb86b');
@@ -845,6 +875,7 @@ export class BattleScene extends Phaser.Scene {
         const col = this.state.enemy.lastElement ? ELEMENT_COLOR[this.state.enemy.lastElement] : 0xffe066;
         audio.play('hit_weak');
         this.popup(ENEMY.x, ENEMY.y - 215, e.name + '!', '#ffffff', 44);
+        this.playFx(`fx_reaction_${e.id}`, ENEMY.x, ENEMY.y - 100, 1.6);
         this.shockwave(ENEMY.x, ENEMY.y - 90, col);
         this.sparks(ENEMY.x, ENEMY.y - 90, col, 24);
         break;
@@ -853,6 +884,7 @@ export class BattleScene extends Phaser.Scene {
         const [label, color] = STATUS_TEXT[e.kind];
         const pos = e.kind === 'charge' || e.kind === 'focus' ? { x: HERO_POS[0].x, y: HERO_POS[0].y - 250 } : { x: ENEMY.x + 90, y: ENEMY.y - 170 };
         this.popup(pos.x, pos.y, label, color, 28);
+        this.iconPop(`icon_status_${e.kind}`, pos.x - 70, pos.y, 40);
         break;
       }
       case 'dot':
@@ -863,6 +895,10 @@ export class BattleScene extends Phaser.Scene {
       case 'wait':
         audio.play('ui_select');
         this.popup(HERO_POS[e.member].x, HERO_POS[e.member].y - 230, '待機…', '#9cc7ff', 30);
+        if (hasImg(this, 'fx_wait_aura')) {
+          const a = this.add.image(HERO_POS[e.member].x, HERO_POS[e.member].y - 110, 'fx_wait_aura').setDepth(2400).setScale(1.3).setAlpha(0);
+          this.tweens.add({ targets: a, alpha: 0.95, scale: 1.7, duration: 280, yoyo: true, onComplete: () => a.destroy() });
+        }
         break;
       case 'enemyCharge':
         audio.play('en_dragon_claw');

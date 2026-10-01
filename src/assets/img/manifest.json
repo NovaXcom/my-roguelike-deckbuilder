@@ -287,6 +287,34 @@
   "w": 512,
   "h": 512
  },
+ "fx_reaction_melt": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_reaction_overload": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_reaction_shatter": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_reaction_shock": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_reaction_steam": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_reaction_superconduct": {
+  "w": 1024,
+  "h": 171
+ },
+ "fx_wait_aura": {
+  "w": 256,
+  "h": 256
+ },
  "icon_equip_bulwark_blade": {
   "w": 256,
   "h": 256
@@ -379,11 +407,63 @@
   "w": 256,
   "h": 256
  },
+ "icon_node_cursed": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_node_danger_overlay": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_node_elite": {
+  "w": 192,
+  "h": 192
+ },
+ "icon_status_bleed": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_burn": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_charge": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_curse": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_focus": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_freeze": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_intent_charge": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_intent_guard": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_intent_heavy": {
+  "w": 128,
+  "h": 128
+ },
  "icon_status_mana_stone": {
   "w": 128,
   "h": 128
  },
  "icon_status_resist": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_status_skillpoint": {
   "w": 128,
   "h": 128
  },
@@ -398,6 +478,14 @@
  "icon_status_weak": {
   "w": 128,
   "h": 128
+ },
+ "icon_status_weaken": {
+  "w": 128,
+  "h": 128
+ },
+ "icon_ui_wait": {
+  "w": 96,
+  "h": 96
  },
  "logo_title": {
   "w": 1024,
@@ -470,6 +558,14 @@
  "ui_shield_frame": {
   "w": 420,
   "h": 36
+ },
+ "ui_skillbtn_badge_lv2": {
+  "w": 64,
+  "h": 64
+ },
+ "ui_skillbtn_badge_lv3": {
+  "w": 64,
+  "h": 64
  },
  "ui_skillbtn_cooldown_blue": {
   "w": 140,

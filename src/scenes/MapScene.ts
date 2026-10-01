@@ -72,7 +72,9 @@ export class MapScene extends Phaser.Scene {
         c.add([g, txt(this, 0, 0, isVisited && n.id !== run.current ? '✓' : NODE_GLYPH[n.type], n.type === 'boss' ? 28 : 20, '#ffffff', { fontStyle: 'bold' })
           .setOrigin(0.5).setAlpha(isAvail || isVisited ? 1 : 0.5)]);
       }
-      if (n.danger && !isVisited) {
+      if (n.danger && !isVisited && hasImg(this, 'icon_node_danger_overlay')) {
+        c.add(this.add.image(0, 0, 'icon_node_danger_overlay').setDisplaySize(r * 2 + 22, r * 2 + 22));
+      } else if (n.danger && !isVisited) {
         const warn = this.add.graphics();
         warn.lineStyle(4, 0xff2d2d, 1).strokeCircle(0, 0, r + 6);
         c.add([warn, txt(this, r - 2, -r + 2, '!', 18, '#ff2d2d', { fontStyle: 'bold', stroke: '#fff', strokeThickness: 3 }).setOrigin(0.5)]);
@@ -99,7 +101,7 @@ export class MapScene extends Phaser.Scene {
     hudLine(110, 'icon_status_gold', `ゴールド  ${run.gold} G`, '#ffe066');
     hudLine(136, 'icon_status_mana_stone', `魔導石  ${run.stones}`, '#7fe9ff');
     hudLine(162, 'icon_status_potion', `ポーション ×${run.potions}`, '#7be495');
-    txt(this, 30, 186, `スキルポイント  ${run.skillPoints} SP`, 16, '#ffd9a0');
+    hudLine(186, 'icon_status_skillpoint', `スキルポイント  ${run.skillPoints} SP`, '#ffd9a0');
     const bars = this.add.graphics();
     run.party.forEach((m, i) => {
       const y = 240 + i * 64;
@@ -111,7 +113,8 @@ export class MapScene extends Phaser.Scene {
     });
 
     const journey = [run.mods ? `今回の旅: ${run.mods.name}` : '', run.curse ? `呪い ×${run.curse}(最大HP-${run.curse * 10}%)` : ''].filter(Boolean).join('\n');
-    if (journey) txt(this, 30, 348, journey, 13, '#ffb86b', { wordWrap: { width: 220, useAdvancedWrap: true } });
+    if (run.curse && hasImg(this, 'icon_status_curse')) this.add.image(42, 360, 'icon_status_curse').setDisplaySize(24, 24);
+    if (journey) txt(this, run.curse && hasImg(this, 'icon_status_curse') ? 56 : 30, 348, journey, 13, '#ffb86b', { wordWrap: { width: 220, useAdvancedWrap: true } });
     makeButton(this, 141, 410, 220, 44, '装備を確認', () => this.scene.start('Gear'), { size: 18 });
     makeButton(this, 141, 522, 220, 44, `スキル強化  ${run.skillPoints}SP`, () => this.scene.start('Skills'), {
       size: 18, color: 0xffd166, enabled: true,
