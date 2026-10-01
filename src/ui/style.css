@@ -151,3 +151,5 @@ kbd { display: inline-block; padding: 0 6px; margin: 0 1px; border: 1px solid #f
 #sbar i, #sbar .al { display: inline-block; width: 90px; height: 8px; background: #fff2; border-radius: 4px; overflow: hidden; font-style: normal; }
 #sbar u { display: block; height: 100%; background: #ffd36a; text-decoration: none; transition: width .1s; } #sbar .al u { background: linear-gradient(90deg, #7fd6e6, #ff5a5a); }
 #sbar b.ok { color: #7affaa; } #sbar b.ng { color: #ff6a6a; } #sbar b.wn { color: #ffe27a; animation: blink .4s infinite; } #sbar small { color: var(--dim); }
+
+.titlebox h1.logo { margin: 4px 0; letter-spacing: 0; } .titlebox h1.logo img { width: min(78%, 520px); image-rendering: auto; filter: drop-shadow(0 4px 12px #000a); }

@@ -10,8 +10,9 @@ import { STEALTH_SPEED, createStealth, stepStealth, type StealthState, type Stea
 import { stealthDef } from '../data/stealth';
 import { advance, dayOver, deserialize, newState, nextLoop, recCount, serialize } from '../engine/state';
 import type { GameEvent, GameState, LocId, NpcId, Step } from '../engine/types';
+import { assetUrl, preloadAssets } from './assets';
 import { Sound } from './audio';
-import { H, W, drawScene, skyAt, speakerLook, type SceneInfo } from './render';
+import { H, W, drawScene, skyAt, speakerLook, type ActorView, type SceneInfo } from './render';
 
 const SAVE_KEY = 'last-day-save-v1';
 const END_KEY = 'last-day-endings-v1';
@@ -77,6 +78,9 @@ export class Game {
     this.root = root;
     try { this.seenEndings = JSON.parse(store.get(END_KEY) ?? '[]'); } catch { this.seenEndings = []; }
     try { const o = JSON.parse(store.get(OPT_KEY) ?? '{}'); this.easyStealth = !!o.easy; if (typeof o.speed === 'number') this.speedIdx = o.speed; } catch { /* 既定値 */ }
+    preloadAssets();
+    const fav = assetUrl('favicon');
+    if (fav) { const l = document.createElement('link'); l.rel = 'icon'; l.href = fav; document.head.appendChild(l); }
     this.build();
     this.bindKeys();
     this.frame();
@@ -153,7 +157,10 @@ export class Game {
       blackout: !title && s.flags.blackout !== undefined,
       light: title ? false : s.flags.light !== undefined,
       crack: !title && s.flags.crack !== undefined,
-      actors: title ? [] : [...this.actors.values()].map((a) => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, moving: a.moving })),
+      title,
+      controlRoom: !title && s.loc === 'underground' && (s.facts.loop_count_huge !== undefined || s.seenNow.u_monitors !== undefined || s.time >= 23 * 60 + 40),
+      actors: title ? [] : [...this.actors.values()].map((a): ActorView => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, moving: a.moving }))
+        .concat(this.patientView()),
       hero: title ? null : { ...this.hero },
       spots: title || this.stealth ? [] : this.spotsNow.map((p) => ({ x: p.x, kind: p.kind })),
       exits: title ? { L: 0, R: 0 } : { L: EXITS[s.loc].L.length, R: EXITS[s.loc].R.length },
@@ -405,10 +412,17 @@ export class Game {
     el.innerHTML = `<span>${line}</span><i><u style="width:${Math.min(100, p * 100)}%"></u></i><span class="al"><u style="width:${st.alert * 100}%"></u></span>${state}<small>Esc でやめる</small>`;
   }
 
+  /** 20:00 の駅のホームに立つ「病衣の男」（自分自身だと分かる前だけ見える人影） */
+  private patientView() {
+    const s = this.s;
+    return s.loc === 'station' && s.time >= 19 * 60 + 55 && s.time <= 20 * 60 + 25 && s.facts.self_patient === undefined
+      ? [{ id: 'patient', x: 60, y: 150, dir: 1, moving: false }] : [];
+  }
+
   private stealthView() {
     const st = this.stealth!, d = st.def;
     return {
-      x: st.x, dir: st.dir, vision: d.vision * st.ease, alert: st.alert, warn: st.warn, glancing: st.glancing > 0, hidden: st.hidden,
+      target: d.target, x: st.x, dir: st.dir, vision: d.vision * st.ease, alert: st.alert, warn: st.warn, glancing: st.glancing > 0, hidden: st.hidden,
       spots: d.spots, goal: d.goal ? { x: d.goal.x, r: d.goal.r, p: Math.min(1, st.hold / d.goal.hold) } : null,
     };
   }
@@ -779,7 +793,7 @@ export class Game {
     const m = this.$('modal'); m.hidden = false; m.dataset.closable = '0'; m.className = 'title'; m.onclick = null;
     m.innerHTML = `<div class="titlebox">
       <small>2D探索アドベンチャー × タイムループ × ミステリー</small>
-      <h1>最後の一日</h1>
+      ${assetUrl('logo') ? `<h1 class="logo"><img src="${assetUrl('logo')}" alt="最後の一日"></h1>` : '<h1>最後の一日</h1>'}
       <p class="sub">8月17日　8:00　——また、朝が来る。</p>
       <div class="tbtns">
         <button class="primary" id="tNew">はじめから</button>

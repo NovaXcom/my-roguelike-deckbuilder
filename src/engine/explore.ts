@@ -22,7 +22,7 @@ export const EXITS: Record<LocId, { L: LocId[]; R: LocId[] }> = {
 /** 調べるポイントの位置（上書き）。未指定は場所ごとに等間隔で自動配置 */
 const SPOT_OVERRIDE: Record<string, number> = {
   home_storeroom: 298, home_phone: 138,
-  st_tail: 192, st_warehouse: 262, st_notice: 150, st_close: 112, st_overhear: 56, st_tracks: 262, st_figure: 60,
+  st_tail: 192, st_warehouse: 262, st_notice: 118, st_close: 112, st_overhear: 56, st_tracks: 262, st_figure: 60,
   gen_monument: 36, asa_ema: 262, shr_follow: 296, min_follow: 296,
 };
 

@@ -37,6 +37,12 @@ npm run build:local  # dist-local/index.html … 全アセット埋め込みの�
 単一HTMLは約130KB（上限20MB）。画像・音声ファイルは使わず、Canvas の手続き描画と WebAudio 合成音で動作する。
 AudioContext は、タイトル画面で最初にクリックされるまで開始しない（Autoplay対策）。
 
+### 画像素材
+
+`src/assets/` の PNG（背景・キャラのスプライトシート・タイトル・ロゴ・favicon）を読み込んで描画する（ビルド時に埋め込み、単一HTMLでも動作）。
+素材が無い・読み込めない場合は、Canvas の手続き描画に自動でフォールバックする。素材の仕様と納品状況は `docs/ART_ASSETS.md`。
+`store/` は itch.io のページ用画像（カバー・バナー）で、ゲームには含まれない。
+
 ### 構成
 
 ```

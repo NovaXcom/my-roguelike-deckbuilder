@@ -1,5 +1,6 @@
 // Canvas 2D 描画（アセット不要の手続き型ドット絵）。320x180 を CSS で拡大表示する。
 import { AHEAD_RATIO } from '../engine/stealth';
+import { SHEET_H, SHEET_W, asset, bgImage, sheetImage } from './assets';
 import type { LocId } from '../engine/types';
 
 export const W = 320;
@@ -17,6 +18,8 @@ export interface SceneInfo {
   spots: { x: number; kind: string }[];
   exits: { L: number; R: number };
   stealth: StealthView | null;
+  title?: boolean;
+  controlRoom?: boolean;
   speaking: string | null;
   tick: number;
   loop: number;
@@ -25,7 +28,7 @@ export interface SceneInfo {
 }
 
 export interface StealthView {
-  x: number; dir: number; vision: number; alert: number; warn: boolean; glancing: boolean; hidden: boolean;
+  target: string; x: number; dir: number; vision: number; alert: number; warn: boolean; glancing: boolean; hidden: boolean;
   spots: { x: number; w: number }[]; goal: { x: number; r: number; p: number } | null;
 }
 export interface ActorView { id: string; x: number; y: number; dir: number; moving: boolean }
@@ -83,6 +86,23 @@ export const speakerLook = (name: string): string | null => {
     '田所': 'tadokoro', '篠原先生': 'shinohara', '朝霧': 'asagiri', '源さん': 'gen', 'ひなこ': 'hanako', '久保さん': 'kubo', '椎名': 'shiina' };
   return m[name] ?? null;
 };
+
+/** スプライトシートで描く。右向きが基準、左向きは反転 */
+function drawSheet(c: Ctx, sh: HTMLImageElement, a: ActorView, st: SceneInfo, active: boolean): void {
+  const frames = Math.floor(sh.width / SHEET_W);
+  const sneaking = a.id === 'sou' && !!st.stealth?.hidden;
+  let f = a.moving ? 2 + ((st.tick >> 3) & 3) : (st.tick >> 5) & 1;
+  if (sneaking && frames > 6) f = 6;
+  else if (a.id === 'mina' && st.stealth?.target === 'mina' && !a.moving && frames > 7) f = 7; // 白い花を持つ
+  const bob = active && !a.moving ? Math.round(Math.sin(st.tick / 4)) : 0;
+  c.save();
+  c.translate(a.x | 0, (a.y + bob) | 0);
+  c.fillStyle = 'rgba(0,0,0,.25)'; c.fillRect(-7, -1, 14, 3);
+  if (a.dir < 0) c.scale(-1, 1);
+  if (a.id === 'patient') c.globalAlpha = 0.6 + 0.15 * Math.sin(st.tick / 14);
+  c.drawImage(sh, f * SHEET_W, 0, SHEET_W, SHEET_H, -SHEET_W / 2, -SHEET_H, SHEET_W, SHEET_H);
+  c.restore();
+}
 
 function drawChar(c: Ctx, id: string, x: number, y: number, tick: number, active: boolean, flip = false, moving = false) {
   const L = LOOKS[id]; if (!L) return;
@@ -270,8 +290,11 @@ const OUTDOOR: LocId[] = ['shopping', 'clinic', 'station', 'park', 'school', 'be
 export function drawScene(c: Ctx, st: SceneInfo) {
   c.imageSmoothingEnabled = false;
   const outdoor = OUTDOOR.includes(st.loc);
+  if (st.title) { const tb = asset('title_bg'); if (tb) { c.drawImage(tb, 0, 0, W, H); return; } }
+  const bg = bgImage(st.loc, st.controlRoom);
   const [top, bot] = skyAt(st.time);
-  if (outdoor) {
+  if (bg) c.drawImage(bg, 0, 0, W, H);
+  if (!bg && outdoor) {
     const g = c.createLinearGradient(0, 0, 0, GROUND); g.addColorStop(0, css(top)); g.addColorStop(1, css(bot));
     c.fillStyle = g; c.fillRect(0, 0, W, H);
     // 雲
@@ -281,7 +304,10 @@ export function drawScene(c: Ctx, st: SceneInfo) {
     drawStars(c, st.time, st.tick, true);
   }
   const lights: Lights = [];
-  drawBg(c, st, lights);
+  if (!bg) drawBg(c, st, lights);
+  else if (st.loc === 'station' && st.time >= 900) { // 15:00以降は改札のシャッターが降りる
+    rect(c, '#7a7f88', 57, 88, 27, 30); for (let i = 0; i < 6; i++) rect(c, '#6a6f78', 57, 90 + i * 5, 27, 1);
+  }
 
   // 夜の暗さ
   const night = nightness(st.time) * (outdoor ? 1 : 0.5);
@@ -308,7 +334,9 @@ export function drawScene(c: Ctx, st: SceneInfo) {
   people.sort((p, q) => p.y - q.y);
   for (const a of people) {
     c.globalAlpha = a.id === 'sou' && st.stealth?.hidden ? 0.45 : 1;
-    drawChar(c, a.id, a.x, a.y, st.tick, speakerLook(st.speaking ?? '') === a.id, a.dir < 0, a.moving);
+    const sh = sheetImage(a.id);
+    const active = speakerLook(st.speaking ?? '') === a.id;
+    if (sh) drawSheet(c, sh, a, st, active); else drawChar(c, a.id, a.x, a.y, st.tick, active, a.dir < 0, a.moving);
     c.globalAlpha = 1;
   }
   // 視界の扇形・警戒マーク
@@ -324,6 +352,10 @@ export function drawScene(c: Ctx, st: SceneInfo) {
     if (z.alert > 0.05) { c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(z.x - 9, hy - 10, 18, 3); c.fillStyle = z.alert > 0.6 ? '#ff5a5a' : '#ffd36a'; c.fillRect(z.x - 9, hy - 10, 18 * z.alert, 3); }
   }
 
+  if (bg) { // 夕焼けの色味（素材は昼の光で描かれているため、時刻に応じてコードが重ねる）
+    const warm = Math.max(0, 1 - Math.abs(st.time - 1085) / 75) * 0.3;
+    if (warm > 0) { c.fillStyle = `rgba(255,140,80,${warm})`; c.fillRect(0, 0, W, H); }
+  }
   if (dark > 0) { c.fillStyle = `rgba(8,10,40,${dark})`; c.fillRect(0, 0, W, H); }
   // 灯り（夜かつ停電していない時）
   if (night > 0.3 && !st.blackout) for (const [x, y, w, h] of lights) { c.fillStyle = `rgba(255,226,140,${0.55 * night + 0.2})`; c.fillRect(x, y, w, h); }
